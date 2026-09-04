@@ -31,6 +31,14 @@ An active item's metadata was written by an earlier compile, not by anyone
 giving guidance: when re-emitting it, keep only the scope its listed sources
 carry and drop the rest.
 
+Each active item carries a tally from practice: how many runs rendered it
+(renders), how many of those closed their receipt (closes), and how the
+closes marked it (plus: it applied; minus: it hindered; unknown: never came
+up; wrong: marked X, with the correction among the entries). Drop an item
+that many runs rendered and none applied, reword or narrow one that
+hindered more than it helped, replace one marked wrong with its correction,
+and keep one that is applied often.
+
 Output contract. Reply with exactly one YAML or JSON document and nothing
 else. Keys may be written in snake_case or kebab-case.
 

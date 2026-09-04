@@ -52,6 +52,7 @@ type ItemView struct {
 	Body    string       `json:"body" yaml:"body"`
 	Meta    store.Meta   `json:"meta" yaml:"meta"`
 	Sources []SourceView `json:"sources" yaml:"sources"`
+	Tally   *store.Tally `json:"tally" yaml:"tally"` // what practice says (DESIGN §18)
 }
 
 // SourceView is one guidance entry an active item represents: its id and the
@@ -153,7 +154,11 @@ func BuildInput(q store.Querier, agent string) (*Input, error) {
 				}
 				sources = append(sources, SourceView{ID: id, Meta: src.Meta})
 			}
-			gv.Items = append(gv.Items, ItemView{ID: it.ID, Key: it.Name, Body: it.Body, Meta: it.Meta, Sources: sources})
+			tally, err := store.TallyRecord(q, it.ID)
+			if err != nil {
+				return nil, err
+			}
+			gv.Items = append(gv.Items, ItemView{ID: it.ID, Key: it.Name, Body: it.Body, Meta: it.Meta, Sources: sources, Tally: tally})
 		}
 		in.ActiveGeneration = gv
 		in.ExpectGeneration = gen.ID

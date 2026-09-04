@@ -51,7 +51,7 @@ func HomeDir() (string, error) {
 	return filepath.Join(u, ".nine-tails"), nil
 }
 
-const userVersion = 3 // 2: contexts.token_budget became estimated_tokens; 3: ids are prefix_ULID, seq dropped
+const userVersion = 4 // 2: contexts.token_budget became estimated_tokens; 3: ids are prefix_ULID, seq dropped; 4: receipts close with marks
 
 // Open opens (creating if needed) the store under home.
 func Open(home string) (*Store, error) {
@@ -176,7 +176,8 @@ CREATE TABLE IF NOT EXISTS contexts (
     task              TEXT,
     estimated_tokens  INTEGER NOT NULL,
     created_at        TEXT NOT NULL,
-    pinned            INTEGER NOT NULL DEFAULT 0
+    pinned            INTEGER NOT NULL DEFAULT 0,
+    closed_at         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS context_metadata (
@@ -194,6 +195,15 @@ CREATE TABLE IF NOT EXISTS context_records (
     PRIMARY KEY (context_id, record_id)
 );
 CREATE INDEX IF NOT EXISTS context_records_record ON context_records(record_id);
+
+CREATE TABLE IF NOT EXISTS context_marks (
+    context_id TEXT NOT NULL,
+    record_id  TEXT NOT NULL,
+    mark       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (context_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS context_marks_record ON context_marks(record_id);
 
 CREATE TABLE IF NOT EXISTS signal_delivery (
     record_id       TEXT PRIMARY KEY,
@@ -251,6 +261,19 @@ func (s *Store) migrate() error {
 		// v3: ids are prefix_ULID (DESIGN §2); the global counter is gone.
 		if _, err := tx.Exec(`DROP TABLE IF EXISTS seq`); err != nil {
 			return fmt.Errorf("migrate to v3: %w", err)
+		}
+	}
+	if v < 4 {
+		// v4: receipts close with marks (DESIGN §18). A fresh schema has the
+		// column; an older store gains it.
+		var has int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('contexts') WHERE name = 'closed_at'`).Scan(&has); err != nil {
+			return fmt.Errorf("migrate to v4: %w", err)
+		}
+		if has == 0 {
+			if _, err := tx.Exec(`ALTER TABLE contexts ADD COLUMN closed_at TEXT`); err != nil {
+				return fmt.Errorf("migrate to v4: %w", err)
+			}
 		}
 	}
 	if v < userVersion {

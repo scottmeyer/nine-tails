@@ -17,7 +17,10 @@ type Context struct {
 	EstimatedTokens int    `json:"estimated_tokens" yaml:"estimated_tokens"`
 	CreatedAt       string `json:"created_at" yaml:"created_at"`
 	Pinned          bool   `json:"pinned" yaml:"pinned"`
+	ClosedAt        string `json:"closed_at,omitempty" yaml:"closed_at,omitempty"`
 	Meta            Meta   `json:"metadata" yaml:"metadata"`
+	// Marks is the run's verdict on each rendered record, present once closed.
+	Marks map[string]string `json:"marks,omitempty" yaml:"marks,omitempty"`
 	// Rendered lists emitted records in render order.
 	Rendered []ContextRecord `json:"rendered" yaml:"rendered"`
 }
@@ -88,8 +91,8 @@ func CreateContextWithID(tx Querier, id, agent, parent, task string, estimatedTo
 func GetContext(q Querier, id string) (*Context, error) {
 	c := &Context{Meta: Meta{}, Rendered: []ContextRecord{}}
 	var pinned int
-	err := q.QueryRow(`SELECT id, agent, COALESCE(parent_context_id,''), COALESCE(task,''), estimated_tokens, created_at, pinned FROM contexts WHERE id = ?`, id).
-		Scan(&c.ID, &c.Agent, &c.Parent, &c.Task, &c.EstimatedTokens, &c.CreatedAt, &pinned)
+	err := q.QueryRow(`SELECT id, agent, COALESCE(parent_context_id,''), COALESCE(task,''), estimated_tokens, created_at, pinned, COALESCE(closed_at,'') FROM contexts WHERE id = ?`, id).
+		Scan(&c.ID, &c.Agent, &c.Parent, &c.Task, &c.EstimatedTokens, &c.CreatedAt, &pinned, &c.ClosedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: context %s", ErrNotFound, id)
 	}
@@ -114,15 +117,36 @@ func GetContext(q Querier, id string) (*Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var cr ContextRecord
 		if err := rows.Scan(&cr.RecordID, &cr.Section, &cr.Ordinal); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		c.Rendered = append(c.Rendered, cr)
 	}
-	return c, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if c.ClosedAt == "" {
+		return c, nil
+	}
+	c.Marks = map[string]string{}
+	mrows, err := q.Query(`SELECT record_id, mark FROM context_marks WHERE context_id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer mrows.Close()
+	for mrows.Next() {
+		var rid, m string
+		if err := mrows.Scan(&rid, &m); err != nil {
+			return nil, err
+		}
+		c.Marks[rid] = m
+	}
+	return c, mrows.Err()
 }
 
 // ContextRenderedSet returns the set of record IDs a context emitted.

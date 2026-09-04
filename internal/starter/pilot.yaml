@@ -40,6 +40,12 @@ records:
       7. Asked to explain or repair an agent: `nine-tails inspect <agent>`, with
          `--query`, `--coverage` or `--lint condition-loss`; repair by appending
          or by replacing with `base`, never by editing history.
+      8. Before you finish, close your receipt: `nine-tails inspect ctx_M` lists
+         what it rendered by ordinal with an excerpt; then
+         `nine-tails close ctx_M 3=+++ 5=- ...`. Marks: + +++ +++++ it applied
+         (nudged, shaped, decisive); - --- ----- it hindered (detour, misled,
+         caused a mistake); X it is wrong, after writing the correction with
+         `--context ctx_M`; anything unlisted is ?, it never came up.
 
       ## Conventions
 

@@ -44,10 +44,58 @@ type inspectOutput struct {
 	Records      any    `json:"records,omitempty" yaml:"records,omitempty"`
 }
 
+// contextView is a receipt as inspect shows it: each rendered record with
+// its kind, name, an excerpt and, once closed, its mark, so a run can close
+// by ordinal without re-reading the capsule.
+type contextView struct {
+	ID              string         `json:"context_id" yaml:"context_id"`
+	Agent           string         `json:"agent" yaml:"agent"`
+	Parent          string         `json:"parent_context" yaml:"parent_context"`
+	Task            string         `json:"task" yaml:"task"`
+	EstimatedTokens int            `json:"estimated_tokens" yaml:"estimated_tokens"`
+	CreatedAt       string         `json:"created_at" yaml:"created_at"`
+	Pinned          bool           `json:"pinned" yaml:"pinned"`
+	ClosedAt        string         `json:"closed_at,omitempty" yaml:"closed_at,omitempty"`
+	Meta            store.Meta     `json:"metadata" yaml:"metadata"`
+	Rendered        []renderedView `json:"rendered" yaml:"rendered"`
+}
+
+type renderedView struct {
+	ID      string `json:"id" yaml:"id"`
+	Section string `json:"section" yaml:"section"`
+	Ordinal int    `json:"ordinal" yaml:"ordinal"`
+	Kind    string `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name    string `json:"name,omitempty" yaml:"name,omitempty"`
+	Excerpt string `json:"excerpt,omitempty" yaml:"excerpt,omitempty"`
+	Mark    string `json:"mark,omitempty" yaml:"mark,omitempty"`
+}
+
+func contextViewOf(db store.Querier, c *store.Context) contextView {
+	v := contextView{ID: c.ID, Agent: c.Agent, Parent: c.Parent, Task: c.Task, EstimatedTokens: c.EstimatedTokens,
+		CreatedAt: c.CreatedAt, Pinned: c.Pinned, ClosedAt: c.ClosedAt, Meta: c.Meta, Rendered: []renderedView{}}
+	for _, r := range c.Rendered {
+		rv := renderedView{ID: r.RecordID, Section: r.Section, Ordinal: r.Ordinal, Mark: c.Marks[r.RecordID]}
+		if rec, err := store.GetRecord(db, r.RecordID); err == nil {
+			rv.Kind, rv.Name = rec.Kind, rec.Name
+			line := rec.Body
+			if i := strings.IndexByte(line, '\n'); i >= 0 {
+				line = line[:i]
+			}
+			if len(line) > 120 {
+				line = line[:120] + "…"
+			}
+			rv.Excerpt = line
+		}
+		v.Rendered = append(v.Rendered, rv)
+	}
+	return v
+}
+
 type briefView struct {
-	Generation *store.Generation  `json:"generation" yaml:"generation"`
-	Items      []*store.Record    `json:"items" yaml:"items"`
-	Inputs     []store.BriefInput `json:"inputs" yaml:"inputs"`
+	Generation *store.Generation       `json:"generation" yaml:"generation"`
+	Items      []*store.Record         `json:"items" yaml:"items"`
+	Tallies    map[string]*store.Tally `json:"tallies,omitempty" yaml:"tallies,omitempty"` // by item id, active generation only
+	Inputs     []store.BriefInput      `json:"inputs" yaml:"inputs"`
 }
 
 // recordView is one record plus the receipts that rendered it.
@@ -314,7 +362,7 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
-		return c, true, nil
+		return contextViewOf(db, c), true, nil
 	case strings.HasPrefix(id, "gen_"):
 		g, err := store.GetGeneration(db, id)
 		if err != nil {
@@ -334,7 +382,7 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 		if inputs == nil {
 			inputs = []store.BriefInput{}
 		}
-		return briefView{Generation: g, Items: items, Inputs: inputs}, true, nil
+		return briefView{Generation: g, Items: items, Inputs: inputs, Tallies: talliesFor(db, items)}, true, nil
 	case strings.HasPrefix(id, "lease_"):
 		return nil, false, cli.NotFound("%s is a lease token, not a record", id)
 	}
@@ -485,5 +533,20 @@ func loadBriefView(q store.Querier, generation *store.Generation) (*briefView, e
 	if inputs == nil {
 		inputs = []store.BriefInput{}
 	}
-	return &briefView{Generation: generation, Items: items, Inputs: inputs}, nil
+	return &briefView{Generation: generation, Items: items, Inputs: inputs, Tallies: talliesFor(q, items)}, nil
+}
+
+// talliesFor collects each item's practice tally; a tally that cannot be
+// read is omitted rather than failing the whole view.
+func talliesFor(db store.Querier, items []*store.Record) map[string]*store.Tally {
+	out := map[string]*store.Tally{}
+	for _, it := range items {
+		if t, err := store.TallyRecord(db, it.ID); err == nil {
+			out[it.ID] = t
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

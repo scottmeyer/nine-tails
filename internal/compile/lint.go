@@ -50,6 +50,27 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 	}
 	var out []Warning
 	for _, it := range items {
+		// Practice first: what closed receipts said about the item (DESIGN §18).
+		tally, err := store.TallyRecord(q, it.ID)
+		if err != nil {
+			return nil, err
+		}
+		if tally.Wrong >= 2 {
+			ctxs, err := store.ContextsMarking(q, it.ID, "X")
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, Warning{Item: it.ID, Key: "practice", Strength: "strong", Values: []string{fmt.Sprintf("X=%d", tally.Wrong)}, Sources: ctxs,
+				Message: fmt.Sprintf("item %s was marked wrong by %d runs", it.ID, tally.Wrong)})
+		}
+		if tally.Closes >= 3 && tally.Minus > tally.Plus {
+			ctxs, err := store.ContextsHindering(q, it.ID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, Warning{Item: it.ID, Key: "practice", Strength: "strong", Values: []string{fmt.Sprintf("minus=%d", tally.Minus), fmt.Sprintf("plus=%d", tally.Plus)}, Sources: ctxs,
+				Message: fmt.Sprintf("item %s hindered %d runs and helped %d", it.ID, tally.Minus, tally.Plus)})
+		}
 		srcIDs, err := currentSources(q, genID, it.ID)
 		if err != nil {
 			return nil, err
