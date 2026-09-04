@@ -142,6 +142,78 @@ type NewItem struct {
 // the generation being superseded ("" when none). Returns the new generation
 // and the created item records in order.
 func InstallGeneration(tx Querier, agent, expectGen string, items []NewItem, inputs []BriefInput) (*Generation, []*Record, error) {
+	return installGeneration(tx, agent, expectGen, items, inputs, true)
+}
+
+// InvalidateGenerationForGuidance installs an empty successor when entryID is
+// evidence for the agent's active brief generation. This makes every surviving
+// active guidance entry recent again, so disabling one source cannot leave its
+// compiled meaning in capsules or compiler input. A superseded-by successor is
+// evidence too, including its latest record successor. When the active
+// generation does not depend on entryID, this is a no-op.
+func InvalidateGenerationForGuidance(tx Querier, agent, entryID string) (*Generation, error) {
+	gen, err := ActiveGeneration(tx, agent)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var sourced bool
+	if err := tx.QueryRow(`SELECT EXISTS(
+		SELECT 1 FROM brief_item_sources src
+		JOIN brief_generation_items item
+		  ON item.generation_id = src.generation_id AND item.record_id = src.item_record_id
+		WHERE src.generation_id = ? AND src.entry_record_id = ?
+	)`, gen.ID, entryID).Scan(&sourced); err != nil {
+		return nil, err
+	}
+	if !sourced {
+		rows, err := tx.Query(`SELECT successor_record_id FROM brief_inputs
+			WHERE generation_id = ? AND disposition = 'superseded-by'
+			AND successor_record_id IS NOT NULL`, gen.ID)
+		if err != nil {
+			return nil, err
+		}
+		var successors []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			successors = append(successors, id)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		for _, id := range successors {
+			current, err := LatestSuccessor(tx, id)
+			if err != nil {
+				return nil, err
+			}
+			if current == entryID {
+				sourced = true
+				break
+			}
+		}
+	}
+	if !sourced {
+		return nil, nil
+	}
+	invalidated, _, err := installGeneration(tx, agent, gen.ID, nil, nil, false)
+	return invalidated, err
+}
+
+// installGeneration optionally carries prior accounting. Ordinary compiler
+// generations do; an empty generation installed to invalidate retired source
+// material must not, or superseded-by rows would continue hiding live entries.
+func installGeneration(tx Querier, agent, expectGen string, items []NewItem, inputs []BriefInput, carryPrior bool) (*Generation, []*Record, error) {
 	genID, err := NewID("gen")
 	if err != nil {
 		return nil, nil, err
@@ -171,9 +243,11 @@ func InstallGeneration(tx Querier, agent, expectGen string, items []NewItem, inp
 			}
 			priorSourcesByKey[p.Name] = sources
 		}
-		priorInputs, err = GenerationInputs(tx, expectGen)
-		if err != nil {
-			return nil, nil, err
+		if carryPrior {
+			priorInputs, err = GenerationInputs(tx, expectGen)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		if _, err := tx.Exec(`UPDATE records SET status = 'superseded' WHERE id IN (SELECT record_id FROM brief_generation_items WHERE generation_id = ?) AND status = 'active'`, expectGen); err != nil {
 			return nil, nil, err

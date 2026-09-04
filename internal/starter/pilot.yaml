@@ -34,7 +34,8 @@ records:
          executable tool, or nothing.
       5. Asked to explain or repair an agent: `nine-tails inspect <agent>`, with
          `--query`, `--coverage` or `--lint condition-loss`; repair by appending
-         or by replacing with `base`, never by editing history.
+         or replacing, retire an obsolete active record with `disable <id>`,
+         and never edit history.
 
       ## Conventions
 
@@ -55,7 +56,8 @@ records:
          from is its origin context. Fix a wrong scope with
         `nine-tails note|prefer|avoid|remember --context ctx_M --supersedes <id> [--meta k=v]`,
         which replaces the record, keeps its body, and preserves episode
-        provenance; history is never edited.
+        provenance. Use `nine-tails disable <id>` only to retire an active
+        record with no successor; history is never edited.
       - Delegating through your harness's own subagent mechanism: begin the
         child's task with the load it must run first,
         `nine-tails load <agent> --task "<concise non-sensitive purpose>" --context ctx_M`

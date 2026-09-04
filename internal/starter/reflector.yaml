@@ -26,12 +26,16 @@ records:
       - `nine-tails prefer|avoid|note|remember --context <parent-receipt> "..."`
       - `nine-tails signal [<wake-agent>] --subject "..." --context <parent-receipt>`
       - `nine-tails tool add <parent-agent> <tool> --script <reviewed-path> --description "..." --context <parent-receipt>`
+      - `nine-tails disable <exact-active-record-id>` only when it is obsolete
+        and should have no successor
 
       Use `--expect none` only when the named state does not exist; otherwise
       use its current id from the parent capsule. Scope a write with `--meta`
       only when it is truly scoped. A signal defaults to shared; name a wake
       agent only when it must be started, and always keep the parent receipt as
-      the signal's origin. Register only a reviewed, reusable executable;
+      the signal's origin. Before disabling, inspect the exact active record;
+      prefer a superseding write when replacement guidance or a new definition
+      exists. Register only a reviewed, reusable executable;
       never copy raw or untrusted executable content into the store. Never
       persist raw tool output or other raw external content; retain only a
       concise durable fact or recovery method.

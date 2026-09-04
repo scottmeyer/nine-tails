@@ -921,6 +921,20 @@ edited in place. An unknown predecessor is not found (exit 3), an inactive
 predecessor is a conflict (exit 7), and a predecessor owned by another agent or
 lane is invalid input (exit 2).
 
+`lore disable <record-id>` retires an active semantic record that should have
+no successor. It sets the immutable record's status to `disabled`; the record
+is excluded from loading, compilation, and tool calls but remains available to
+explicit inspection, and a disabled named definition no longer occupies its
+name. If an active brief depends on disabled guidance, the same transaction
+installs an empty successor generation so no inseparable compiled meaning can
+survive: every other active source becomes recent guidance and the next
+compilation rebuilds the cache without the disabled source. Unrepresented
+guidance does not invalidate an unrelated generation. The command accepts a
+record ID, never a context receipt. Brief items are retired through generation
+replacement and signals through acknowledgement, so neither may be disabled.
+An unknown record is not found (exit 3), an inactive record is a conflict
+(exit 7), and an ineligible record is invalid input (exit 2).
+
 Guidance and recall are separate uses even when both contain ordinary text:
 
 ```bash
@@ -1129,6 +1143,7 @@ lore prefer ...
 lore remember ...
 lore signal ...
 lore tool add ... --context <parent-receipt>
+lore disable <exact-active-record-id> # after inspection, only with no successor
 ```
 
 No special reflection store is required. If a raw reflection is itself worth
@@ -1669,6 +1684,7 @@ lore load       Resolve an agent into a context capsule.
 lore append     Add a generic record to an agent journal.
 lore inspect    Return raw or filtered agent state.
 lore put        Create an immutable named version and supersede its predecessor.
+lore disable    Retire an active semantic record without deleting history.
 lore call       Invoke a named executable tool.
 lore signal     Create or acknowledge an inbox item.
 lore tick       Read or lease due signals for external delivery.

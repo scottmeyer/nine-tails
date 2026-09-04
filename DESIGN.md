@@ -284,6 +284,7 @@ cmd/nine-tails/cmd_append.go    append, note, avoid, prefer, remember, base
 cmd/nine-tails/cmd_load.go      load
 cmd/nine-tails/cmd_inspect.go   inspect
 cmd/nine-tails/cmd_put.go       put
+cmd/nine-tails/cmd_disable.go   disable
 cmd/nine-tails/cmd_state.go     state get|put
 cmd/nine-tails/cmd_context.go   context list|pin|unpin|gc
 cmd/nine-tails/cmd_tool.go      tool add, agent add
@@ -328,6 +329,7 @@ nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [-
 nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] [--supersedes ID] (TEXT | --stdin)
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
 nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
+nine-tails disable <id> [--format id|json|yaml]
 nine-tails state get <agent>/<name> [--format yaml|json|id]
 nine-tails state put [<agent>/]<name> --expect ID|none [--context ctx] [--meta]... (TEXT | --stdin)
 nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N] [--query Q] [--all]
@@ -357,8 +359,9 @@ json` it prints the new record's envelope, plus command-specific extras:
 `signal` adds `"deduplicated": true|false` (a dedupe hit also writes
 `nine-tails: deduplicated against sig_44` to stderr); `brief put` prints
 `{generation, items: [ids], warnings: [...]}`; `import` prints one new ID per
-line (JSON: `{ids: {old: new}}`); `signal ack`, `pin`, `unpin` print the
-affected ID; `context gc` prints one deleted ID per line (JSON: `{deleted}`);
+line (JSON: `{ids: {old: new}}`); `disable`, `signal ack`, `pin`, `unpin`
+print the affected ID; `context gc` prints one deleted ID per line (JSON:
+`{deleted}`);
 hook install/uninstall print the affected settings path; and `hooks run`
 streams its foreground child instead of producing a data envelope.
 
@@ -391,7 +394,20 @@ rejects `--kind brief-item`; `put` accepts `--lane definition|state` only. The
 state lane has exactly one kind, `working-state` (anything else is exit 2, so
 `state get`, `state put` and `load` always agree on what a named state is);
 `put` runs state validation (§8) for state and tool validation (§9) for
-definition/tool. No v0 command produces `status=disabled`.
+definition/tool.
+
+**`disable <id>`** is the only producer of `status=disabled` (spec §8.1):
+the record leaves every load, call and compile, keeps its semantic content and
+history, stays in `inspect --all`, and frees its name (the unique index covers
+active names only), so a retired tool's name can be reused without
+supersession. If active compiled items depend on retired guidance, the same
+transaction installs an empty successor generation: the cache disappears
+immediately, every surviving source becomes recent guidance, and the next
+compile rebuilds it without the disabled source. Guidance unrelated to the
+active generation does not churn that generation. Brief items (compile a new
+generation) and signals (`signal ack`) are refused with 2; a `ctx_...` receipt
+or other ineligible resource → 2; a record that is not active → 7; unknown →
+3. The default output is the affected ID; JSON/YAML return its record envelope.
 
 `--meta k=v` may repeat; splits at the first `=`; missing `=` or empty key → 2.
 

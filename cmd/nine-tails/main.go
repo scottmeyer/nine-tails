@@ -95,7 +95,7 @@ call is the exception because its stdout belongs exclusively to the tool.
 
 A ctx_... id is a context receipt created by load and passed to --context.
 Immutable record ids such as base_..., rec_..., state_..., and tool_... are
-inspected or used for compare-and-swap; they are not context ids.`,
+inspected, disabled, or used for compare-and-swap; they are not context ids.`,
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -121,6 +121,7 @@ inspected or used for compare-and-swap; they are not context ids.`,
 		newAppendCmd(a),
 		newBaseCmd(a),
 		newPutCmd(a),
+		newDisableCmd(a),
 		newContextCmd(a),
 		newConfigCmd(a),
 		newToolCmd(a),

@@ -61,7 +61,7 @@ func TestRootHelpDocumentsMachineContractAndGroupsCommands(t *testing.T) {
 			t.Errorf("everyday group is missing %q:\n%s", command, everyday)
 		}
 	}
-	for _, command := range []string{"  append ", "  base ", "  put ", "  completion ", "  help "} {
+	for _, command := range []string{"  append ", "  base ", "  put ", "  disable ", "  completion ", "  help "} {
 		if !strings.Contains(advanced, command) {
 			t.Errorf("advanced group is missing %q:\n%s", command, advanced)
 		}
@@ -132,6 +132,18 @@ func TestModelFacingCommandHelp(t *testing.T) {
 				"Recall records are not\nloaded into context capsules and are never compiled into the brief",
 				"--supersedes rec_...",
 				"nine-tails inspect pr-review --lane recall --query \"patch bodies\" --format json",
+			},
+		},
+		{
+			name: "disable",
+			args: []string{"disable", "--help"},
+			wants: []string{
+				"Pass an immutable record id such as rec_..., base_..., or tool_...",
+				"not a ctx_... context receipt",
+				"Use --supersedes on a writing command when replacing a record",
+				"represented in the active brief invalidates that compiled cache",
+				"JSON and YAML print its record envelope",
+				"nine-tails disable rec_01JABC...",
 			},
 		},
 		{

@@ -47,8 +47,8 @@ small local store with a plain-text interface an agent can inspect and repair.
   protection.
 - **Selective memory:** keep durable facts, reminders, and executable
   capabilities without saving every turn or raw tool output.
-- **Inspectable history:** records are immutable and exportable; superseded
-  versions remain available for diagnosis and repair.
+- **Inspectable history:** records are immutable and exportable; superseded or
+  disabled versions remain available for diagnosis and repair.
 - **Portable integration:** use the CLI from any harness, or opt into the
   included Claude Code and Codex lifecycle adapters.
 
@@ -136,7 +136,11 @@ The next `load` includes those adjustments. Pass metadata on a write only when
 the knowledge should be scoped by that metadata; otherwise it remains useful
 wherever the agent runs. To repair a wrong scope without editing history, pass
 the active record to `--supersedes`; omit new text to keep its body and provide
-the exact replacement scope with `--meta`.
+the exact replacement scope with `--meta`. To retire an obsolete active record
+without a replacement, use `disable <record-id>`; it remains inspectable by ID
+and under its agent's `inspect --all` history. Retiring compiled guidance
+invalidates that brief generation as an inseparable cache; surviving sources
+appear as recent guidance until the next compile.
 
 ## What should be persisted?
 
@@ -148,6 +152,7 @@ the exact replacement scope with `--meta`.
 | A reminder or external event | `signal` | Appears when due and can be leased by a scheduler |
 | A reusable executable capability | `tool add` | Adds a validated named tool callable through a context |
 | A durable shorter brief | `compile` | Condenses eligible journal records through a configured model command |
+| Retire an obsolete record | `disable` | Stops loading, compiling, or calling it without deleting history |
 
 Examples:
 
