@@ -12,14 +12,16 @@ import (
 
 // appendOpts are the flags shared by append and its convenience aliases.
 type appendOpts struct {
-	meta    []string
-	context string
-	stdin   bool
-	format  string
+	meta       []string
+	context    string
+	stdin      bool
+	format     string
+	supersedes string
 }
 
 func (o *appendOpts) bind(c *cobra.Command) {
 	c.Flags().StringArrayVar(&o.meta, "meta", nil, "applicability metadata key=value (repeatable)")
+	c.Flags().StringVar(&o.supersedes, "supersedes", "", "replace this active record of the same agent and lane; the metadata is exactly --meta, and without TEXT the body is kept")
 	c.Flags().StringVar(&o.context, "context", "", "originating context id; also supplies the agent when <agent> is omitted")
 	c.Flags().BoolVar(&o.stdin, "stdin", false, "read the body from stdin instead of the argument")
 	c.Flags().StringVar(&o.format, "format", "id", "id (one line) | json | yaml")
@@ -29,7 +31,7 @@ func (o *appendOpts) bind(c *cobra.Command) {
 // (DESIGN §6): with --context, two or more positionals mean the first is the
 // agent (which must match); one positional is the text; with --stdin there
 // are none. Without --context the first positional is always the agent.
-func (a *app) resolveAgentAndText(ctxID string, stdin bool, args []string) (agent string, text []string, err error) {
+func (a *app) resolveAgentAndText(ctxID string, stdin, textOptional bool, args []string) (agent string, text []string, err error) {
 	if ctxID == "" {
 		if len(args) == 0 {
 			return "", nil, cli.Invalid("missing <agent> (or pass --context)")
@@ -44,7 +46,7 @@ func (a *app) resolveAgentAndText(ctxID string, stdin bool, args []string) (agen
 		return "", nil, err
 	}
 	switch {
-	case stdin && len(args) == 0:
+	case len(args) == 0 && (stdin || textOptional):
 		return ctxAgent, nil, nil
 	case len(args) == 0:
 		return "", nil, cli.Invalid("missing text: pass it as an argument or use --stdin")
@@ -67,16 +69,22 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 	if err := a.open(); err != nil {
 		return err
 	}
-	agent, text, err := a.resolveAgentAndText(o.context, o.stdin, args)
+	agent, text, err := a.resolveAgentAndText(o.context, o.stdin, o.supersedes != "", args)
 	if err != nil {
 		return err
 	}
 	if err := store.ValidAgentName(agent); err != nil {
 		return err
 	}
-	body, err := cli.ReadBody(text, o.stdin, a.stdin, false)
-	if err != nil {
-		return err
+	if o.supersedes != "" && !cli.IsID(o.supersedes) {
+		return cli.Invalid("--supersedes wants a record id, not %q", o.supersedes)
+	}
+	var body string
+	if o.supersedes == "" || o.stdin || len(text) > 0 {
+		body, err = cli.ReadBody(text, o.stdin, a.stdin, false)
+		if err != nil {
+			return err
+		}
 	}
 	meta, err := metaFlag(o.meta)
 	if err != nil {
@@ -94,7 +102,12 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 			}
 		}
 		var err error
-		rec, err = store.InsertRecord(tx, store.NewRecord{Agent: agent, Lane: lane, Kind: kind, Name: name, Body: body, OriginContext: o.context, Meta: meta})
+		nr := store.NewRecord{Agent: agent, Lane: lane, Kind: kind, Name: name, Body: body, OriginContext: o.context, Meta: meta}
+		if o.supersedes != "" {
+			rec, err = store.ReplaceRecord(tx, o.supersedes, nr)
+		} else {
+			rec, err = store.InsertRecord(tx, nr)
+		}
 		return err
 	})
 	if err != nil {

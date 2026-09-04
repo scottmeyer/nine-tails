@@ -50,16 +50,22 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 	}
 	var out []Warning
 	for _, it := range items {
-		srcIDs, err := store.ItemSources(q, genID, it.ID)
+		srcIDs, err := currentSources(q, genID, it.ID)
 		if err != nil {
 			return nil, err
 		}
 		if len(srcIDs) == 0 {
 			continue
 		}
-		srcs, err := store.ListRecords(q, store.Filter{IDs: srcIDs, Status: "*"})
+		listed, err := store.ListRecords(q, store.Filter{IDs: srcIDs, Status: "*"})
 		if err != nil {
 			return nil, err
+		}
+		srcs := listed[:0]
+		for _, s := range listed {
+			if s.Status != "disabled" {
+				srcs = append(srcs, s)
+			}
 		}
 		if len(srcs) == 0 {
 			continue
@@ -131,6 +137,29 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 				out = append(out, Warning{Item: it.ID, Key: k, Strength: "weak", Values: vals, Sources: srcIDs,
 					Message: fmt.Sprintf("item %s omits %s=%s, which every source's origin context shared (may be a genuine generalization)", it.ID, k, vals[0])})
 			}
+		}
+	}
+	return out, nil
+}
+
+// currentSources resolves an item's sources to their latest successors: a
+// replaced entry is judged by what it says now, and a retag that replaced
+// several of them collapses to one source.
+func currentSources(q store.Querier, genID, itemID string) ([]string, error) {
+	ids, err := store.ItemSources(q, genID, itemID)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		cur, err := store.LatestSuccessor(q, id)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[cur] {
+			seen[cur] = true
+			out = append(out, cur)
 		}
 	}
 	return out, nil
