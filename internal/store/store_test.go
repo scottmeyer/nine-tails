@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -38,8 +39,8 @@ func TestInsertAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.ID != "rec_1" {
-		t.Errorf("id = %s, want rec_1", rec.ID)
+	if !IsID(rec.ID) || rec.ID[:4] != "rec_" {
+		t.Errorf("id = %s, want a rec_ id", rec.ID)
 	}
 	got, err := GetRecord(s.DB, rec.ID)
 	if err != nil {
@@ -115,30 +116,32 @@ func TestRecordEnvelopeKeepsExplicitNulls(t *testing.T) {
 
 func TestPrefixes(t *testing.T) {
 	s := openTest(t)
-	want := map[string]NewRecord{
-		"base_1":  {Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "x"},
-		"state_2": {Agent: "a", Lane: "state", Kind: "working-state", Name: "working", Body: "x: 1"},
-		"tool_3":  {Agent: "a", Lane: "definition", Kind: "tool", Name: "t", Body: "x"},
-		"rel_4":   {Agent: "a", Lane: "definition", Kind: "related-agent", Name: "b", Body: "x"},
-		"sig_5":   {Agent: "a", Lane: "signal", Kind: "signal", Body: "x"},
-		"rec_6":   {Agent: "a", Lane: "recall", Kind: "memory", Body: "x"},
-		"item_7":  {Agent: "a", Lane: "guidance", Kind: "brief-item", Name: "k", Body: "x"},
+	want := []struct {
+		prefix string
+		nr     NewRecord
+	}{
+		{"base_", NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "x"}},
+		{"state_", NewRecord{Agent: "a", Lane: "state", Kind: "working-state", Name: "working", Body: "x: 1"}},
+		{"tool_", NewRecord{Agent: "a", Lane: "definition", Kind: "tool", Name: "t", Body: "x"}},
+		{"rel_", NewRecord{Agent: "a", Lane: "definition", Kind: "related-agent", Name: "b", Body: "x"}},
+		{"sig_", NewRecord{Agent: "a", Lane: "signal", Kind: "signal", Body: "x"}},
+		{"rec_", NewRecord{Agent: "a", Lane: "recall", Kind: "memory", Body: "x"}},
+		{"item_", NewRecord{Agent: "a", Lane: "guidance", Kind: "brief-item", Name: "k", Body: "x"}},
 	}
-	order := []string{"base_1", "state_2", "tool_3", "rel_4", "sig_5", "rec_6", "item_7"}
-	for _, id := range order {
-		nr := want[id]
+	for _, w := range want {
+		nr := w.nr
 		err := s.Tx(func(tx *sql.Tx) error {
 			r, err := InsertRecord(tx, nr)
 			if err != nil {
 				return err
 			}
-			if r.ID != id {
-				t.Errorf("got %s want %s", r.ID, id)
+			if !strings.HasPrefix(r.ID, w.prefix) || !IsID(r.ID) {
+				t.Errorf("got %s want a %s id", r.ID, w.prefix)
 			}
 			return nil
 		})
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s: %v", w.prefix, err)
 		}
 	}
 }
@@ -308,8 +311,8 @@ func TestPersistenceRejectsInvalidUTF8BeforeWriting(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if rec.ID != "rec_1" {
-		t.Fatalf("failed validation consumed an id: first valid id = %s, want rec_1", rec.ID)
+	if !IsID(rec.ID) || rec.ID[:4] != "rec_" {
+		t.Fatalf("first valid id = %s, want a rec_ id", rec.ID)
 	}
 }
 
@@ -398,12 +401,12 @@ func TestConcurrentFirstOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	var rows, n int
-	if err := s.DB.QueryRow(`SELECT COUNT(*), MAX(n) FROM seq`).Scan(&rows, &n); err != nil {
+	var count int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM records`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 || n != callers {
-		t.Fatalf("sequence rows=%d n=%d, want rows=1 n=%d", rows, n, callers)
+	if count != callers {
+		t.Fatalf("records=%d, want %d", count, callers)
 	}
 }
 

@@ -51,7 +51,7 @@ func HomeDir() (string, error) {
 	return filepath.Join(u, ".nine-tails"), nil
 }
 
-const userVersion = 2 // 2: contexts.token_budget became estimated_tokens
+const userVersion = 3 // 2: contexts.token_budget became estimated_tokens; 3: ids are prefix_ULID, seq dropped
 
 // Open opens (creating if needed) the store under home.
 func Open(home string) (*Store, error) {
@@ -104,8 +104,6 @@ func isBusy(err error) bool {
 func (s *Store) Close() error { return s.DB.Close() }
 
 const schema = `
-CREATE TABLE IF NOT EXISTS seq (n INTEGER NOT NULL);
-
 CREATE TABLE IF NOT EXISTS records (
     id                TEXT PRIMARY KEY,
     agent             TEXT NOT NULL,
@@ -227,9 +225,8 @@ func (s *Store) migrate() error {
 		return fmt.Errorf("enable WAL: sqlite selected journal mode %q", mode)
 	}
 
-	// Schema creation, sequence initialization, and version publication are
-	// one immediate transaction. INSERT ... WHERE NOT EXISTS avoids the
-	// check-then-insert race that could otherwise create two seq rows.
+	// Schema creation, migrations, and version publication are one immediate
+	// transaction.
 	tx, err := s.DB.BeginTx(context.Background(), nil)
 	if err != nil {
 		return fmt.Errorf("begin migration: %w", err)
@@ -250,8 +247,11 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate contexts to v2: %w", err)
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO seq(n) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM seq)`); err != nil {
-		return fmt.Errorf("initialize sequence: %w", err)
+	if v < 3 {
+		// v3: ids are prefix_ULID (DESIGN §2); the global counter is gone.
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS seq`); err != nil {
+			return fmt.Errorf("migrate to v3: %w", err)
+		}
 	}
 	if v < userVersion {
 		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, userVersion)); err != nil {
@@ -290,19 +290,6 @@ type Querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// NextID allocates the next identifier with the given prefix. Must be called
-// inside a write transaction so the allocation is atomic with the insert.
-func NextID(tx Querier, prefix string) (string, error) {
-	if _, err := tx.Exec(`UPDATE seq SET n = n + 1`); err != nil {
-		return "", err
-	}
-	var n int64
-	if err := tx.QueryRow(`SELECT n FROM seq`).Scan(&n); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%s_%d", prefix, n), nil
-}
-
 // Prefix returns the identifier prefix for a record in the given lane/kind.
 func Prefix(lane, kind string) string {
 	switch {
@@ -323,7 +310,8 @@ func Prefix(lane, kind string) string {
 }
 
 var (
-	idRe   = regexp.MustCompile(`^[a-z]+_[0-9]+$`)
+	// prefix_ULID today; prefix_N in stores created before v3.
+	idRe   = regexp.MustCompile(`^[a-z]+_[0-9A-Z]+$`)
 	nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
 )
 
@@ -610,7 +598,7 @@ func (r Record) MarshalYAML() (any, error) {
 
 // NewRecord holds the caller-supplied fields for InsertRecord.
 type NewRecord struct {
-	ID            string // optional: an id already allocated with NextID in this tx (tool add needs it for artifact paths)
+	ID            string // optional: an id already minted with NewID (tool add needs it for artifact paths)
 	Agent         string
 	Lane          string
 	Kind          string
@@ -652,7 +640,7 @@ func InsertRecord(tx Querier, nr NewRecord) (*Record, error) {
 	id := nr.ID
 	if id == "" {
 		var err error
-		id, err = NextID(tx, Prefix(nr.Lane, nr.Kind))
+		id, err = NewID(Prefix(nr.Lane, nr.Kind))
 		if err != nil {
 			return nil, err
 		}

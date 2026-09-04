@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -46,7 +47,7 @@ func TestInstallGenerationCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gen.Status != "active" || gen.ID != "gen_4" || len(items) != 1 || items[0].ID != "item_5" {
+	if gen.Status != "active" || !strings.HasPrefix(gen.ID, "gen_") || len(items) != 1 || !strings.HasPrefix(items[0].ID, "item_") {
 		t.Errorf("gen %+v items %+v", gen, items)
 	}
 	act, err := ActiveGeneration(s.DB, "a")

@@ -163,8 +163,12 @@ comparison. Tests use it; humans never need it.
 
 ## 2. Identifiers and names
 
-One global integer counter (table `seq(n)`, starts at 0 so the first ID is
-`<prefix>_1`), allocated inside the write transaction. IDs are `<prefix>_<n>`:
+IDs are `<prefix>_<ULID>`: 48 bits of clock milliseconds then 80 random
+bits, Crockford base32, 26 characters (`ctx_01M1PJF95JW91BHBS7QWHBAP8W`).
+Nobody reads them; the prefix exists for the few mechanical checks that key
+on it. Two stores can never mint the same id, so a copied or forked store
+merges back without renumbering. Stores created before schema v3 keep their
+`<prefix>_<n>` ids, which stay valid everywhere.
 
 | Thing | Prefix |
 | --- | --- |
@@ -179,9 +183,9 @@ One global integer counter (table `seq(n)`, starts at 0 so the first ID is
 | brief generation | `gen` |
 | signal lease token | `lease` |
 
-The counter is global so numbers never collide. IDs are opaque; the prefix is
-a readability aid. Anything matching `^[a-z]+_[0-9]+$` is always an ID, never
-a name.
+Anything matching `^[a-z]+_[0-9A-Z]+$` is always an ID, never a name. The
+time part follows the clock (`NINE_TAILS_NOW` pins it); ordering never uses
+ids, only `created_at` and `rowid`.
 
 **Names** (agent, tool, state, related-agent, brief-item key) match
 `^[a-z0-9][a-z0-9.-]*$` — no `_`, no `/`, no whitespace. Reserved names:
@@ -199,7 +203,6 @@ to UTC with `Z` before storage so lexical comparison is chronological.
 Exactly the spec §8.3 tables plus:
 
 ```sql
-CREATE TABLE seq (n INTEGER NOT NULL);           -- single row
 CREATE TABLE signal_delivery (                    -- spec §15.3
     record_id       TEXT PRIMARY KEY,
     agent           TEXT NOT NULL,
@@ -212,7 +215,7 @@ CREATE TABLE signal_delivery (                    -- spec §15.3
 );
 CREATE UNIQUE INDEX signal_dedupe ON signal_delivery(agent, dedupe_key)
     WHERE dedupe_key IS NOT NULL AND state != 'acknowledged';
-PRAGMA user_version = 2;   -- 2: contexts.token_budget became estimated_tokens
+PRAGMA user_version = 3;   -- 2: contexts.token_budget became estimated_tokens; 3: prefix_ULID ids, seq dropped
 ```
 
 `records.name`: required for lane=definition, lane=state, and kind=brief-item;
@@ -705,7 +708,7 @@ coordinator retires a stale broadcast with `tick --claim --agent shared` and
 `available_at <= now`; live leases are not listed; ordered by available_at
 asc, rowid asc; expired leases shown as `state: pending` with empty lease
 fields. Without `--claim`: read-only. With `--claim`: in one transaction set
-state=leased, lease_token=`lease_<n>`, leased_until=now+lease (default 5m).
+state=leased, lease_token=`lease_<ULID>`, leased_until=now+lease (default 5m).
 Output: JSON array of `{id, agent, subject, body, meta, available_at, state,
 lease_token, leased_until}`; `[]` when empty.
 

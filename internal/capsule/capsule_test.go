@@ -67,7 +67,8 @@ func TestLoadShape(t *testing.T) {
 	want := []string{
 		"# Pr Review\n\n[nine-tails-context=ctx_",
 		"## Purpose\n\nReview PRs.",
-		"## Current state (working, state_2)\n\n```yaml\nstatus: waiting\n```",
+		"## Current state (working, state_",
+		")\n\n```yaml\nstatus: waiting\n```",
 		"## Recent adjustments\n\n- (avoid) Restating the finding.\n  Second line.\n- [phase=review] (prefer) Lead with evidence.",
 		"## Available tools\n\n- `complete-pr-diff`: Fetch the full diff [tool=github]\n- `recall-memory`: Search memory\n",
 		"## Available agents\n\n- `evidence-reviewer`: Validate a finding.\n",

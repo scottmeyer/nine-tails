@@ -266,7 +266,7 @@ func ClaimDue(tx Querier, agent string, now time.Time, lease time.Duration) ([]*
 		if s.Delivery.State != "pending" {
 			continue // currently leased by someone else
 		}
-		token, err := NextID(tx, "lease")
+		token, err := NewID("lease")
 		if err != nil {
 			return nil, err
 		}

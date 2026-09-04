@@ -71,7 +71,7 @@ func addTool(t *testing.T, s *store.Store, agent, name, script string) *store.Re
 	t.Helper()
 	var rec *store.Record
 	mustTx(t, s, func(tx *sql.Tx) error {
-		id, err := store.NextID(tx, "tool")
+		id, err := store.NewID("tool")
 		if err != nil {
 			return err
 		}
@@ -304,7 +304,7 @@ func TestRoundTripBundleFindsEveryArtifactArgvElement(t *testing.T) {
 	insert(t, src, store.NewRecord{Agent: "a", Lane: "recall", Kind: "memory", Body: "consume the first id"})
 	var oldTool *store.Record
 	mustTx(t, src, func(tx *sql.Tx) error {
-		id, err := store.NextID(tx, "tool")
+		id, err := store.NewID("tool")
 		if err != nil {
 			return err
 		}
@@ -398,7 +398,7 @@ func TestRoundTripBundleRewritesMergedArtifactArgv(t *testing.T) {
 	src := openStore(t)
 	var oldTool *store.Record
 	mustTx(t, src, func(tx *sql.Tx) error {
-		id, err := store.NextID(tx, "tool")
+		id, err := store.NewID("tool")
 		if err != nil {
 			return err
 		}
@@ -534,7 +534,7 @@ func TestWriteBundleDoesNotReadStoreFilesThroughArtifactSymlink(t *testing.T) {
 
 func TestFailedImportCleansNewArtifactDirectories(t *testing.T) {
 	dst := openStore(t)
-	preexisting := filepath.Join(dst.Home, "artifacts", "tool_2")
+	preexisting := filepath.Join(dst.Home, "artifacts", "tool_KEEP")
 	if err := os.MkdirAll(preexisting, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -542,19 +542,19 @@ func TestFailedImportCleansNewArtifactDirectories(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A document that fails validation after a tool with an artifact: nothing
+	// may be written, and no artifact directory may appear.
 	doc := &Document{Version: 1, Agent: "a", Records: []*store.Record{
 		{ID: "tool_10", Lane: "definition", Kind: "tool", Name: "first", Body: "description: first\nexec:\n  argv: [artifacts/tool_10/first.sh]"},
-		{ID: "tool_11", Lane: "definition", Kind: "tool", Name: "second", Body: "description: second\nexec:\n  argv: [artifacts/tool_11/second.sh]"},
+		{ID: "rec_11", Lane: "recall", Kind: "memory", Body: ""},
 	}}
-	arts := map[string]Artifact{
-		"artifacts/tool_10/first.sh":  {Data: []byte("first"), Mode: 0o755},
-		"artifacts/tool_11/second.sh": {Data: []byte("second"), Mode: 0o755},
+	arts := map[string]Artifact{"artifacts/tool_10/first.sh": {Data: []byte("first"), Mode: 0o755}}
+	if _, err := Import(dst, doc, arts, ImportOptions{}); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("Import should fail validation: %v", err)
 	}
-	if _, err := Import(dst, doc, arts, ImportOptions{}); err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("Import should fail on pre-existing destination: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dst.Home, "artifacts", "tool_1")); !os.IsNotExist(err) {
-		t.Errorf("new artifact directory survived rollback: %v", err)
+	entries, err := os.ReadDir(filepath.Join(dst.Home, "artifacts"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "tool_KEEP" {
+		t.Errorf("artifact directories after failed import: %v (%v)", entries, err)
 	}
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "keep" {
 		t.Errorf("pre-existing artifact directory was changed: %v %q", err, data)
@@ -562,9 +562,26 @@ func TestFailedImportCleansNewArtifactDirectories(t *testing.T) {
 	if recs := find(t, dst, store.Filter{Status: "*"}); len(recs) != 0 {
 		t.Errorf("records survived failed import: %+v", recs)
 	}
-	var n int64
-	if err := dst.DB.QueryRow(`SELECT n FROM seq`).Scan(&n); err != nil || n != 0 {
-		t.Errorf("sequence did not roll back: n=%d err=%v", n, err)
+
+	// The artifact writer itself refuses a destination that already exists
+	// and removes only the directories it created.
+	var roots []string
+	files := []pendingFile{
+		{rel: "artifacts/tool_NEW/x.sh", art: Artifact{Data: []byte("x"), Mode: 0o755}},
+		{rel: "artifacts/tool_KEEP/keep.txt", art: Artifact{Data: []byte("clobber"), Mode: 0o644}},
+	}
+	err = writePendingArtifacts(dst.Home, files, &roots)
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("pre-existing destination: %v", err)
+	}
+	if err := cleanupArtifactRoots(roots); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst.Home, "artifacts", "tool_NEW")); !os.IsNotExist(err) {
+		t.Errorf("new artifact directory survived cleanup: %v", err)
+	}
+	if data, _ := os.ReadFile(marker); string(data) != "keep" {
+		t.Errorf("pre-existing file was clobbered: %q", data)
 	}
 }
 
@@ -732,12 +749,6 @@ func TestImportInvalidToolAbortsAtomically(t *testing.T) {
 	if len(entries) != 0 {
 		t.Errorf("artifacts written despite failure: %v", entries)
 	}
-	var n int64
-	_ = dst.DB.QueryRow(`SELECT n FROM seq`).Scan(&n)
-	if n != 1 {
-		t.Errorf("id counter should roll back to 1, got %d", n)
-	}
-
 	// Other failures are ErrInvalid too and write nothing.
 	for _, d := range []*Document{
 		{Version: 1, Records: []*store.Record{{Body: "no agent anywhere"}}},
@@ -773,7 +784,7 @@ func TestImportSkipsSignalsAndToolsWithoutArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Only the recall record lands; the skipped tool consumes no id.
-	if len(res) != 1 || res[0].Old != "rec_3" || res[0].New != "rec_1" {
+	if len(res) != 1 || res[0].Old != "rec_3" || !strings.HasPrefix(res[0].New, "rec_") {
 		t.Errorf("results: %+v", res)
 	}
 	wantTool := `skipped tool_2: tool "x" references artifacts/tool_2/x.sh, which this document does not carry (export it with --bundle); the active definition is kept`

@@ -105,7 +105,7 @@ func newToolAddCmd(a *app) *cobra.Command {
 			var rec *store.Record
 			var artifactDir string
 			err = a.st.Tx(func(tx *sql.Tx) (txErr error) {
-				id, err := store.NextID(tx, "tool")
+				id, err := store.NewID("tool")
 				if err != nil {
 					return err
 				}
