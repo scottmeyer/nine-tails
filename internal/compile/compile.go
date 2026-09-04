@@ -142,7 +142,9 @@ func BuildInput(q store.Querier, agent string) (*Input, error) {
 		}
 		gv := &GenerationView{ID: gen.ID, Items: []ItemView{}}
 		for _, it := range items {
-			srcIDs, err := store.ItemSources(q, gen.ID, it.ID)
+			// The same view the lint takes: a replaced source is judged by
+			// its latest successor, so a retag changes the evidence at once.
+			srcIDs, err := currentSources(q, gen.ID, it.ID)
 			if err != nil {
 				return nil, err
 			}

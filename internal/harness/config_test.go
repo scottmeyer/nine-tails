@@ -101,6 +101,110 @@ func TestInstallMergeIdempotentAndUninstallOwnedOnly(t *testing.T) {
 	}
 }
 
+func TestInstalledRequiresOwnedHandlerForEveryLifecycleEvent(t *testing.T) {
+	tests := []struct {
+		name     Name
+		env      string
+		filename string
+	}{
+		{Claude, "CLAUDE_CONFIG_DIR", "settings.json"},
+		{Codex, "CODEX_HOME", "hooks.json"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.name), func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv(tt.env, dir)
+			adapter, err := For(tt.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, tt.filename)
+
+			executable := "/opt/nine-tails/bin/nine-tails"
+			gotPath, installed, err := Installed(adapter, executable)
+			if err != nil || installed || gotPath != path {
+				t.Fatalf("missing config: path=%q installed=%v err=%v", gotPath, installed, err)
+			}
+			if _, _, err := Install(adapter, executable); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotPath, installed, err = Installed(adapter, executable)
+			if err != nil || !installed || gotPath != path {
+				t.Fatalf("complete config: path=%q installed=%v err=%v", gotPath, installed, err)
+			}
+			_, installed, err = Installed(adapter, "/new/path/nine-tails")
+			if err != nil || installed {
+				t.Fatalf("stale executable config: installed=%v err=%v", installed, err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatal("installation check rewrote settings")
+			}
+
+			var root rawObject
+			if err := json.Unmarshal(before, &root); err != nil {
+				t.Fatal(err)
+			}
+			hooks, err := objectField(root, "hooks", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			groups, err := eventGroups(hooks["SessionStart"], "SessionStart", false)
+			if err != nil || len(groups) != 1 {
+				t.Fatalf("installed SessionStart groups=%d err=%v", len(groups), err)
+			}
+			var restricted rawObject
+			if err := json.Unmarshal(groups[0], &restricted); err != nil {
+				t.Fatal(err)
+			}
+			restricted["matcher"] = json.RawMessage(`"resume"`)
+			groups[0], _ = json.Marshal(restricted)
+			hooks["SessionStart"], _ = json.Marshal(groups)
+			root["hooks"], _ = json.Marshal(hooks)
+			filtered, err := marshalSettings(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, filtered, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, installed, err = Installed(adapter, executable)
+			if err != nil || installed {
+				t.Fatalf("filtered canonical handler: installed=%v err=%v", installed, err)
+			}
+
+			root = nil
+			if err := json.Unmarshal(before, &root); err != nil {
+				t.Fatal(err)
+			}
+			hooks, err = objectField(root, "hooks", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hooks["UserPromptSubmit"] = json.RawMessage("[]")
+			root["hooks"], _ = json.Marshal(hooks)
+			partial, err := marshalSettings(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, partial, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, installed, err = Installed(adapter, executable)
+			if err != nil || installed {
+				t.Fatalf("partial config: installed=%v err=%v", installed, err)
+			}
+		})
+	}
+}
+
 func TestUninstallNeverInstalledIsByteForByteNoop(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)

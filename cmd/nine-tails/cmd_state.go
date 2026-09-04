@@ -53,7 +53,18 @@ func newStateGetCmd(a *app) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "get <agent>/<name>",
 		Short: "Print the current state document",
-		Args:  cobra.ExactArgs(1),
+		Long: `With the default --format yaml, write the YAML state body verbatim to
+stdout and the active state_... record id to stderr as the compare-and-swap
+hint for state put. --format json writes the full record envelope to stdout;
+--format id writes only the state record id to stdout. Those alternate formats
+do not emit the hint.
+
+A state_... record id belongs in state put --expect. A ctx_... context receipt
+id belongs in --context; the two are not interchangeable.`,
+		Example: `  nine-tails state get pr-review/working
+  nine-tails state get pr-review/working --format json
+  nine-tails state get pr-review/working --format id`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agent, name, err := cli.SplitAgentName(args[0])
 			if err != nil {
@@ -97,7 +108,7 @@ func newStateGetCmd(a *app) *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&format, "format", "yaml", "yaml (body verbatim)|json (envelope)|id")
+	c.Flags().StringVar(&format, "format", "yaml", "yaml (body verbatim stdout, CAS id stderr)|json (envelope stdout)|id (state id stdout)")
 	return c
 }
 
@@ -106,9 +117,20 @@ func newStatePutCmd(a *app) *cobra.Command {
 	var meta []string
 	var stdin bool
 	c := &cobra.Command{
-		Use:   "put [<agent>/]<name> --expect none|<id> [--] [TEXT]",
+		Use:   "put [<agent>/]<name> --expect none|<state-id> [--] [TEXT]",
 		Short: "Replace state with compare-and-swap (--expect none to create)",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `Replace state with a required compare-and-swap guard. Use --expect none
+to create safely when no active state exists, or pass the active state_...
+record id reported by state get. State is loaded directly into capsules and
+is never compiled.
+
+--context takes a ctx_... context receipt id: it records the origin and
+supplies the agent when the target is a bare <name>. A context id is not a
+state record id and cannot be used for --expect. By default stdout is the new
+state_... record id; --format json or yaml prints its record envelope.`,
+		Example: `  nine-tails state put pr-review/working --expect none "status: ready"
+  nine-tails state put working --context ctx_72 --expect state_17 --stdin < state.yml`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateRecordFormat(format); err != nil {
 				return err
@@ -189,8 +211,8 @@ func newStatePutCmd(a *app) *cobra.Command {
 			return a.printRecord(format, rec)
 		},
 	}
-	c.Flags().StringVar(&expect, "expect", "", "required: 'none' or the id that must currently be active")
-	c.Flags().StringVar(&context, "context", "", "originating context id (origin, not scope); supplies the agent for a bare <name>")
+	c.Flags().StringVar(&expect, "expect", "", "required CAS: 'none' to create, or the active state record id (state_...)")
+	c.Flags().StringVar(&context, "context", "", "originating context receipt id (ctx_..., not a state id); supplies the agent for a bare <name>")
 	c.Flags().StringArrayVar(&meta, "meta", nil, "applicability metadata key=value (repeatable)")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read the YAML from stdin")
 	c.Flags().StringVar(&format, "format", "id", "id|json|yaml")

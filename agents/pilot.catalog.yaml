@@ -1,0 +1,16 @@
+nine_tails_export: 1
+agent: pilot
+records:
+  - lane: definition
+    kind: related-agent
+    name: nine-tails.builder
+    body: Implement one scoped change to nine-tails and verify the affected packages.
+  - lane: definition
+    kind: related-agent
+    name: nine-tails.reviewer
+    body: Adversarially verify a completed nine-tails change without fixing it.
+  - lane: definition
+    kind: related-agent
+    name: nine-tails
+    body: Carry durable design guidance and the observation log for nine-tails itself.
+

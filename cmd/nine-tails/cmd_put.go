@@ -20,7 +20,7 @@ func newPutCmd(a *app) *cobra.Command {
 		Long: `Create a new active named record. If an active record with the same
 agent/lane/kind/name exists it is superseded (or, with --expect, only if its id
 matches; --expect none requires that none exists). Tool bodies and state
-		bodies are validated mechanically. Prints the new record id.`,
+bodies are validated mechanically. Prints the new record id.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateRecordFormat(format); err != nil {

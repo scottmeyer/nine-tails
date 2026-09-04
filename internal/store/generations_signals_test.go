@@ -225,6 +225,158 @@ func TestCurrentAccountingOverridesCarriedItemSources(t *testing.T) {
 	}
 }
 
+func TestInvalidateGenerationForGuidanceInstallsEmptySuccessor(t *testing.T) {
+	s := openTest(t)
+	disabled := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "prefer", Body: "remove me"})
+	mixedSurvivor := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "prefer", Body: "keep mixed source"})
+	unaffected := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "keep independent source"})
+
+	var first *Generation
+	var firstItems []*Record
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		first, firstItems, err = InstallGeneration(tx, "a", "",
+			[]NewItem{
+				{Key: "mixed", Body: "compiled mixed advice", Sources: []string{disabled.ID, mixedSurvivor.ID}},
+				{Key: "unaffected", Body: "compiled independent advice", Sources: []string{unaffected.ID}},
+			},
+			[]BriefInput{
+				{EntryID: disabled.ID, Disposition: "represented", Coverage: "unknown"},
+				{EntryID: mixedSurvivor.ID, Disposition: "represented", Coverage: "unknown"},
+				{EntryID: unaffected.ID, Disposition: "represented", Coverage: "unknown"},
+			})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var invalidated *Generation
+	if err := s.Tx(func(tx *sql.Tx) error {
+		if err := SetStatus(tx, disabled.ID, "disabled"); err != nil {
+			return err
+		}
+		var err error
+		invalidated, err = InvalidateGenerationForGuidance(tx, "a", disabled.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if invalidated == nil || invalidated.Parent != first.ID || invalidated.Status != "active" {
+		t.Fatalf("invalidating generation = %+v, want active child of %s", invalidated, first.ID)
+	}
+	active, err := ActiveGeneration(s.DB, "a")
+	if err != nil || active.ID != invalidated.ID {
+		t.Fatalf("active generation = %+v, err=%v", active, err)
+	}
+	if items, err := GenerationItems(s.DB, invalidated.ID); err != nil || len(items) != 0 {
+		t.Fatalf("invalidating generation items = %+v, err=%v", items, err)
+	}
+	if inputs, err := GenerationInputs(s.DB, invalidated.ID); err != nil || len(inputs) != 0 {
+		t.Fatalf("invalidating generation inputs = %+v, err=%v", inputs, err)
+	}
+	if old, err := GetGeneration(s.DB, first.ID); err != nil || old.Status != "superseded" {
+		t.Fatalf("prior generation = %+v, err=%v", old, err)
+	}
+	for _, item := range firstItems {
+		got, err := GetRecord(s.DB, item.ID)
+		if err != nil || got.Status != "superseded" {
+			t.Errorf("prior item %s = %+v, err=%v", item.ID, got, err)
+		}
+	}
+	recent, err := RecentGuidance(s.DB, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 2 || recent[0].ID != mixedSurvivor.ID || recent[1].ID != unaffected.ID {
+		t.Fatalf("surviving guidance did not resurface: %+v", recent)
+	}
+}
+
+func TestInvalidateGenerationForGuidanceDoesNotChurnUnrepresentedGuidance(t *testing.T) {
+	s := openTest(t)
+	represented := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "prefer", Body: "compiled source"})
+	unrepresented := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "recent note"})
+	var first *Generation
+	var firstItems []*Record
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		first, firstItems, err = InstallGeneration(tx, "a", "",
+			[]NewItem{{Key: "compiled", Body: "compiled advice", Sources: []string{represented.ID}}},
+			[]BriefInput{{EntryID: represented.ID, Disposition: "represented", Coverage: "unknown"}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var invalidated *Generation
+	if err := s.Tx(func(tx *sql.Tx) error {
+		if err := SetStatus(tx, unrepresented.ID, "disabled"); err != nil {
+			return err
+		}
+		var err error
+		invalidated, err = InvalidateGenerationForGuidance(tx, "a", unrepresented.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if invalidated != nil {
+		t.Fatalf("unrepresented guidance installed generation %+v", invalidated)
+	}
+	active, err := ActiveGeneration(s.DB, "a")
+	if err != nil || active.ID != first.ID {
+		t.Fatalf("active generation changed: %+v, err=%v", active, err)
+	}
+	item, err := GetRecord(s.DB, firstItems[0].ID)
+	if err != nil || item.Status != "active" {
+		t.Fatalf("compiled item changed: %+v, err=%v", item, err)
+	}
+}
+
+func TestInvalidateGenerationForGuidanceRecognizesCurrentSupersededBySuccessor(t *testing.T) {
+	s := openTest(t)
+	input := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "prefer", Body: "old phrasing"})
+	successor := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "prefer", Body: "current phrasing"})
+	represented := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "represented"})
+	var first *Generation
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		first, _, err = InstallGeneration(tx, "a", "",
+			[]NewItem{{Key: "kept", Body: "compiled advice", Sources: []string{represented.ID}}},
+			[]BriefInput{
+				{EntryID: input.ID, Disposition: "superseded-by", Coverage: "unknown", Successor: successor.ID},
+				{EntryID: represented.ID, Disposition: "represented", Coverage: "unknown"},
+			})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var current *Record
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		current, err = ReplaceRecord(tx, successor.ID, NewRecord{
+			Agent: "a", Lane: "guidance", Kind: "prefer", Body: "latest phrasing",
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var invalidated *Generation
+	if err := s.Tx(func(tx *sql.Tx) error {
+		if err := SetStatus(tx, current.ID, "disabled"); err != nil {
+			return err
+		}
+		var err error
+		invalidated, err = InvalidateGenerationForGuidance(tx, "a", current.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if invalidated == nil || invalidated.Parent != first.ID {
+		t.Fatalf("current superseded-by successor did not invalidate generation: %+v", invalidated)
+	}
+}
+
 func TestSignalLifecycle(t *testing.T) {
 	s := openTest(t)
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)

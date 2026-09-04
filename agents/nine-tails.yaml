@@ -1,0 +1,14 @@
+nine_tails_export: 1
+agent: nine-tails
+records:
+  - lane: definition
+    kind: agent-base
+    name: base
+    meta:
+      title: [nine-tails (the project itself)]
+    body: |-
+      Carry durable design guidance and observed behavior about nine-tails as
+      a tool. Put decisions about how the product should behave in guidance.
+      Put reproducible facts, failures, and recovery procedures in recall.
+      Do not use this agent as an implementation role.
+
