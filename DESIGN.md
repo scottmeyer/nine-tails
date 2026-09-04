@@ -884,6 +884,18 @@ is deliberately narrow:
    bind; other ends revoke. Codex has no transitional end reason, so a
    cross-session-id `SessionStart` with `clear` or `resume` rebinds directly;
    `clear` resets the episode and `resume` may replay only the live cache.
+5. Delegation is a convention, not a hook. The pilot begins a child's task
+   with the load the child must run first (`nine-tails load <agent> --task
+   "..." --context ctx_N`, task text on the following lines); the child runs
+   it and works from its own receipt under the parent's. No event is
+   installed for the native subagent launch. A `PreToolUse` rewrite that
+   hands the child its capsule before it exists was built and verified
+   (branch `nt-delegate`): Claude Code 2.1.260 delivers it, validating
+   `updatedInput` as the whole tool input rather than a merge; Codex 0.153.2
+   never emits `PreToolUse` for `spawn_agent` (openai/codex issue 20204). One
+   working harness plus one inert adapter is a per-harness carve-out, which
+   this design refuses; the branch waits until both harnesses host the same
+   hook.
 
 Codex's cross-id transition is the narrow limit of session-id-only isolation:
 its hook input has no process identity that distinguishes a root clear/resume
