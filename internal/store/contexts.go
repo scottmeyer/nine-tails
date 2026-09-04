@@ -10,14 +10,14 @@ import (
 
 // Context is an immutable receipt of one load (spec §9).
 type Context struct {
-	ID        string `json:"context_id" yaml:"context_id"`
-	Agent     string `json:"agent" yaml:"agent"`
-	Parent    string `json:"parent_context" yaml:"parent_context"`
-	Task      string `json:"task" yaml:"task"`
-	Budget    int    `json:"budget" yaml:"budget"`
-	CreatedAt string `json:"created_at" yaml:"created_at"`
-	Pinned    bool   `json:"pinned" yaml:"pinned"`
-	Meta      Meta   `json:"metadata" yaml:"metadata"`
+	ID              string `json:"context_id" yaml:"context_id"`
+	Agent           string `json:"agent" yaml:"agent"`
+	Parent          string `json:"parent_context" yaml:"parent_context"`
+	Task            string `json:"task" yaml:"task"`
+	EstimatedTokens int    `json:"estimated_tokens" yaml:"estimated_tokens"`
+	CreatedAt       string `json:"created_at" yaml:"created_at"`
+	Pinned          bool   `json:"pinned" yaml:"pinned"`
+	Meta            Meta   `json:"metadata" yaml:"metadata"`
 	// Rendered lists emitted records in render order.
 	Rendered []ContextRecord `json:"rendered" yaml:"rendered"`
 }
@@ -40,7 +40,7 @@ func (c *Context) RenderedIDs() []string {
 
 // CreateContext persists a receipt. meta must already be fully resolved
 // (parent's metadata merged with the explicit metadata). Must run inside Tx.
-func CreateContext(tx Querier, agent, parent, task string, budget int, meta Meta, rendered []ContextRecord) (*Context, error) {
+func CreateContext(tx Querier, agent, parent, task string, estimatedTokens int, meta Meta, rendered []ContextRecord) (*Context, error) {
 	if err := ValidateMeta(meta); err != nil {
 		return nil, err
 	}
@@ -48,24 +48,24 @@ func CreateContext(tx Querier, agent, parent, task string, budget int, meta Meta
 	if err != nil {
 		return nil, err
 	}
-	if err := CreateContextWithID(tx, id, agent, parent, task, budget, meta, rendered); err != nil {
+	if err := CreateContextWithID(tx, id, agent, parent, task, estimatedTokens, meta, rendered); err != nil {
 		return nil, err
 	}
 	if rendered == nil {
 		rendered = []ContextRecord{}
 	}
-	return &Context{ID: id, Agent: agent, Parent: parent, Task: task, Budget: budget, CreatedAt: Now(), Meta: meta.Clone(), Rendered: rendered}, nil
+	return &Context{ID: id, Agent: agent, Parent: parent, Task: task, EstimatedTokens: estimatedTokens, CreatedAt: Now(), Meta: meta.Clone(), Rendered: rendered}, nil
 }
 
 // CreateContextWithID persists a receipt under an ID the caller already
 // allocated with NextID (so the capsule header can carry it before render).
-func CreateContextWithID(tx Querier, id, agent, parent, task string, budget int, meta Meta, rendered []ContextRecord) error {
+func CreateContextWithID(tx Querier, id, agent, parent, task string, estimatedTokens int, meta Meta, rendered []ContextRecord) error {
 	if err := ValidateMeta(meta); err != nil {
 		return err
 	}
 	now := Now()
-	if _, err := tx.Exec(`INSERT INTO contexts(id, agent, parent_context_id, task, token_budget, created_at, pinned)
-		VALUES (?, ?, ?, ?, ?, ?, 0)`, id, agent, nullable(parent), nullable(task), budget, now); err != nil {
+	if _, err := tx.Exec(`INSERT INTO contexts(id, agent, parent_context_id, task, estimated_tokens, created_at, pinned)
+		VALUES (?, ?, ?, ?, ?, ?, 0)`, id, agent, nullable(parent), nullable(task), estimatedTokens, now); err != nil {
 		return err
 	}
 	for _, k := range SortedKeys(meta) {
@@ -88,8 +88,8 @@ func CreateContextWithID(tx Querier, id, agent, parent, task string, budget int,
 func GetContext(q Querier, id string) (*Context, error) {
 	c := &Context{Meta: Meta{}, Rendered: []ContextRecord{}}
 	var pinned int
-	err := q.QueryRow(`SELECT id, agent, COALESCE(parent_context_id,''), COALESCE(task,''), token_budget, created_at, pinned FROM contexts WHERE id = ?`, id).
-		Scan(&c.ID, &c.Agent, &c.Parent, &c.Task, &c.Budget, &c.CreatedAt, &pinned)
+	err := q.QueryRow(`SELECT id, agent, COALESCE(parent_context_id,''), COALESCE(task,''), estimated_tokens, created_at, pinned FROM contexts WHERE id = ?`, id).
+		Scan(&c.ID, &c.Agent, &c.Parent, &c.Task, &c.EstimatedTokens, &c.CreatedAt, &pinned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: context %s", ErrNotFound, id)
 	}

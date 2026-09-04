@@ -49,7 +49,9 @@ type Adapter interface {
 	OwnsHandler(json.RawMessage) bool
 	DecodeEvent(io.Reader) (Event, error)
 	EncodeContext(io.Writer, string, string) error
-	CapsuleBudget(configured int) int
+	// CapsuleMaxBytes is the harness's hard ceiling on one injected capsule;
+	// a capsule over it is not injected and not recorded (capsule.TooLargeError).
+	CapsuleMaxBytes() int
 }
 
 // For returns the adapter for name.
@@ -179,13 +181,10 @@ func (claudeAdapter) EncodeContext(w io.Writer, event, context string) error {
 	return encodeContext(w, event, context)
 }
 
-func (claudeAdapter) CapsuleBudget(configured int) int {
-	// Claude caps additionalContext at 10,000 characters. The conservative
-	// nine-tails estimator bounds a 2,800-token capsule below 9,800 bytes.
-	if configured > 2800 {
-		return 2800
-	}
-	return configured
+func (claudeAdapter) CapsuleMaxBytes() int {
+	// Claude caps additionalContext at 10,000 characters and replaces a longer
+	// value with a file preview; bytes bound characters, with a margin.
+	return 9800
 }
 
 type codexAdapter struct{}
@@ -250,14 +249,10 @@ func (codexAdapter) EncodeContext(w io.Writer, event, context string) error {
 	return encodeContext(w, event, context)
 }
 
-func (codexAdapter) CapsuleBudget(configured int) int {
-	// Cached Markdown is JSON-escaped into a run marker capped at 1 MiB.
-	// 40,000 estimated tokens is at most 140 KiB before escaping and 840 KiB
-	// under Go JSON's worst-case six-byte escape expansion.
-	if configured > 40000 {
-		return 40000
-	}
-	return configured
+func (codexAdapter) CapsuleMaxBytes() int {
+	// Cached Markdown is JSON-escaped into a run marker capped at 1 MiB:
+	// 140 KiB stays below it even under Go JSON's worst-case six-byte escape.
+	return 140 * 1024
 }
 
 func encodeContext(w io.Writer, event, context string) error {

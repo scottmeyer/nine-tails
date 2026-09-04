@@ -15,17 +15,16 @@ Rules:
 - Merge equivalent entries and retain their source relationships.
 - Retain conditions that explain apparent contradictions.
 - Prefer instructions that describe the desired behavior, not only what to avoid.
-- Defer material that cannot be represented safely within budget.
+- Defer material that cannot be represented safely and concisely.
 - Remove redundant wording.
 - Do not invent preferences absent from the material.
-- Stay within the requested output budget.
+- Keep the whole brief concise; it is loaded on every invocation.
 
 The new generation replaces the active one completely: re-emit (merged or
 reworded as needed) every active item that should survive, reusing its key so
 the lineage is recorded, and drop items that no longer apply. Item metadata is
 applicability scope, not description: keep the scope that every source shares
-(for example repo-id) unless the guidance is genuinely general. The budget is
-in tokens (about one token per 3.5 bytes) for all item bodies together.
+(for example repo-id) unless the guidance is genuinely general.
 
 Output contract. Reply with exactly one YAML or JSON document and nothing
 else. Keys may be written in snake_case or kebab-case.

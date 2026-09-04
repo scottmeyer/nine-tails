@@ -1,5 +1,5 @@
 // Package tokens provides the deterministic, conservative token estimate used
-// for capsule budgeting. No tokenizer is consulted; the estimate is
+// for capsule size reporting. No tokenizer is consulted; the estimate is
 // ceil(bytes / 3.5), which overestimates for ordinary English prose and code.
 package tokens
 

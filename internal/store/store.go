@@ -51,7 +51,7 @@ func HomeDir() (string, error) {
 	return filepath.Join(u, ".nine-tails"), nil
 }
 
-const userVersion = 1
+const userVersion = 2 // 2: contexts.token_budget became estimated_tokens
 
 // Open opens (creating if needed) the store under home.
 func Open(home string) (*Store, error) {
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS contexts (
     agent             TEXT NOT NULL,
     parent_context_id TEXT,
     task              TEXT,
-    token_budget      INTEGER NOT NULL,
+    estimated_tokens  INTEGER NOT NULL,
     created_at        TEXT NOT NULL,
     pinned            INTEGER NOT NULL DEFAULT 0
 );
@@ -243,6 +243,12 @@ func (s *Store) migrate() error {
 	}
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	if v == 1 {
+		// v2: a receipt records the capsule's estimated size, not a budget.
+		if _, err := tx.Exec(`ALTER TABLE contexts RENAME COLUMN token_budget TO estimated_tokens`); err != nil {
+			return fmt.Errorf("migrate contexts to v2: %w", err)
+		}
 	}
 	if _, err := tx.Exec(`INSERT INTO seq(n) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM seq)`); err != nil {
 		return fmt.Errorf("initialize sequence: %w", err)

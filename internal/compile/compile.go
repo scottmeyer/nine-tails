@@ -22,7 +22,6 @@ import (
 // Input is the compile-input document handed to the compiler.
 type Input struct {
 	Agent            string          `json:"agent" yaml:"agent"`
-	Budget           int             `json:"budget" yaml:"budget"`
 	Instructions     string          `json:"instructions" yaml:"instructions"`
 	ExpectGeneration string          `json:"expect_generation" yaml:"expect_generation"` // gen_N or "none"
 	ExpectBase       string          `json:"expect_base" yaml:"expect_base"`
@@ -102,7 +101,7 @@ func Instructions(q store.Querier) string {
 }
 
 // BuildInput assembles the compile-input document for agent.
-func BuildInput(q store.Querier, agent string, budget int) (*Input, error) {
+func BuildInput(q store.Querier, agent string) (*Input, error) {
 	ok, err := store.AgentExists(q, agent)
 	if err != nil {
 		return nil, err
@@ -118,7 +117,7 @@ func BuildInput(q store.Querier, agent string, budget int) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{
-		Agent: agent, Budget: budget, Instructions: Instructions(q),
+		Agent: agent, Instructions: Instructions(q),
 		ExpectGeneration: "none", ExpectBase: base.ID,
 		Base:         BaseView{ID: base.ID, Body: base.Body},
 		InputEntries: []string{}, Entries: []Entry{},

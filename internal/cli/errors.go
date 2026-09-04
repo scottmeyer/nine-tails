@@ -18,7 +18,7 @@ const (
 	ExitNotFound = 3 // agent, record, tool, or signal not found
 	ExitStore    = 4 // store unavailable or transaction failed
 	ExitTool     = 5 // tool or external adapter failed
-	ExitBudget   = 6 // requested context cannot fit the supplied budget
+	// 6 is unused: capsules are never cut for size (DESIGN §7).
 	ExitConflict = 7 // compare-and-swap or lease conflict
 )
 
@@ -100,9 +100,6 @@ func NotFound(format string, args ...any) error { return Errorf(ExitNotFound, fo
 
 // Conflict is Errorf(ExitConflict, ...).
 func Conflict(format string, args ...any) error { return Errorf(ExitConflict, format, args...) }
-
-// Budget is Errorf(ExitBudget, ...).
-func Budget(format string, args ...any) error { return Errorf(ExitBudget, format, args...) }
 
 // ToolFailed is Errorf(ExitTool, ...).
 func ToolFailed(format string, args ...any) error { return Errorf(ExitTool, format, args...) }

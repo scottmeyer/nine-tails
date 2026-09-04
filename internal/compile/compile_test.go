@@ -665,11 +665,11 @@ func TestInstallCASAndLineage(t *testing.T) {
 
 func TestBuildInput(t *testing.T) {
 	s := openTest(t)
-	if _, err := BuildInput(s.DB, "nobody", 100); cli.CodeOf(err) != cli.ExitNotFound {
+	if _, err := BuildInput(s.DB, "nobody"); cli.CodeOf(err) != cli.ExitNotFound {
 		t.Errorf("unknown agent: %v", err)
 	}
 	guidance(t, s, "baseless", "x", nil, "")
-	if _, err := BuildInput(s.DB, "baseless", 100); cli.CodeOf(err) != cli.ExitNotFound {
+	if _, err := BuildInput(s.DB, "baseless"); cli.CodeOf(err) != cli.ExitNotFound {
 		t.Errorf("agent without base: %v", err)
 	}
 	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
@@ -678,11 +678,11 @@ func TestBuildInput(t *testing.T) {
 	e2 := guidance(t, s, "a", "two", nil, "")
 	insert(t, s, store.NewRecord{Agent: "a", Lane: "recall", Kind: "memory", Body: "never compiled"})
 
-	in, err := BuildInput(s.DB, "a", 300)
+	in, err := BuildInput(s.DB, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if in.Agent != "a" || in.Budget != 300 || in.Instructions != DefaultInstructions || in.ExpectGeneration != "none" ||
+	if in.Agent != "a" || in.Instructions != DefaultInstructions || in.ExpectGeneration != "none" ||
 		in.ExpectBase != base.ID || in.Base.ID != base.ID || in.Base.Body != "Base." || in.ActiveGeneration != nil {
 		t.Errorf("input: %+v", in)
 	}
@@ -699,7 +699,7 @@ func TestBuildInput(t *testing.T) {
 
 	// a brief-compiler agent's base replaces the built-in instructions
 	insert(t, s, store.NewRecord{Agent: "brief-compiler", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Custom instructions."})
-	in, _ = BuildInput(s.DB, "a", 300)
+	in, _ = BuildInput(s.DB, "a")
 	if in.Instructions != "Custom instructions." {
 		t.Errorf("instructions: %q", in.Instructions)
 	}
@@ -710,7 +710,7 @@ func TestBuildInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in, _ = BuildInput(s.DB, "a", 300)
+	in, _ = BuildInput(s.DB, "a")
 	if in.ExpectGeneration != res.Generation || in.ActiveGeneration == nil || in.ActiveGeneration.ID != res.Generation ||
 		len(in.ActiveGeneration.Items) != 1 || in.ActiveGeneration.Items[0].Key != "k" || in.ActiveGeneration.Items[0].ID != res.Items[0] ||
 		!reflect.DeepEqual(in.InputEntries, []string{e2.ID}) {
@@ -727,7 +727,7 @@ func TestBuildInputOriginWithoutMetadata(t *testing.T) {
 	bare := receipt(t, s, "a", nil) // no metadata, nothing rendered
 	withOrigin := guidance(t, s, "a", "one", nil, bare.ID)
 	noOrigin := guidance(t, s, "a", "two", nil, "")
-	in, err := BuildInput(s.DB, "a", 100)
+	in, err := BuildInput(s.DB, "a")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,7 +16,7 @@ func newContextCmd(a *app) *cobra.Command {
 		Use:   "context",
 		Short: "List, pin, or garbage-collect context receipts",
 		Long: `A context is an immutable receipt of one load: agent, task, resolved
-metadata, budget, parent, and the exact record ids emitted. Read one with
+metadata, estimated size, parent, and the exact record ids emitted. Read one with
 ` + "`nine-tails inspect ctx_N`" + `.
   context list [--agent A] [--limit N]
   context pin|unpin <ctx-id>

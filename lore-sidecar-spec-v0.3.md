@@ -9,7 +9,7 @@
 
 Lore is a small, harness-independent CLI sidecar for persistent agent context.
 It does not run an agent loop, select a model, manage a conversation, or enforce
-agent behavior. It resolves a named agent into a token-bounded context capsule,
+agent behavior. It resolves a named agent into a context capsule,
 records corrections and useful experience, carries a small versioned working
 state, exposes named tools backed by arbitrary executables, and carries
 reminders or external signals into future invocations.
@@ -87,7 +87,8 @@ Lore should:
 
 1. Reduce commonly repeated user corrections across agent invocations and
    measure whether those corrections were previously covered.
-2. Resolve a short agent name into a useful, token-bounded context capsule.
+2. Resolve a short agent name into a useful context capsule whose size is
+   reported, never cut.
 3. Allow agents to be small and composable without requiring a particular
    harness implementation.
 4. Let agents add memories, preferences, scripts, and reminders using a few
@@ -282,8 +283,8 @@ The compiler may be an API call, a harness command, or another Lore agent.
 
 ### Context
 
-An immutable receipt of one `load`: agent, task, ambient metadata, budget,
-parent context, and the exact record IDs emitted. Contexts provide inheritance
+An immutable receipt of one `load`: agent, task, ambient metadata, estimated
+size, parent context, and the exact record IDs emitted. Contexts provide inheritance
 for nested operations and evidence for repeated-correction measurement.
 
 ### Harness adapter
@@ -297,7 +298,7 @@ Lore owns:
 
 - Persistent records and artifact references.
 - Agent and tool name resolution.
-- Context assembly and budget enforcement.
+- Context assembly and size reporting.
 - Immutable state resolution and replacement.
 - Journal append and inspection.
 - Tool definition lookup and optional executable dispatch.
@@ -537,7 +538,7 @@ CREATE TABLE contexts (
     agent             TEXT NOT NULL,
     parent_context_id TEXT,
     task              TEXT,
-    token_budget      INTEGER NOT NULL,
+    estimated_tokens  INTEGER NOT NULL,
     created_at        TEXT NOT NULL,
     pinned            INTEGER NOT NULL DEFAULT 0
 );
@@ -622,7 +623,7 @@ lore load pr-review \
 ```
 
 `load` persists an immutable context receipt and returns its identifier. The
-receipt contains the agent, task, ambient metadata, token budget, parent
+receipt contains the agent, task, ambient metadata, estimated size, parent
 context, and exact record IDs emitted.
 
 ```json
@@ -791,8 +792,8 @@ Structured callers may request JSON:
 
 Structured output separates instruction material from signal data so a native
 harness can choose their placement. The Markdown renderer labels signals as
-external inbox material and includes only capped excerpts. This is context and
-budget discipline, not a security boundary.
+external inbox material and includes only capped excerpts. This is context
+discipline, not a security boundary.
 
 ### 10.2 Assembly
 
@@ -810,51 +811,30 @@ The initial resolver should be deliberately simple:
    invocation's value set for the same key.
 7. Rank remaining optional records by exact metadata overlap and recency.
 8. Render metadata compactly next to the associated text.
-9. Stop at the requested context budget and persist the exact emitted record
-   IDs in the context receipt.
+9. Persist the exact emitted record IDs and the capsule's estimated size in
+   the context receipt.
 
 Unqualified records are broadly relevant. Records sharing invocation metadata
 receive higher priority. Explicitly conflicting records are excluded. Metadata
-missing from either side neither excludes nor positively matches. While the
-eligible corpus fits comfortably in budget, Lore should prefer showing
-model-readable context over pretending it can perfectly retrieve it.
+missing from either side neither excludes nor positively matches. Lore prefers showing
+model-readable context over pretending it can perfectly retrieve it; nothing
+eligible is cut for size.
 
-### 10.3 Token budget
+### 10.3 Size
 
-The caller supplies a maximum:
+There is no budget. `load` renders every eligible record whole, reports the
+capsule's estimated size (a conservative deterministic estimate; a
+model-specific tokenizer may replace it), and counts the recent guidance not
+yet compiled. When the size passes a configurable threshold and something is
+uncompiled, `load` advises a compile on stderr; the pilot guide tells the
+model to act on it. Size discipline lives where it is cheap and exact: state
+is size-capped when written, signal bodies render as capped excerpts, recall
+never renders, and compilation compacts the journal.
 
-```bash
-lore load pr-review --budget 1400
-```
-
-The budget applies to the rendered capsule. When a model-specific tokenizer is
-configured, Lore may use it. Otherwise it uses a conservative deterministic
-estimate.
-
-Budgeting must use both floors and caps. Agent identity, valid base
-instructions, and matching current state are mandatory. State records are
-size-limited when written and are never truncated mid-document. The active
-compiled brief receives a configurable reserved floor, and recent corrections
-receive reserved space with a cap. A burst of uncompiled entries must not evict
-the entire accumulated brief.
-
-Within those constraints, content priority is:
-
-1. Agent identity, purpose, and base instructions.
-2. Current state within its enforced cap.
-3. The reserved active-brief allocation.
-4. The newest explicit corrections within their capped allocation.
-5. Relevant tool and related-agent summaries.
-6. Other metadata-relevant brief items and recent guidance.
-
-Signals have a separate capped allocation in structured output. The Markdown
-renderer includes capped signal excerpts without allowing them to consume the
-brief's reserved floor. Exact percentages remain configurable and are not
-standardized in v0.
-
-Lore should report truncation in structured output. It should not silently
-truncate the middle of a record. If base instructions alone exceed the budget,
-`load` returns a clear error.
+Lore never truncates the middle of a record and never drops one to fit. A
+harness adapter with a hard transport ceiling may refuse a capsule that does
+not fit whole; such a capsule is not recorded as seen, and the adapter points
+the session at an in-session load instead (§17.2).
 
 ### 10.4 Placement
 
@@ -1145,7 +1125,8 @@ Compilation may run:
 
 - Explicitly through `lore compile <agent>`.
 - After a configurable number of unrepresented guidance entries.
-- When recent guidance exceeds its capsule allocation.
+- When `load` advises it: the capsule passed the size threshold with
+  uncompiled guidance in it.
 - On a periodic signal.
 - Through an agent asked to inspect and repair a profile.
 
@@ -1164,21 +1145,20 @@ Lore must not require a specific model provider. Supported patterns are:
 Conceptual commands:
 
 ```bash
-lore compile-input pr-review --budget 1200 --format json
+lore compile-input pr-review --format json
 
 lore brief put pr-review \
   --expect-generation briefgen_11 \
   --expect-base base_4 \
   --stdin
 
-lore compile pr-review --budget 1200
+lore compile pr-review
 ```
 
 Compiler input contains immutable identifiers:
 
 ```yaml
 agent: pr-review
-budget: 1200
 base:
   id: base_4
   body: "..."
@@ -1315,10 +1295,10 @@ The default compiler instructions should be short and inspectable:
 - Retain conditions that explain apparent contradictions.
 - Prefer instructions that describe the desired behavior, not only what to
   avoid.
-- Defer material that cannot be represented safely within budget.
+- Defer material that cannot be represented safely and concisely.
 - Remove redundant wording.
 - Do not invent preferences absent from the material.
-- Stay within the requested output budget.
+- Keep the whole brief concise; it is loaded on every invocation.
 
 The compiler may itself be represented as a small Lore agent. This is the
 preferred dogfooding path once harness adapters exist.
@@ -1469,8 +1449,7 @@ loaded on demand:
 ```bash
 lore load evidence-reviewer \
   --context ctx_72 \
-  --task "Validate a suspected goroutine leak" \
-  --budget 800
+  --task "Validate a suspected goroutine leak"
 ```
 
 The child inherits ambient metadata through `ctx_72`, records that identifier
@@ -1679,7 +1658,7 @@ operations. `note`, `avoid`, and `prefer` default to the `guidance` lane;
 | 3 | Agent, record, tool, or signal not found |
 | 4 | Store unavailable or transaction failed |
 | 5 | Tool or external adapter failed |
-| 6 | Requested context cannot fit the supplied budget |
+| 6 | Unused; capsules are never cut for size |
 | 7 | Compare-and-swap or lease conflict |
 
 Exact numeric assignments are less important than stable, documented
@@ -1785,10 +1764,10 @@ not read unstable transcript files, capture a transcript by default, or turn
 session-end into unconditional reflection. Harness trust review and hook
 permissions remain the harness's security boundary.
 
-Adapter-specific output and cache ceilings may clamp a configured capsule
-budget when required to deliver complete context through a harness or keep the
-ephemeral capability within its bounded marker format. Such a clamp remains an
-adapter concern and does not change core `load` budgeting.
+An adapter with a hard output or cache ceiling refuses a capsule that does not
+fit whole rather than cutting it: nothing is recorded as seen, and the session
+is pointed at an in-session load. The ceiling is an adapter concern; core
+`load` has no budget.
 
 ### 17.3 Graceful degradation
 
@@ -1829,7 +1808,7 @@ run the compiler:
 lore prefer pr-review \
   "Keep evidence concrete and detailed, but keep explanatory prose concise."
 
-lore compile pr-review --budget 1200
+lore compile pr-review
 ```
 
 The model is the configuration explorer and editor. Lore only needs sufficient
@@ -1850,8 +1829,7 @@ lore load pr-review \
   --task "Review PR 1842" \
   --meta repo-id=my_repo \
   --meta language=go \
-  --meta pr=1842 \
-  --budget 1400
+  --meta pr=1842
 ```
 
 Lore returns `context_id=ctx_72` with the capsule and its exact rendered-record
@@ -1864,8 +1842,7 @@ The PR agent finds a possible leak and loads a narrower capsule:
 ```bash
 lore load evidence-reviewer \
   --context ctx_72 \
-  --task "Determine whether this goroutine can outlive the request" \
-  --budget 700
+  --task "Determine whether this goroutine can outlive the request"
 ```
 
 The harness may run that capsule inline or in a subagent.
@@ -1909,8 +1886,7 @@ agent loads the reflector capsule inline or through a subagent:
 ```bash
 lore load reflector \
   --context ctx_72 \
-  --task "Reflect on the review now blocked on CI" \
-  --budget 400
+  --task "Reflect on the review now blocked on CI"
 ```
 
 The reflector decides the current status should survive the invocation and
@@ -1952,7 +1928,7 @@ lore signal pr-review \
 After several corrections accumulate:
 
 ```bash
-lore compile pr-review --budget 1200
+lore compile pr-review
 ```
 
 The compiler emits a new generation of metadata-bearing brief items, accounts
@@ -2019,7 +1995,8 @@ that boundary.
 An implementation is sufficient when it can demonstrate all of the following:
 
 1. A named agent can be created with base instructions.
-2. `load` returns a coherent capsule within a caller-supplied budget.
+2. `load` returns a coherent capsule with nothing eligible cut and reports its
+   estimated size.
 3. A correction appended in one invocation appears in the next invocation.
 4. `load` returns an immutable context receipt containing every emitted record
    ID.
@@ -2030,7 +2007,7 @@ An implementation is sufficient when it can demonstrate all of the following:
 7. Arbitrary metadata is preserved and rendered without prior schema
    definition; disjoint value sets on a shared key exclude a record.
 8. The active brief is a generation of independently selectable,
-   metadata-bearing items with a reserved budget floor.
+   metadata-bearing items that a burst of recent guidance never evicts.
 9. Guidance, recall, and state remain mechanically distinct, and unknown kinds
    default to recall.
 10. A compiler adapter accounts for every input entry and installs a generation

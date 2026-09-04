@@ -23,26 +23,7 @@ import (
 // after everything (validation, coverage, install, lint) has run.
 var errDryRun = errors.New("dry run")
 
-// compileBudget resolves --budget: when the flag was not given, the brief's
-// reserved share of a default load (brief_floor × default_budget). An explicit
-// --budget 0 is invalid like any other non-positive value (DESIGN §5), so the
-// flag's Changed state, not its value, tells the two apart.
-func (a *app) compileBudget(cmd *cobra.Command, flag int) (int, error) {
-	if cmd.Flags().Changed("budget") {
-		if flag <= 0 {
-			return 0, cli.Invalid("--budget must be positive, got %d", flag)
-		}
-		return flag, nil
-	}
-	b := int(a.cfg.BriefFloor * float64(a.cfg.DefaultBudget))
-	if b <= 0 {
-		return 0, cli.Invalid("default brief budget brief_floor × default_budget is %d in %s/config.yaml; pass --budget N", b, a.home)
-	}
-	return b, nil
-}
-
 func newCompileInputCmd(a *app) *cobra.Command {
-	var budget int
 	var format string
 	c := &cobra.Command{
 		Use:   "compile-input <agent>",
@@ -62,18 +43,13 @@ The instructions are the built-in default unless an agent named
 			if err := store.ValidAgentName(args[0]); err != nil {
 				return err
 			}
-			b, err := a.compileBudget(cmd, budget)
-			if err != nil {
-				return err
-			}
-			in, err := compile.BuildInput(a.st.DB, args[0], b)
+			in, err := compile.BuildInput(a.st.DB, args[0])
 			if err != nil {
 				return err
 			}
 			return cli.Write(a.stdout, format, in)
 		},
 	}
-	c.Flags().IntVar(&budget, "budget", 0, "token budget for the brief, > 0 (default brief_floor × default_budget from config)")
 	c.Flags().StringVar(&format, "format", "json", "json|yaml")
 	return c
 }
@@ -219,11 +195,10 @@ func (a *app) printBriefResult(format string, res *compile.Result) error {
 }
 
 func newCompileCmd(a *app) *cobra.Command {
-	var budget int
 	var compiler, format string
 	var dryRun bool
 	c := &cobra.Command{
-		Use:   "compile <agent> [--budget N] [--compiler \"claude -p\"]",
+		Use:   "compile <agent> [--compiler \"claude -p\"]",
 		Short: "Run the configured compiler over compile-input and install its output",
 		Long: `compile-input → compiler → brief put, in one step. The compiler command is
 --compiler, else $NINE_TAILS_COMPILER, else compiler.argv in config.yaml; it
@@ -244,10 +219,6 @@ compile input, so a generation installed meanwhile makes this exit 7.`,
 			if err := store.ValidAgentName(agent); err != nil {
 				return err
 			}
-			b, err := a.compileBudget(cmd, budget)
-			if err != nil {
-				return err
-			}
 			argv, err := a.compilerArgv(compiler)
 			if err != nil {
 				return err
@@ -256,7 +227,7 @@ compile input, so a generation installed meanwhile makes this exit 7.`,
 			if err != nil {
 				return cli.Invalid("config.yaml compiler.timeout: %v", err)
 			}
-			in, err := compile.BuildInput(a.st.DB, agent, b)
+			in, err := compile.BuildInput(a.st.DB, agent)
 			if err != nil {
 				return err
 			}
@@ -286,7 +257,6 @@ compile input, so a generation installed meanwhile makes this exit 7.`,
 			return nil
 		},
 	}
-	c.Flags().IntVar(&budget, "budget", 0, "token budget for the brief, > 0 (default brief_floor × default_budget from config)")
 	c.Flags().StringVar(&compiler, "compiler", "", "compiler command line, split on whitespace (overrides NINE_TAILS_COMPILER and config)")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "run the compiler and validate its output but install nothing")
 	c.Flags().StringVar(&format, "format", "id", "id (one line) | json | yaml")

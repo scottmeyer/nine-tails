@@ -17,7 +17,7 @@ Dependencies (keep it to these): `modernc.org/sqlite`, `github.com/spf13/cobra`,
 - Data on stdout, diagnostics on stderr, never interactive, never colored.
 - Every mutation is an immutable record; only mechanical fields change in place.
 - Exit codes exactly as spec §16.4: 0 ok, 2 invalid input, 3 not found,
-  4 store failure, 5 tool/adapter failure, 6 budget cannot fit, 7 CAS/lease
+  4 store failure, 5 tool/adapter failure, 6 unused, 7 CAS/lease
   conflict. `hooks run` is the explicit supervisor exception: after a successful
   launch it preserves the child status (or Unix `128 + signal`).
 - Errors: first stderr line is `nine-tails: <summary>`; detail lines may follow,
@@ -142,11 +142,7 @@ imported with `import`.
 `config.yaml` (all optional, defaults shown; the spec calls these configurable):
 
 ```yaml
-default_budget: 2000        # tokens, for `load`
-brief_floor: 0.40           # fraction of post-mandatory budget reserved for brief
-recent_cap: 0.30            # phase-1 cap for recent guidance
-tools_cap: 0.15             # hard cap for tools + related agents
-signals_cap: 0.15           # hard cap for signal excerpts
+compile_advice_tokens: 4000 # `load` advises a compile above this estimated size; 0 = never
 signal_excerpt_chars: 300
 state_max_bytes: 8192
 context_retention_days: 30
@@ -158,12 +154,9 @@ compiler:
 Flags override config; config overrides defaults. `nine-tails config` prints
 the effective values as JSON so an agent can see them.
 
-Configuration is validated before the store is opened. Budgets, byte caps,
-retention days, excerpt lengths, and compiler timeouts must be positive;
-allocation fractions must be finite values in `[0,1]` whose sum is at most
-`1`. Invalid configuration is exit 2. Capsule assembly also enforces the
-caller-supplied budget as a hard global maximum even when called directly as a
-Go package with a custom policy.
+Configuration is validated before the store is opened. Byte caps, retention
+days, excerpt lengths, and compiler timeouts must be positive; the compile
+advice threshold must be zero or positive. Invalid configuration is exit 2.
 
 `NINE_TAILS_NOW` (RFC 3339), when set, is "now" for every timestamp and
 comparison. Tests use it; humans never need it.
@@ -219,7 +212,7 @@ CREATE TABLE signal_delivery (                    -- spec §15.3
 );
 CREATE UNIQUE INDEX signal_dedupe ON signal_delivery(agent, dedupe_key)
     WHERE dedupe_key IS NOT NULL AND state != 'acknowledged';
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;   -- 2: contexts.token_budget became estimated_tokens
 ```
 
 `records.name`: required for lane=definition, lane=state, and kind=brief-item;
@@ -275,7 +268,7 @@ cmd/nine-tails/cmd_hooks.go     harness install/uninstall, explicit run, dispatc
 internal/store/                 all SQL: records, metadata, contexts, generations,
                                 signals, state CAS, RecentGuidance (the ONLY
                                 implementation of §7 rule 4)
-internal/capsule/               assembly, ranking, budget, markdown + json render
+internal/capsule/               assembly, ranking, size reporting, markdown + json render
 internal/tokens/                deterministic estimate
 internal/tool/                  YAML tool body parse/validate/exec
 internal/compile/               compile-input, output validate, coverage, install, lint
@@ -292,7 +285,7 @@ Concrete assignments: `--expect` naming a missing/superseded ID → 7; unknown
 `--context` → 3; `signal ack` unknown id → 3, wrong token / not leased /
 expired → 7; tool cannot start or times out → 5, otherwise the tool's exit code
 verbatim; compiler cannot start / nonzero / timeout → 5; compiler output
-unparsable or failing validation → 2; malformed `--at`/`--meta`/`--budget<=0`/
+unparsable or failing validation → 2; malformed `--at`/`--meta`/
 unknown flag or command → 2; a stored `user_version` higher than ours → 4.
 
 An agent **exists** iff any record (any status) carries its name. `load`,
@@ -303,7 +296,7 @@ implicitly.
 ## 6. Command surface (v0)
 
 ```
-nine-tails load <agent> [--task T] [--context ctx] [--meta k=v]... [--budget N] [--format md|json|yaml]
+nine-tails load <agent> [--task T] [--context ctx] [--meta k=v]... [--format md|json|yaml]
 nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--context ctx] (TEXT | --stdin)
 nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] (TEXT | --stdin)
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
@@ -319,9 +312,9 @@ nine-tails signal [<agent>] --subject S [--body B | --stdin] [--at RFC3339|+5m] 
 nine-tails signal ack <sig-id> --lease <token>
 nine-tails tick [--claim] [--lease 5m] [--agent A]
 nine-tails context list [--agent A] [--limit N] | pin <ctx-id> | unpin <ctx-id> | gc [--older-than 30d] [--dry-run]
-nine-tails compile-input <agent> [--budget N] [--format json|yaml]
+nine-tails compile-input <agent> [--format json|yaml]
 nine-tails brief put <agent> --expect-generation gen_11|none --expect-base base_4 --stdin [--dry-run]
-nine-tails compile <agent> [--budget N] [--compiler "claude -p"]
+nine-tails compile <agent> [--compiler "claude -p"]
 nine-tails export <agent> [--include base,brief,journal,state,tools,agents] [--bundle FILE.tar] [--all]
 nine-tails import (FILE.yaml | FILE.tar | --stdin)
 nine-tails agents [--format text|json]
@@ -418,28 +411,23 @@ body cannot be rendered is omitted, excluded from the receipt, reported on
 stderr as `nine-tails: skipped <id>: <reason>`, and listed in JSON under
 `skipped: [{id, reason}]`. Exit stays 0.
 
-Budget (tokens):
+Size (spec §10.3): nothing eligible is ever cut. Every candidate that passes
+the conflict rule renders, whole, in sort order; sections keep the order
+brief, recent, tools, agents, signals. Only signal *excerpts* are capped, at
+`signal_excerpt_chars` runes. `estimated_tokens` is `ceil(len(markdown)/3.5)`,
+reported in JSON and stored on the receipt; `uncompiled_adjustments` is the
+number of recent guidance entries rendered, what a compile would fold in.
 
-```
-cost(x) = tokens(exact rendered bytes of x)      tokens(s) = ceil(len(s)/3.5)
-mandatory = cost(header + base section + all state sections)
-if mandatory > budget → exit 6: "mandatory content needs N tokens, budget is B"
-R = budget - mandatory
-brief_floor  = floor(brief_floor  * R)   phase-1 allocation, may be exceeded in phase 2
-recent_cap   = floor(recent_cap   * R)   phase-1 allocation, may be exceeded in phase 2
-tools_cap    = floor(tools_cap    * R)   hard; tools then agents, sequentially
-signals_cap  = floor(signals_cap  * R)   hard
-```
-
-Fill: within each section, candidates are tried in sort order; the section's
-`## ...\n\n` header is charged to the first admitted item; an item that does
-not fit is skipped (counted in `truncated[].omitted`) and iteration continues.
-Phase 2 offers `R - used` to every brief item omitted in phase 1, in sort
-order, then to omitted recent guidance. Nothing is truncated mid-record except
-signal *excerpts*, which are capped at `signal_excerpt_chars` runes.
-
-`estimated_tokens` is the running sum of costs (mandatory + admitted items).
-Selection is format-independent: the same (agent, metadata, budget) yields the
+Size is advice: when `estimated_tokens` exceeds `compile_advice_tokens` and at
+least one adjustment is uncompiled, `load` writes one stderr line,
+`nine-tails: capsule is N estimated tokens with K uncompiled adjustments;
+compile with `nine-tails compile <agent>``, and the pilot guide tells the
+model to act on it. The only hard ceiling is a transport's: a harness adapter
+with a fixed hook-output limit passes `MaxBytes` to the capsule package, and a
+capsule over it is not recorded at all (`TooLargeError`, the transaction rolls
+back) so no receipt claims the model saw what the harness could not deliver;
+the adapter injects a pointer to an in-session load instead (harness hooks,
+below). Selection is format-independent: the same (agent, metadata) yields the
 same record set and receipt in md, json and yaml.
 
 Receipt: `contexts` row + resolved `context_metadata` + `context_records` for
@@ -499,12 +487,9 @@ collapsing whitespace runs to one space; `…` marks a cut. A body that begins
 with `[` in a record with no meta is emitted as `\[` so it cannot be mistaken
 for a bracket.
 
-In md mode, when anything is omitted for budget, one stderr line:
-`nine-tails: budget 1400: omitted 3 recent, 1 brief`.
-
 JSON output: spec §10.1 shape — `context_id, agent, task, parent_context,
 metadata, instructions, state[], tools[], agents[], signals[],
-rendered_record_ids, budget, estimated_tokens, truncated[], skipped[]`.
+rendered_record_ids, estimated_tokens, uncompiled_adjustments, skipped[]`.
 `instructions` is byte-identical to the markdown minus the `## Due signals`
 section. `signals[]` = `{id, subject, excerpt (without …), truncated, state,
 leased_until?, meta, inspect}`.
@@ -593,7 +578,6 @@ that daemonizes must redirect both.
 
 ```yaml
 agent: pr-review
-budget: 1200
 instructions: |            # built-in default compiler instructions (§12.7) + output contract
   ...
 expect_generation: gen_11  # or "none"
@@ -692,8 +676,8 @@ stderr. `instructions` comes from the `brief-compiler` agent's active base
 when that agent exists, else the built-in text in
 `internal/compile/instructions.go`; either way `compile-input` shows it.
 
-Further pins: `--budget` for `compile-input`/`compile` defaults to
-`brief_floor × default_budget` (800); an explicit `--budget 0` → 2. Metadata
+Further pins: there is no `--budget`; the instructions ask for a concise
+brief and nothing measures it. Metadata
 keys in compiler output are validated by the §3 key rule, not the name regex.
 A duplicate inside `input_entries` is a validation problem. `brief put` on a
 nonexistent agent → 3. `brief put --stdin` is mandatory. `--dry-run` prints
@@ -882,11 +866,11 @@ is deliberately narrow:
    claim prevents concurrent hook deliveries from creating duplicate receipts
    and is released on failure. It emits the harness's JSON `additionalContext`
    response and caches that Markdown plus its context id in the private run
-   file. Claude's adapter
-   clamps the configured load budget to 2,800 estimated tokens (smaller
-   configured budgets remain smaller), keeping the full capsule below its
-   current 10,000-character hook-output spill threshold. Codex clamps at
-   40,000 estimated tokens. Every write limits the non-capsule envelope to 192
+   file. Each adapter has one hard transport ceiling (`CapsuleMaxBytes`):
+   9,800 bytes for Claude, whose 10,000-character hook output otherwise spills
+   to a file preview, and 140 KiB for Codex's 1 MiB marker. A capsule over the
+   ceiling is not recorded (§7); the hook injects a pointer to an in-session
+   load and to `compile` instead. Every write limits the non-capsule envelope to 192
    KiB and the complete encoded marker to 1 MiB, so even the cache's worst-case
    Go JSON escaping remains readable; an over-limit lifecycle field or update
    fails before atomic replacement and leaves the prior marker intact.

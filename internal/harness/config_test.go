@@ -193,17 +193,11 @@ func TestCodexQuotesBothShellsAndClaudeUsesExecForm(t *testing.T) {
 	if !ok || len(args) != 4 || ch["command"] != "/tmp/it's here/nt" {
 		t.Fatalf("Claude handler=%#v", ch)
 	}
-	if got := claude.CapsuleBudget(5000); got != 2800 {
-		t.Fatalf("Claude capsule budget=%d", got)
+	if got := claude.CapsuleMaxBytes(); got != 9800 {
+		t.Fatalf("Claude capsule ceiling=%d bytes", got)
 	}
-	if got := claude.CapsuleBudget(1200); got != 1200 {
-		t.Fatalf("small Claude capsule budget=%d", got)
-	}
-	if got := codex.CapsuleBudget(5000); got != 5000 {
-		t.Fatalf("Codex capsule budget=%d", got)
-	}
-	if got := codex.CapsuleBudget(50000); got != 40000 {
-		t.Fatalf("large Codex capsule budget=%d", got)
+	if got := codex.CapsuleMaxBytes(); got != 140*1024 {
+		t.Fatalf("Codex capsule ceiling=%d bytes", got)
 	}
 }
 

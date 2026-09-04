@@ -74,7 +74,7 @@ func newRoot(a *app) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "nine-tails",
 		Short:         "persistent agent context sidecar",
-		Long:          "Start a session with:\n  nine-tails load pilot --task \"<task>\" --meta repo-id=<repo> --meta harness=<harness>\nThe pilot capsule is the usage guide and the catalog of agents in this store; a fresh store seeds it from the binary.\n\nnine-tails resolves a named agent into a token-bounded context capsule, records corrections, carries small versioned state, exposes named tools, and carries signals into future invocations.\n\nData goes to stdout, diagnostics to stderr. Never interactive. Mutations print the new id on one line; add --format json for the full record.",
+		Long:          "Start a session with:\n  nine-tails load pilot --task \"<task>\" --meta repo-id=<repo> --meta harness=<harness>\nThe pilot capsule is the usage guide and the catalog of agents in this store; a fresh store seeds it from the binary.\n\nnine-tails resolves a named agent into a context capsule, records corrections, carries small versioned state, exposes named tools, and carries signals into future invocations.\n\nData goes to stdout, diagnostics to stderr. Never interactive. Mutations print the new id on one line; add --format json for the full record.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

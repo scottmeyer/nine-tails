@@ -152,7 +152,10 @@ func DueSignalsVisible(q Querier, agent string, now time.Time) ([]*Signal, error
 		agents = append(agents, "shared")
 	}
 	sigs, err := dueSignals(q, agents, now)
-	if err != nil {
+	// An orphaned delivery row is reported alongside the healthy signals, not
+	// instead of them; keep both so the capsule can skip one and render the rest.
+	var orphaned *OrphanedSignalRecordsError
+	if err != nil && !errors.As(err, &orphaned) {
 		return nil, err
 	}
 	out := sigs[:0]
@@ -162,7 +165,7 @@ func DueSignalsVisible(q Querier, agent string, now time.Time) ([]*Signal, error
 		}
 		out = append(out, s)
 	}
-	return out, nil
+	return out, err
 }
 
 func dueSignals(q Querier, agents []string, now time.Time) ([]*Signal, error) {

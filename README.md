@@ -1,7 +1,7 @@
 # nine-tails
 
 A small, harness-independent CLI sidecar for persistent agent context. It
-resolves a named agent into a token-bounded **context capsule**, records
+resolves a named agent into a **context capsule**, records
 corrections and useful experience, carries a small versioned **state**, exposes
 named **tools** backed by executables, and carries **signals** (reminders,
 external events) into future invocations. It does not run an agent loop, pick
@@ -46,7 +46,7 @@ Review proposed changes for demonstrable correctness and regression risks.
 EOF
 
 # 2. Load it. The capsule is context-ready markdown; the receipt id is inside.
-nine-tails load pr-review --task "Review PR 1842" --meta repo-id=my_repo --budget 1400
+nine-tails load pr-review --task "Review PR 1842" --meta repo-id=my_repo
 #   # PR Review Agent
 #   [nine-tails-context=ctx_2]
 #   ...
@@ -86,7 +86,7 @@ nine-tails inspect ctx_2
 nine-tails inspect pr-review --query "generated mocks"
 
 # 9. Compile accumulated corrections into a brief (needs a model; see below).
-nine-tails compile-input pr-review --budget 1200 > input.json
+nine-tails compile-input pr-review > input.json
 #   ... give input.json to a model, get output.yaml ...
 nine-tails brief put pr-review --expect-generation none --expect-base base_1 --stdin < output.yaml
 ```
@@ -94,7 +94,9 @@ nine-tails brief put pr-review --expect-generation none --expect-base base_1 --s
 Every mutation prints the new id on one line; add `--format json` for the full
 record. Errors begin with a `nine-tails:` summary line on stderr and may add
 indented diagnostic lines. Exit codes are 2 (invalid), 3 (not found), 4
-(store), 5 (tool), 6 (budget), and 7 (conflict).
+(store), 5 (tool), and 7 (conflict). Nothing is ever cut for size: a capsule
+reports its estimated size and, past a configurable threshold, advises a
+compile on stderr.
 `hooks run` preserves its launched harness's exit status (or Unix
 `128 + signal`) after a successful launch.
 
@@ -141,12 +143,11 @@ ranking, and context receipt; cached compact/resume replay does not create or
 change metadata. The encoded activation metadata is capped at 128 KiB and
 rejected as invalid input before config or store access. Every marker update
 also enforces reserved-envelope and 1 MiB total encoded limits, so a successful
-write cannot make the next hook silently reject its own state. Claude capsules
-are loaded at no more than 2,800 estimated
-tokens so its current
-10,000-character hook-output ceiling cannot replace the capsule with a file
-preview. Codex capsules are capped at 40,000 estimated tokens so their escaped
-cache stays below the private marker's 1 MiB read limit. The adapter never
+write cannot make the next hook silently reject its own state. A capsule
+larger than the harness can deliver whole (9,800 bytes for Claude's
+10,000-character hook output, 140 KiB for Codex's 1 MiB marker) is neither
+injected nor recorded; the hook injects a pointer to an in-session load and to
+`compile` instead. The adapter never
 reads transcripts or triggers unconditional reflection, and it runs no daemon
 or network service.
 
@@ -302,7 +303,7 @@ output:
 ```
 cmd/nine-tails/      cobra commands, one file per group; cli_test.go harness
 internal/store/      all SQL: records, metadata, contexts, generations, signals
-internal/capsule/    assembly, ranking, budget, rendering
+internal/capsule/    assembly, ranking, size reporting, rendering
 internal/tool/       tool YAML parse/validate/exec
 internal/compile/    compiler contract, coverage, install, lint
 internal/bundle/     export/import

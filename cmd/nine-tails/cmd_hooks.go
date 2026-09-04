@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -235,11 +236,19 @@ func newHooksDispatchCmd(a *app) *cobra.Command {
 			if err := a.open(); err != nil {
 				return cli.ToolFailed("hook dispatch: %v", err)
 			}
-			pol := capsule.Policy{BriefFloor: a.cfg.BriefFloor, RecentCap: a.cfg.RecentCap, ToolsCap: a.cfg.ToolsCap,
-				SignalsCap: a.cfg.SignalsCap, SignalExcerptChars: a.cfg.SignalExcerptChars}
 			cp, err := capsule.Load(a.st, capsule.Request{Agent: decision.Agent, Task: decision.Task, Parent: decision.Parent,
-				Meta: store.Meta(decision.Metadata), Budget: adapter.CapsuleBudget(a.cfg.DefaultBudget), Policy: pol, Now: a.now()})
+				Meta: store.Meta(decision.Metadata), SignalExcerptChars: a.cfg.SignalExcerptChars, MaxBytes: adapter.CapsuleMaxBytes(), Now: a.now()})
 			if err != nil {
+				var tooLarge *capsule.TooLargeError
+				if errors.As(err, &tooLarge) {
+					// The harness cannot deliver this capsule whole and nothing was
+					// recorded. Hand the session a pointer to an in-session load,
+					// whose output is not bound by the hook ceiling.
+					if err := adapter.EncodeContext(a.stdout, event.Name, tooLargePointer(decision.Agent, store.Meta(decision.Metadata), tooLarge)); err != nil {
+						return cli.ToolFailed("hook dispatch: %v", err)
+					}
+					return nil
+				}
 				return cli.ToolFailed("hook dispatch: %v", err)
 			}
 			ok, err := capability.CommitContext(event.SessionID, decision.Claim, cp.ContextID, cp.Markdown)
@@ -259,4 +268,16 @@ func newHooksDispatchCmd(a *app) *cobra.Command {
 	addHarnessFlags(c, &claude, &codex)
 	c.Flags().StringVar(&owner, "owner", "", "installed-entry ownership marker")
 	return c
+}
+
+// tooLargePointer replaces a capsule the harness could not deliver whole. No
+// receipt exists for it; the in-session load the pointer names makes one.
+func tooLargePointer(agent string, meta store.Meta, e *capsule.TooLargeError) string {
+	var flags strings.Builder
+	for _, k := range store.SortedKeys(meta) {
+		for _, v := range meta[k] {
+			flags.WriteString(" --meta " + k + "=" + v)
+		}
+	}
+	return fmt.Sprintf("nine-tails: the %s capsule is %d bytes, over this harness's %d-byte hook limit, so it was not injected and no receipt was recorded. Load it in the session: nine-tails load %s --task \"<task>\"%s. If its \"Recent adjustments\" section is long, compile first: nine-tails compile %s.", agent, e.Bytes, e.Max, agent, flags.String(), agent)
 }

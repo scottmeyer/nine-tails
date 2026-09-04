@@ -47,7 +47,7 @@ records:
       - A signal is a signal: `nine-tails signal --subject "..."` reaches every
         agent that loads; name an agent only when something must be woken for it.
       - Record a harness quirk with `--meta harness=<harness>` on the note.
-      - When Recent adjustments grows long, compile:
+      - When Recent adjustments grows long, or load says so on stderr, compile:
         `nine-tails compile <agent> --compiler "claude -p"` (any command that
         reads the document on stdin and writes the new brief on stdout).
 

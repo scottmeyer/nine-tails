@@ -66,23 +66,25 @@ func TestAC01(t *testing.T) {
 	}
 }
 
-// AC02: load returns a coherent capsule within a caller-supplied budget.
+// AC02: load returns a coherent capsule with nothing eligible cut and reports
+// its estimated size.
 func TestAC02(t *testing.T) {
 	h := newHarness(t)
-	h.ok("base", "budgeted", "Base instructions.")
+	h.ok("base", "sized", "Base instructions.")
 	for i := 0; i < 16; i++ {
-		h.ok("prefer", "budgeted", fmt.Sprintf("Adjustment %02d: %s", i, strings.Repeat("bounded text ", 8)))
+		h.ok("prefer", "sized", fmt.Sprintf("Adjustment %02d: %s", i, strings.Repeat("bounded text ", 8)))
 	}
-	m := h.ok("load", "budgeted", "--budget", "140", "--format", "json").json(t)
+	m := h.ok("load", "sized", "--format", "json").json(t)
 	estimated := int(m["estimated_tokens"].(float64))
-	if m["budget"] != float64(140) || estimated > 140 {
-		t.Fatalf("budget=%v estimated_tokens=%d", m["budget"], estimated)
+	if estimated <= 0 || m["uncompiled_adjustments"] != float64(16) {
+		t.Fatalf("estimated_tokens=%d uncompiled_adjustments=%v", estimated, m["uncompiled_adjustments"])
 	}
-	if m["agent"] != "budgeted" || m["context_id"] == "" || !strings.Contains(m["instructions"].(string), "Base instructions.") {
+	instructions := m["instructions"].(string)
+	if m["agent"] != "sized" || m["context_id"] == "" || !strings.Contains(instructions, "Base instructions.") || strings.Count(instructions, "Adjustment ") != 16 {
 		t.Fatalf("incoherent capsule: %#v", m)
 	}
-	if truncated, ok := m["truncated"].([]any); !ok || len(truncated) == 0 {
-		t.Fatalf("test did not exercise budget selection: %#v", m["truncated"])
+	if _, cut := m["truncated"]; cut {
+		t.Fatalf("capsules are never cut: %#v", m["truncated"])
 	}
 }
 
@@ -188,7 +190,7 @@ func TestAC07(t *testing.T) {
 }
 
 // AC08: the brief is a generation of independently selectable metadata items
-// with protected phase-one budget.
+// that a burst of recent guidance never evicts.
 func TestAC08(t *testing.T) {
 	h := newHarness(t)
 	base := h.ok("base", "briefed", "Base.").id(t)
@@ -206,15 +208,15 @@ entries: []
 	for i := 0; i < 16; i++ {
 		h.ok("prefer", "briefed", fmt.Sprintf("Recent burst %02d %s", i, strings.Repeat("noise ", 12)))
 	}
-	one := h.ok("load", "briefed", "--meta", "repo=one", "--budget", "160", "--format", "json").json(t)
+	one := h.ok("load", "briefed", "--meta", "repo=one", "--format", "json").json(t)
 	instructions := one["instructions"].(string)
 	if !strings.Contains(instructions, "One-scoped brief") || strings.Contains(instructions, "Two-scoped brief") {
 		t.Fatalf("repo-one item selection failed:\n%s", instructions)
 	}
-	if !strings.Contains(instructions, "Recent burst") || len(one["truncated"].([]any)) == 0 || one["estimated_tokens"].(float64) > 160 {
-		t.Fatalf("scenario did not exercise brief reservation under contention: %#v", one)
+	if strings.Count(instructions, "Recent burst") != 16 || one["uncompiled_adjustments"] != float64(16) {
+		t.Fatalf("a burst of recent guidance must render whole beside the brief: %#v", one)
 	}
-	two := h.ok("load", "briefed", "--meta", "repo=two", "--budget", "160", "--format", "json").json(t)
+	two := h.ok("load", "briefed", "--meta", "repo=two", "--format", "json").json(t)
 	if text := two["instructions"].(string); !strings.Contains(text, "Two-scoped brief") || strings.Contains(text, "One-scoped brief") {
 		t.Fatalf("repo-two item selection failed:\n%s", text)
 	}

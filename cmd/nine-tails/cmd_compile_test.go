@@ -115,10 +115,13 @@ func TestCompileFlow(t *testing.T) {
 	e3 := h.ok("prefer", "pr-review", "--meta", "repo-id=r1", "Lead with evidence and cite line numbers.").id(t)
 
 	// ---- compile-input shape ----
-	r = h.ok("compile-input", "pr-review", "--budget", "500")
+	r = h.ok("compile-input", "pr-review")
 	m := r.json(t)
-	if m["agent"] != "pr-review" || m["budget"] != float64(500) {
-		t.Errorf("agent/budget: %v %v", m["agent"], m["budget"])
+	if m["agent"] != "pr-review" {
+		t.Errorf("agent: %v", m["agent"])
+	}
+	if _, sized := m["budget"]; sized {
+		t.Errorf("compile-input carries no budget: %v", m["budget"])
 	}
 	if s, _ := m["instructions"].(string); !strings.Contains(s, "Account for every supplied guidance entry") || !strings.Contains(s, "superseded-by") {
 		t.Errorf("instructions: %q", s)
@@ -232,9 +235,6 @@ entries:
 	ag := m["active_generation"].(map[string]any)
 	if ag["id"] != gen1 || ag["items"].([]any)[0].(map[string]any)["key"] != "concise-evidence" {
 		t.Errorf("active_generation: %v", ag)
-	}
-	if m["budget"] != float64(800) {
-		t.Errorf("default budget should be brief_floor × default_budget = 800, got %v", m["budget"])
 	}
 
 	doc2 := fmt.Sprintf(`{
@@ -495,7 +495,7 @@ func TestCompileAC20ConcurrentInstall(t *testing.T) {
 	}
 }
 
-// Fix-round regressions: explicit --budget 0, one combined problem report,
+// Fix-round regressions: no --budget flag, one combined problem report,
 // deterministic diagnostics, verbatim input_entries, symmetric --expect-*
 // handling, and origin_context_metadata present as {} for a bare origin.
 func TestCompileFixRound(t *testing.T) {
@@ -507,18 +507,14 @@ func TestCompileFixRound(t *testing.T) {
 	e1 := h.ok("prefer", "a", "--context", ctx, "one").id(t)
 	e2 := h.ok("prefer", "a", "two").id(t)
 
-	// --budget 0 is exit 2 like any other non-positive budget (DESIGN §5)
+	// --budget is gone: nothing sizes a capsule or a brief by flag (DESIGN §7)
 	for _, args := range [][]string{
-		{"compile-input", "a", "--budget", "0"},
-		{"compile-input", "a", "--budget=-5"},
-		{"compile", "a", "--budget", "0", "--compiler", "sh /nonexistent.sh"},
+		{"compile-input", "a", "--budget", "500"},
+		{"compile", "a", "--budget", "500", "--compiler", "sh /nonexistent.sh"},
 	} {
-		if r := h.run(args...); r.code != 2 || !strings.Contains(r.err, "--budget must be positive") {
+		if r := h.run(args...); r.code != 2 || !strings.Contains(r.err, "unknown flag: --budget") {
 			t.Errorf("%v: %d %q %q", args, r.code, r.err, r.out)
 		}
-	}
-	if m := h.ok("compile-input", "a").json(t); m["budget"] != float64(800) {
-		t.Errorf("unset --budget should still default: %v", m["budget"])
 	}
 
 	// origin_context_metadata is {} (not absent) when the origin carried no metadata
@@ -609,9 +605,6 @@ func TestCompileFixRound(t *testing.T) {
 	exact := filepath.Join(dir, "exact.sh")
 	if err := os.WriteFile(exact, []byte(fmt.Sprintf("#!/bin/sh\ncat >/dev/null\nprintf 'input_entries: [%s, %s]\\nitems: [{key: k, body: b}]\\nentries:\\n  - {id: %s, disposition: represented, items: [k], equivalent_records: [%s]}\\n  - {id: %s, disposition: deferred}\\n'\n", e1, e2, e1, base, e2)), 0o755); err != nil {
 		t.Fatal(err)
-	}
-	if r = h.run("compile", "a", "--compiler", "sh "+exact, "--budget", "0"); r.code != 2 {
-		t.Errorf("compile --budget 0: %d %q", r.code, r.err)
 	}
 	gen := strings.TrimSpace(h.ok("compile", "a", "--compiler", "sh "+exact).out)
 	if !strings.HasPrefix(gen, "gen_") {

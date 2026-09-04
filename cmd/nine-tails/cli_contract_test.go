@@ -41,20 +41,6 @@ func requireExit(t *testing.T, r result, code int, contains string) {
 	}
 }
 
-func TestLoadBudgetFailureHasExactStream(t *testing.T) {
-	h := newHarness(t)
-	h.ok("base", "a", "Base.")
-
-	got := h.run("load", "a", "--budget", "1")
-	want := result{
-		code: 6,
-		err:  "nine-tails: mandatory content needs 12 tokens, budget is 1\n",
-	}
-	if got != want {
-		t.Fatalf("low-budget load = %#v, want %#v", got, want)
-	}
-}
-
 func TestStatePutStaleCASHasExactStream(t *testing.T) {
 	h := newHarness(t)
 	state1 := h.ok("state", "put", "a/working", "--expect", "none", "status: first").id(t)
@@ -603,7 +589,7 @@ func TestPureCommandGroupsRejectUnknownChildrenAndBareShowsHelp(t *testing.T) {
 		helpHash string
 	}{
 		"state":   {child: "get", helpHash: "acc0cfdd20e05ae0ceb90051ba0c22d38ed9cb78aa3dfc97723d5cd25ca711a2"},
-		"context": {child: "list", helpHash: "2d07e61bd8cb99ef4d504513574d4b84f3ae3d70245533783f35592f572b7b3e"},
+		"context": {child: "list", helpHash: "b66f989a979e7856a46f76b357fda88876442930cc387a71112883cfbcf6e0a6"},
 		"tool":    {child: "add", helpHash: "e7da017ff2f59b4490cbdb911f4380611ee2b70322f38636e5335b00e4d6ea81"},
 		"agent":   {child: "add", helpHash: "dcc6fe5421d3756a8668c2004d056d623864d61d45a215b3cf2fb4ce9831127a"},
 		"brief":   {child: "put", helpHash: "70d7cdaa03ebcd76ea85da64bf1a8c382380dc0b48ff275c53f5f42e0fc14328"},

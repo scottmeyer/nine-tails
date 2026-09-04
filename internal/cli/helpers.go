@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,14 +18,12 @@ import (
 
 // Config is the optional $NINE_TAILS_HOME/config.yaml (DESIGN.md §1).
 type Config struct {
-	DefaultBudget        int     `yaml:"default_budget" json:"default_budget"`
-	BriefFloor           float64 `yaml:"brief_floor" json:"brief_floor"`
-	RecentCap            float64 `yaml:"recent_cap" json:"recent_cap"`
-	ToolsCap             float64 `yaml:"tools_cap" json:"tools_cap"`
-	SignalsCap           float64 `yaml:"signals_cap" json:"signals_cap"`
-	SignalExcerptChars   int     `yaml:"signal_excerpt_chars" json:"signal_excerpt_chars"`
-	StateMaxBytes        int     `yaml:"state_max_bytes" json:"state_max_bytes"`
-	ContextRetentionDays int     `yaml:"context_retention_days" json:"context_retention_days"`
+	// CompileAdviceTokens: load advises a compile when the capsule's estimated
+	// size passes it and something is uncompiled; 0 turns the advice off.
+	CompileAdviceTokens  int `yaml:"compile_advice_tokens" json:"compile_advice_tokens"`
+	SignalExcerptChars   int `yaml:"signal_excerpt_chars" json:"signal_excerpt_chars"`
+	StateMaxBytes        int `yaml:"state_max_bytes" json:"state_max_bytes"`
+	ContextRetentionDays int `yaml:"context_retention_days" json:"context_retention_days"`
 	Compiler             struct {
 		Argv    []string `yaml:"argv" json:"argv"`
 		Timeout string   `yaml:"timeout" json:"timeout"`
@@ -35,22 +32,20 @@ type Config struct {
 
 // DefaultConfig returns the built-in defaults.
 func DefaultConfig() Config {
-	c := Config{DefaultBudget: 2000, BriefFloor: 0.40, RecentCap: 0.30, ToolsCap: 0.15, SignalsCap: 0.15,
-		SignalExcerptChars: 300, StateMaxBytes: 8192, ContextRetentionDays: 30}
+	c := Config{CompileAdviceTokens: 4000, SignalExcerptChars: 300, StateMaxBytes: 8192, ContextRetentionDays: 30}
 	c.Compiler.Argv = []string{}
 	c.Compiler.Timeout = "300s"
 	return c
 }
 
-// validateConfig checks the mechanical ranges used by capsule budgeting and
-// the other capped resources. Rejecting bad values at load time keeps every
-// later command on one coherent, inspectable policy.
+// validateConfig checks the mechanical ranges of the capped resources.
+// Rejecting bad values at load time keeps every later command on one
+// coherent, inspectable policy.
 func validateConfig(c Config) error {
 	positiveInts := []struct {
 		name  string
 		value int
 	}{
-		{"default_budget", c.DefaultBudget},
 		{"signal_excerpt_chars", c.SignalExcerptChars},
 		{"state_max_bytes", c.StateMaxBytes},
 		{"context_retention_days", c.ContextRetentionDays},
@@ -61,24 +56,8 @@ func validateConfig(c Config) error {
 		}
 	}
 
-	allocations := []struct {
-		name  string
-		value float64
-	}{
-		{"brief_floor", c.BriefFloor},
-		{"recent_cap", c.RecentCap},
-		{"tools_cap", c.ToolsCap},
-		{"signals_cap", c.SignalsCap},
-	}
-	total := 0.0
-	for _, a := range allocations {
-		if math.IsNaN(a.value) || math.IsInf(a.value, 0) || a.value < 0 || a.value > 1 {
-			return fmt.Errorf("%s must be a finite fraction from 0 to 1 (got %v)", a.name, a.value)
-		}
-		total += a.value
-	}
-	if total > 1+1e-9 {
-		return fmt.Errorf("brief_floor + recent_cap + tools_cap + signals_cap must be at most 1 (got %g)", total)
+	if c.CompileAdviceTokens < 0 {
+		return fmt.Errorf("compile_advice_tokens must be zero (off) or positive (got %d)", c.CompileAdviceTokens)
 	}
 
 	timeout, err := time.ParseDuration(c.Compiler.Timeout)

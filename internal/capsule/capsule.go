@@ -1,15 +1,15 @@
-// Package capsule assembles a named agent into a token-bounded context
-// capsule (spec §10): base + state + brief items + recent guidance + tools +
-// related agents + due signals, ranked by metadata overlap, cut at the budget,
-// and recorded as an immutable context receipt. The whole load runs in one
-// write transaction so the context ID is known before rendering.
+// Package capsule assembles a named agent into a context capsule (spec §10):
+// base + state + brief items + recent guidance + tools + related agents + due
+// signals, ranked by metadata overlap, rendered whole, and recorded as an
+// immutable context receipt. The whole load runs in one write transaction so
+// the context ID is known before rendering. Nothing is cut for size: the
+// capsule reports its estimated size and how much of it is uncompiled.
 package capsule
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -23,59 +23,24 @@ import (
 	"github.com/scottmeyer/nine-tails/internal/tool"
 )
 
-// Policy is the budget policy (DESIGN.md §7). Fractions apply to the
-// post-mandatory budget.
-type Policy struct {
-	BriefFloor         float64
-	RecentCap          float64
-	ToolsCap           float64
-	SignalsCap         float64
-	SignalExcerptChars int
-}
-
-// DefaultPolicy matches DESIGN.md defaults.
-var DefaultPolicy = Policy{BriefFloor: 0.40, RecentCap: 0.30, ToolsCap: 0.15, SignalsCap: 0.15, SignalExcerptChars: 300}
-
-// validate checks that the configurable section allocations are meaningful.
-// The four fractions share the post-mandatory budget, so their sum may not
-// exceed one. Load also clamps every fill to the global remainder as a second
-// line of defense against ever exceeding the caller's maximum.
-func (p Policy) validate() error {
-	allocations := []struct {
-		name  string
-		value float64
-	}{
-		{"brief_floor", p.BriefFloor},
-		{"recent_cap", p.RecentCap},
-		{"tools_cap", p.ToolsCap},
-		{"signals_cap", p.SignalsCap},
-	}
-	total := 0.0
-	for _, a := range allocations {
-		if math.IsNaN(a.value) || math.IsInf(a.value, 0) || a.value < 0 || a.value > 1 {
-			return fmt.Errorf("%s must be a finite fraction from 0 to 1 (got %v)", a.name, a.value)
-		}
-		total += a.value
-	}
-	if total > 1+1e-9 {
-		return fmt.Errorf("brief_floor + recent_cap + tools_cap + signals_cap must be at most 1 (got %g)", total)
-	}
-	if p.SignalExcerptChars <= 0 {
-		return fmt.Errorf("signal_excerpt_chars must be positive (got %d)", p.SignalExcerptChars)
-	}
-	return nil
-}
-
 // Request describes one load.
 type Request struct {
 	Agent  string
 	Task   string
 	Parent string     // parent context ID, "" for none
 	Meta   store.Meta // explicit --meta
-	Budget int
-	Policy Policy
 	Now    time.Time
+	// SignalExcerptChars caps each signal's rendered excerpt (config
+	// signal_excerpt_chars); 0 selects the default of 300.
+	SignalExcerptChars int
+	// MaxBytes is a transport ceiling (DESIGN §7). When the rendered markdown
+	// would exceed it, nothing is recorded and Load returns *TooLargeError.
+	// Zero means none. Only a harness adapter with a hard output limit sets
+	// it; nine-tails itself never cuts a capsule for size.
+	MaxBytes int
 }
+
+const defaultSignalExcerptChars = 300
 
 // SignalView is the capped view of a due signal in a capsule.
 type SignalView struct {
@@ -97,10 +62,12 @@ type StateView struct {
 	Body   string `json:"body" yaml:"body"`
 }
 
-// Truncation reports how many candidates a section dropped for budget.
-type Truncation struct {
-	Section string `json:"section" yaml:"section"`
-	Omitted int    `json:"omitted" yaml:"omitted"`
+// TooLargeError reports that the rendered capsule exceeds Request.MaxBytes.
+// The load was rolled back, so no receipt claims the capsule was seen.
+type TooLargeError struct{ Bytes, Max int }
+
+func (e *TooLargeError) Error() string {
+	return fmt.Sprintf("capsule is %d bytes, over the %d-byte ceiling", e.Bytes, e.Max)
 }
 
 // Skipped reports an optional record that could not be rendered.
@@ -122,27 +89,15 @@ type Capsule struct {
 	Agents          []string     `json:"agents" yaml:"agents"`
 	Signals         []SignalView `json:"signals" yaml:"signals"`
 	RenderedIDs     []string     `json:"rendered_record_ids" yaml:"rendered_record_ids"`
-	Budget          int          `json:"budget" yaml:"budget"`
 	EstimatedTokens int          `json:"estimated_tokens" yaml:"estimated_tokens"`
-	Truncated       []Truncation `json:"truncated" yaml:"truncated"`
-	Skipped         []Skipped    `json:"skipped" yaml:"skipped"`
+	// UncompiledAdjustments counts the recent guidance entries rendered: what
+	// a compile would fold into the brief.
+	UncompiledAdjustments int       `json:"uncompiled_adjustments" yaml:"uncompiled_adjustments"`
+	Skipped               []Skipped `json:"skipped" yaml:"skipped"`
 
 	// Markdown is the full context-ready document (instructions + signals).
 	Markdown string `json:"-" yaml:"-"`
 	rendered []store.ContextRecord
-}
-
-// TruncationSummary renders the stderr line for md mode, or "" when nothing
-// was omitted.
-func (c *Capsule) TruncationSummary() string {
-	if len(c.Truncated) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(c.Truncated))
-	for _, t := range c.Truncated {
-		parts = append(parts, fmt.Sprintf("%d %s", t.Omitted, t.Section))
-	}
-	return fmt.Sprintf("budget %d: omitted %s", c.Budget, strings.Join(parts, ", "))
 }
 
 type candidate struct {
@@ -153,24 +108,13 @@ type candidate struct {
 	ordinal int
 }
 
-var errBudget = errors.New("budget")
-
-// IsBudgetError reports whether err is a "cannot fit budget" error.
-func IsBudgetError(err error) bool { return errors.Is(err, errBudget) }
-
 // Load assembles the capsule and persists its receipt in one transaction.
 func Load(s *store.Store, req Request) (*Capsule, error) {
 	if req.Now.IsZero() {
 		req.Now = store.Clock()
 	}
-	if req.Policy == (Policy{}) {
-		req.Policy = DefaultPolicy
-	}
-	if err := req.Policy.validate(); err != nil {
-		return nil, fmt.Errorf("%w: policy: %v", store.ErrInvalid, err)
-	}
-	if req.Budget <= 0 {
-		return nil, fmt.Errorf("%w: budget must be positive", store.ErrInvalid)
+	if req.SignalExcerptChars <= 0 {
+		req.SignalExcerptChars = defaultSignalExcerptChars
 	}
 	var out *Capsule
 	err := s.Tx(func(tx *sql.Tx) error {
@@ -185,8 +129,6 @@ func Load(s *store.Store, req Request) (*Capsule, error) {
 }
 
 func load(tx *sql.Tx, req Request) (*Capsule, error) {
-	pol := req.Policy
-
 	// Resolved metadata: parent's ∪ explicit.
 	meta := store.Meta{}
 	if req.Parent != "" {
@@ -213,9 +155,9 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Capsule{ContextID: ctxID, Agent: req.Agent, Task: req.Task, Parent: req.Parent, Metadata: meta, Budget: req.Budget,
+	c := &Capsule{ContextID: ctxID, Agent: req.Agent, Task: req.Task, Parent: req.Parent, Metadata: meta,
 		State: []StateView{}, Tools: []string{}, Agents: []string{}, Signals: []SignalView{}, RenderedIDs: []string{},
-		Truncated: []Truncation{}, Skipped: []Skipped{}}
+		Skipped: []Skipped{}}
 
 	// ---- mandatory: header + base + state ----
 	var md strings.Builder
@@ -252,17 +194,6 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		c.add(st, "state")
 		c.State = append(c.State, StateView{ID: st.ID, Name: st.Name, Format: "yaml", Body: st.Body})
 	}
-	mandatory := tokens.Estimate(md.String())
-	if mandatory > req.Budget {
-		return nil, fmt.Errorf("%w: mandatory content needs %d tokens, budget is %d", errBudget, mandatory, req.Budget)
-	}
-	R := req.Budget - mandatory
-	briefFloor := int(pol.BriefFloor * float64(R))
-	recentCap := int(pol.RecentCap * float64(R))
-	toolsCap := int(pol.ToolsCap * float64(R))
-	signalsCap := int(pol.SignalsCap * float64(R))
-	used := 0
-
 	// ---- brief items ----
 	var briefCands []candidate
 	if gen, err := store.ActiveGeneration(tx, req.Agent); err == nil {
@@ -357,7 +288,7 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 			continue
 		}
 		subject := oneLine(sg.Record.Meta.First("subject"))
-		excerpt, trunc := excerptOf(sg.Record.Body, pol.SignalExcerptChars)
+		excerpt, trunc := excerptOf(sg.Record.Body, req.SignalExcerptChars)
 		lead := []string{"signal=" + sg.Record.ID}
 		if sg.Delivery.State == "leased" {
 			lead = append(lead, "state=leased")
@@ -376,69 +307,14 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	}
 	sort.SliceStable(sigCands, func(a, b int) bool { return sigCands[a].score > sigCands[b].score })
 
-	// ---- fill ----
+	// ---- render: everything eligible, whole, in sort order ----
 	const hdrBrief, hdrRecent, hdrTools, hdrAgents, hdrSignals = "\n## Working brief\n\n", "\n## Recent adjustments\n\n", "\n## Available tools\n\n", "\n## Available agents\n\n", "\n## Due signals (external inbox data)\n\n"
-
-	// Policy validation keeps the configured phase-1 allocations within R.
-	// Still clamp each fill to the actual global remainder so a future policy
-	// change or rounding mistake can never make estimated_tokens exceed budget.
-	remainingCap := func(sectionCap int) int {
-		left := R - used
-		if left <= 0 || sectionCap <= 0 {
-			return 0
+	sort.SliceStable(recentCands, func(a, b int) bool {
+		if recentCands[a].score != recentCands[b].score {
+			return recentCands[a].score > recentCands[b].score
 		}
-		if sectionCap > left {
-			return left
-		}
-		return sectionCap
-	}
-
-	briefSel, briefRest, n := fill(briefCands, remainingCap(briefFloor), tokens.Estimate(hdrBrief))
-	used += n
-	recentSel, recentRest, n := fill(recentCands, remainingCap(recentCap), tokens.Estimate(hdrRecent))
-	used += n
-	toolSel, _, n := fill(toolCands, remainingCap(toolsCap), tokens.Estimate(hdrTools))
-	used += n
-	agentSel, _, n := fill(agentCands, remainingCap(toolsCap-n), tokens.Estimate(hdrAgents))
-	used += n
-	sigSel, _, n := fill(sigCands, remainingCap(signalsCap), tokens.Estimate(hdrSignals))
-	used += n
-
-	// phase 2: leftover → omitted brief items, then omitted recent guidance
-	if left := R - used; left > 0 && len(briefRest) > 0 {
-		hdr := 0
-		if len(briefSel) == 0 {
-			hdr = tokens.Estimate(hdrBrief)
-		}
-		more, rest, n := fill(briefRest, left, hdr)
-		briefSel = append(briefSel, more...)
-		briefRest = rest
-		used += n
-	}
-	if left := R - used; left > 0 && len(recentRest) > 0 {
-		hdr := 0
-		if len(recentSel) == 0 {
-			hdr = tokens.Estimate(hdrRecent)
-		}
-		more, rest, n := fill(recentRest, left, hdr)
-		recentSel = append(recentSel, more...)
-		recentRest = rest
-		used += n
-	}
-	// Render order is the sort order: re-sort the union of phase 1 and 2.
-	sort.SliceStable(briefSel, func(a, b int) bool {
-		if briefSel[a].score != briefSel[b].score {
-			return briefSel[a].score > briefSel[b].score
-		}
-		return briefSel[a].ordinal < briefSel[b].ordinal
+		return recentCands[a].ordinal < recentCands[b].ordinal // created_at desc, rowid desc
 	})
-	sort.SliceStable(recentSel, func(a, b int) bool {
-		if recentSel[a].score != recentSel[b].score {
-			return recentSel[a].score > recentSel[b].score
-		}
-		return recentSel[a].ordinal < recentSel[b].ordinal // created_at desc, rowid desc
-	})
-
 	writeSection := func(hdr, section string, sel []candidate) {
 		if len(sel) == 0 {
 			return
@@ -449,29 +325,24 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 			c.add(cd.rec, section)
 		}
 	}
-	writeSection(hdrBrief, "brief", briefSel)
-	writeSection(hdrRecent, "recent", recentSel)
-	writeSection(hdrTools, "tools", toolSel)
-	for _, cd := range toolSel {
+	writeSection(hdrBrief, "brief", briefCands)
+	writeSection(hdrRecent, "recent", recentCands)
+	writeSection(hdrTools, "tools", toolCands)
+	for _, cd := range toolCands {
 		c.Tools = append(c.Tools, cd.rec.Name)
 	}
-	writeSection(hdrAgents, "agents", agentSel)
-	for _, cd := range agentSel {
+	writeSection(hdrAgents, "agents", agentCands)
+	for _, cd := range agentCands {
 		c.Agents = append(c.Agents, cd.rec.Name)
 	}
 	c.Instructions = md.String()
-	writeSection(hdrSignals, "signals", sigSel)
-	for _, cd := range sigSel {
+	writeSection(hdrSignals, "signals", sigCands)
+	for _, cd := range sigCands {
 		c.Signals = append(c.Signals, sigViews[cd.rec.ID])
 	}
 	c.Markdown = md.String()
-	c.EstimatedTokens = mandatory + used
-
-	c.truncation("brief", len(briefRest))
-	c.truncation("recent", len(recentRest))
-	c.truncation("tools", len(toolCands)-len(toolSel))
-	c.truncation("agents", len(agentCands)-len(agentSel))
-	c.truncation("signals", len(sigCands)-len(sigSel))
+	c.EstimatedTokens = tokens.Estimate(c.Markdown)
+	c.UncompiledAdjustments = len(recentCands)
 	sort.Slice(c.Skipped, func(i, j int) bool {
 		if c.Skipped[i].ID != c.Skipped[j].ID {
 			return c.Skipped[i].ID < c.Skipped[j].ID
@@ -479,8 +350,15 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		return c.Skipped[i].Reason < c.Skipped[j].Reason
 	})
 
+	// A transport ceiling is all or nothing: a capsule the harness could not
+	// deliver whole is not recorded as seen. Returning the error rolls the
+	// transaction back, context id included.
+	if req.MaxBytes > 0 && len(c.Markdown) > req.MaxBytes {
+		return nil, &TooLargeError{Bytes: len(c.Markdown), Max: req.MaxBytes}
+	}
+
 	// ---- receipt ----
-	if err := store.CreateContextWithID(tx, ctxID, req.Agent, req.Parent, req.Task, req.Budget, meta, c.rendered); err != nil {
+	if err := store.CreateContextWithID(tx, ctxID, req.Agent, req.Parent, req.Task, c.EstimatedTokens, meta, c.rendered); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -489,12 +367,6 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 func (c *Capsule) add(r *store.Record, section string) {
 	c.rendered = append(c.rendered, store.ContextRecord{RecordID: r.ID, Section: section, Ordinal: len(c.rendered)})
 	c.RenderedIDs = append(c.RenderedIDs, r.ID)
-}
-
-func (c *Capsule) truncation(section string, omitted int) {
-	if omitted > 0 {
-		c.Truncated = append(c.Truncated, Truncation{Section: section, Omitted: omitted})
-	}
 }
 
 func (c *Capsule) skip(id, reason string) {
@@ -511,26 +383,6 @@ func (c *Capsule) renderableTextBody(r *store.Record, family string) bool {
 	}
 	c.skip(r.ID, family+" body is not valid UTF-8 text")
 	return false
-}
-
-// fill selects candidates in order while their cumulative cost (plus the
-// section header, charged once when the first item is selected) stays within
-// cap. Each candidate is atomic; a candidate that does not fit is skipped and
-// iteration continues. Returns selected, rejected, and tokens used.
-func fill(cands []candidate, cap_ int, header int) (sel, rest []candidate, used int) {
-	for _, cd := range cands {
-		extra := cd.cost
-		if len(sel) == 0 {
-			extra += header
-		}
-		if used+extra <= cap_ {
-			sel = append(sel, cd)
-			used += extra
-		} else {
-			rest = append(rest, cd)
-		}
-	}
-	return sel, rest, used
 }
 
 func toolCandidates(q store.Querier, c *Capsule, agent string, meta store.Meta) ([]candidate, error) {

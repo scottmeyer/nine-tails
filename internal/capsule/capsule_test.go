@@ -3,8 +3,6 @@ package capsule
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
-	"math"
 	"sort"
 	"strings"
 	"testing"
@@ -61,7 +59,7 @@ func TestLoadShape(t *testing.T) {
 		return err
 	})
 
-	c, err := Load(s, Request{Agent: "pr-review", Task: "Review", Meta: store.Meta{"language": {"go"}, "pr": {"1842"}}, Budget: 2000, Now: now})
+	c, err := Load(s, Request{Agent: "pr-review", Task: "Review", Meta: store.Meta{"language": {"go"}, "pr": {"1842"}}, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,8 +111,8 @@ func TestLoadShape(t *testing.T) {
 	if !found {
 		t.Errorf("g1 not in receipt")
 	}
-	if c.Truncated == nil || len(c.Truncated) != 0 {
-		t.Errorf("unexpected truncation %+v", c.Truncated)
+	if c.UncompiledAdjustments != 2 {
+		t.Errorf("both recent entries should count as uncompiled, got %d", c.UncompiledAdjustments)
 	}
 }
 
@@ -159,7 +157,7 @@ func TestLoadSkipsCorruptTextRecordsAndOrphanedSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c, err := Load(s, Request{Agent: "a", Budget: 4000, Now: now})
+	c, err := Load(s, Request{Agent: "a", Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +246,7 @@ func TestLoadRejectsCorruptBaseBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Load(s, Request{Agent: "a", Budget: 1000}); err == nil || !strings.Contains(err.Error(), base.ID) || !strings.Contains(err.Error(), "corrupt body") {
+	if _, err := Load(s, Request{Agent: "a"}); err == nil || !strings.Contains(err.Error(), base.ID) || !strings.Contains(err.Error(), "corrupt body") {
 		t.Fatalf("Load error = %v, want fatal corrupt-base error naming %s", err, base.ID)
 	}
 	rec, err := store.GetRecord(s.DB, base.ID)
@@ -268,11 +266,11 @@ func TestInheritanceAndConflict(t *testing.T) {
 	insert(t, s, store.NewRecord{Agent: "b", Lane: "guidance", Kind: "note", Body: "other-repo", Meta: store.Meta{"repo-id": {"r2"}}})
 	insert(t, s, store.NewRecord{Agent: "b", Lane: "state", Kind: "working-state", Name: "w", Body: "x: 1", Meta: store.Meta{"repo-id": {"r2"}}})
 
-	parent, err := Load(s, Request{Agent: "a", Meta: store.Meta{"repo-id": {"r1"}}, Budget: 500})
+	parent, err := Load(s, Request{Agent: "a", Meta: store.Meta{"repo-id": {"r1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := Load(s, Request{Agent: "b", Parent: parent.ContextID, Task: "narrow", Meta: store.Meta{"pr": {"9"}}, Budget: 500})
+	child, err := Load(s, Request{Agent: "b", Parent: parent.ContextID, Task: "narrow", Meta: store.Meta{"pr": {"9"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +300,7 @@ func TestRecentGuidanceUsesTimestampRecency(t *testing.T) {
 	store.Clock = func() time.Time { return time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC) }
 	insert(t, s, store.NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "older timestamp but larger id"})
 
-	c, err := Load(s, Request{Agent: "a", Budget: 1000, Now: time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)})
+	c, err := Load(s, Request{Agent: "a", Now: time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,63 +308,6 @@ func TestRecentGuidanceUsesTimestampRecency(t *testing.T) {
 	older := strings.Index(c.Markdown, "older timestamp but larger id")
 	if newer < 0 || older < 0 || newer > older {
 		t.Fatalf("recent guidance is not newest-by-timestamp first:\n%s", c.Markdown)
-	}
-}
-
-func TestBudgetFloorsAndCaps(t *testing.T) {
-	s := setup(t)
-	insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
-	// 10 brief items in a generation, each ~15 tokens
-	var items []store.NewItem
-	for i := 0; i < 10; i++ {
-		items = append(items, store.NewItem{Key: "k" + string(rune('a'+i)), Body: strings.Repeat("brief item text ", 3)})
-	}
-	if err := s.Tx(func(tx *sql.Tx) error {
-		_, _, err := store.InstallGeneration(tx, "a", "", items, nil)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// 20 recent entries, each ~15 tokens, newest first; a burst must not evict the brief
-	for i := 0; i < 20; i++ {
-		insert(t, s, store.NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: strings.Repeat("recent note ", 4)})
-	}
-	c, err := Load(s, Request{Agent: "a", Budget: 300})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.EstimatedTokens > 300 {
-		t.Errorf("over budget: %d", c.EstimatedTokens)
-	}
-	brief := strings.Count(c.Markdown, "- brief item")
-	recent := strings.Count(c.Markdown, "(note) recent note")
-	if brief == 0 || recent == 0 {
-		t.Errorf("brief=%d recent=%d\n%s", brief, recent, c.Markdown)
-	}
-	if brief < 4 {
-		t.Errorf("brief floor not honored: %d items\n%s", brief, c.Markdown)
-	}
-	var recentTrunc, briefTrunc int
-	for _, tr := range c.Truncated {
-		switch tr.Section {
-		case "recent":
-			recentTrunc = tr.Omitted
-		case "brief":
-			briefTrunc = tr.Omitted
-		}
-	}
-	if recentTrunc+recent != 20 || briefTrunc+brief != 10 {
-		t.Errorf("truncation accounting: %+v brief=%d recent=%d", c.Truncated, brief, recent)
-	}
-
-	// budget too small for base → budget error
-	insert(t, s, store.NewRecord{Agent: "big", Lane: "definition", Kind: "agent-base", Name: "base", Body: strings.Repeat("x", 4000)})
-	if _, err := Load(s, Request{Agent: "big", Budget: 100}); !IsBudgetError(err) {
-		t.Errorf("want budget error, got %v", err)
-	}
-	// missing agent → not found
-	if _, err := Load(s, Request{Agent: "nope", Budget: 100}); err == nil {
-		t.Errorf("want not found")
 	}
 }
 
@@ -387,7 +328,7 @@ func TestRepresentedEntriesLeaveRecent(t *testing.T) {
 		t.Fatal(err)
 	}
 	e3 := insert(t, s, store.NewRecord{Agent: "a", Lane: "guidance", Kind: "avoid", Body: "after compile"})
-	c, err := Load(s, Request{Agent: "a", Budget: 1000})
+	c, err := Load(s, Request{Agent: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,12 +364,11 @@ func TestCapsuleYAMLShape(t *testing.T) {
 			ID: "sig_2", Subject: "wake", Excerpt: "body", Truncated: true, State: "leased",
 			LeasedUntil: "2026-09-04T12:05:00Z", Meta: store.Meta{}, Inspect: "nine-tails inspect sig_2",
 		}},
-		RenderedIDs:     []string{"base_1", "state_1", "sig_2"},
-		Budget:          2000,
-		EstimatedTokens: 42,
-		Truncated:       []Truncation{{Section: "recent", Omitted: 2}},
-		Skipped:         []Skipped{{ID: "tool_9", Reason: "bad body"}},
-		Markdown:        "must not be serialized",
+		RenderedIDs:           []string{"base_1", "state_1", "sig_2"},
+		EstimatedTokens:       42,
+		UncompiledAdjustments: 2,
+		Skipped:               []Skipped{{ID: "tool_9", Reason: "bad body"}},
+		Markdown:              "must not be serialized",
 	}
 	b, err := yaml.Marshal(c)
 	if err != nil {
@@ -440,7 +380,7 @@ func TestCapsuleYAMLShape(t *testing.T) {
 	}
 	for _, key := range []string{
 		"context_id", "agent", "task", "parent_context", "metadata", "instructions", "state", "tools", "agents",
-		"signals", "rendered_record_ids", "budget", "estimated_tokens", "truncated", "skipped",
+		"signals", "rendered_record_ids", "estimated_tokens", "uncompiled_adjustments", "skipped",
 	} {
 		if _, ok := got[key]; !ok {
 			t.Errorf("YAML missing %q:\n%s", key, b)
@@ -487,83 +427,6 @@ func TestMarkdownListHelpers(t *testing.T) {
 	})
 }
 
-func TestLoadRejectsMalformedPolicy(t *testing.T) {
-	s := setup(t)
-	insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
-
-	negative := DefaultPolicy
-	negative.BriefFloor = -0.1
-	tooLarge := DefaultPolicy
-	tooLarge.ToolsCap = 1.1
-	overTotal := DefaultPolicy
-	overTotal.SignalsCap = 0.25
-	nan := DefaultPolicy
-	nan.RecentCap = math.NaN()
-	noExcerpt := DefaultPolicy
-	noExcerpt.SignalExcerptChars = 0
-	cases := []struct {
-		name   string
-		policy Policy
-	}{
-		{"negative allocation", negative},
-		{"allocation over one", tooLarge},
-		{"allocations total over one", overTotal},
-		{"non-finite allocation", nan},
-		{"non-positive excerpt", noExcerpt},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := Load(s, Request{Agent: "a", Budget: 500, Policy: tc.policy})
-			if !errors.Is(err, store.ErrInvalid) {
-				t.Fatalf("want ErrInvalid, got %v", err)
-			}
-		})
-	}
-}
-
-func TestLoadAllowsZeroSectionAllocations(t *testing.T) {
-	s := setup(t)
-	insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
-	policy := Policy{SignalExcerptChars: DefaultPolicy.SignalExcerptChars}
-	if _, err := Load(s, Request{Agent: "a", Budget: 500, Policy: policy}); err != nil {
-		t.Fatalf("zero section allocations should be valid: %v", err)
-	}
-}
-
-func TestLoadDefensivelyClampsToGlobalBudget(t *testing.T) {
-	s := setup(t)
-	insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
-	items := make([]store.NewItem, 8)
-	for i := range items {
-		items[i] = store.NewItem{Key: "item" + string(rune('a'+i)), Body: strings.Repeat("bounded brief text ", 4)}
-	}
-	if err := s.Tx(func(tx *sql.Tx) error {
-		_, _, err := store.InstallGeneration(tx, "a", "", items, nil)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Bypass Load's policy validation to exercise the final defensive guard.
-	// Even an impossible over-allocation must not violate the caller's maximum.
-	badPolicy := Policy{BriefFloor: 2, RecentCap: 1, ToolsCap: 1, SignalsCap: 1, SignalExcerptChars: 300}
-	var c *Capsule
-	if err := s.Tx(func(tx *sql.Tx) error {
-		var err error
-		c, err = load(tx, Request{Agent: "a", Budget: 100, Policy: badPolicy, Now: time.Now()})
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if c.EstimatedTokens > c.Budget {
-		t.Fatalf("estimated tokens %d exceed budget %d", c.EstimatedTokens, c.Budget)
-	}
-	if len(c.RenderedIDs) < 2 {
-		t.Fatalf("test did not admit any optional item: %v", c.RenderedIDs)
-	}
-}
-
 func TestOwnedToolShadowsSharedWhenOwnedConflicts(t *testing.T) {
 	s := setup(t)
 	insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
@@ -576,7 +439,7 @@ func TestOwnedToolShadowsSharedWhenOwnedConflicts(t *testing.T) {
 		Body: "description: shared\nexec:\n  argv: [shared]",
 	})
 
-	c, err := Load(s, Request{Agent: "a", Meta: store.Meta{"repo": {"two"}}, Budget: 500})
+	c, err := Load(s, Request{Agent: "a", Meta: store.Meta{"repo": {"two"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

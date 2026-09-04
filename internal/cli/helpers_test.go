@@ -32,19 +32,19 @@ func TestLoadConfigDefaultsOverlayAndValidation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.DefaultBudget != 2000 || cfg.BriefFloor != 0.40 || cfg.Compiler.Timeout != "300s" || cfg.Compiler.Argv == nil {
+		if cfg.CompileAdviceTokens != 4000 || cfg.SignalExcerptChars != 300 || cfg.Compiler.Timeout != "300s" || cfg.Compiler.Argv == nil {
 			t.Fatalf("unexpected defaults: %+v", cfg)
 		}
 	})
 
 	t.Run("partial overlay keeps nested defaults", func(t *testing.T) {
 		dir := t.TempDir()
-		writeConfig(t, dir, "default_budget: 1600\ncompiler:\n  argv: [sh]\n")
+		writeConfig(t, dir, "compile_advice_tokens: 1600\ncompiler:\n  argv: [sh]\n")
 		cfg, err := LoadConfig(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.DefaultBudget != 1600 || cfg.Compiler.Timeout != "300s" || len(cfg.Compiler.Argv) != 1 || cfg.Compiler.Argv[0] != "sh" {
+		if cfg.CompileAdviceTokens != 1600 || cfg.Compiler.Timeout != "300s" || len(cfg.Compiler.Argv) != 1 || cfg.Compiler.Argv[0] != "sh" {
 			t.Fatalf("overlay lost defaults: %+v", cfg)
 		}
 	})
@@ -54,11 +54,7 @@ func TestLoadConfigDefaultsOverlayAndValidation(t *testing.T) {
 		body string
 		want string
 	}{
-		{"non-positive budget", "default_budget: 0\n", "default_budget"},
-		{"negative allocation", "brief_floor: -0.1\n", "brief_floor"},
-		{"allocation over one", "tools_cap: 1.1\n", "tools_cap"},
-		{"allocation total over one", "brief_floor: 0.5\n", "must be at most 1"},
-		{"non-finite allocation", "recent_cap: .nan\n", "recent_cap"},
+		{"negative advice threshold", "compile_advice_tokens: -1\n", "compile_advice_tokens"},
 		{"non-positive excerpt", "signal_excerpt_chars: 0\n", "signal_excerpt_chars"},
 		{"non-positive state cap", "state_max_bytes: -1\n", "state_max_bytes"},
 		{"non-positive retention", "context_retention_days: 0\n", "context_retention_days"},
@@ -79,11 +75,11 @@ func TestLoadConfigDefaultsOverlayAndValidation(t *testing.T) {
 		})
 	}
 
-	t.Run("zero allocations are valid", func(t *testing.T) {
+	t.Run("zero advice threshold turns the advice off", func(t *testing.T) {
 		dir := t.TempDir()
-		writeConfig(t, dir, "brief_floor: 0\nrecent_cap: 0\ntools_cap: 0\nsignals_cap: 0\n")
+		writeConfig(t, dir, "compile_advice_tokens: 0\n")
 		if _, err := LoadConfig(dir); err != nil {
-			t.Fatalf("zero allocation config should be valid: %v", err)
+			t.Fatalf("zero threshold should be valid: %v", err)
 		}
 	})
 }
