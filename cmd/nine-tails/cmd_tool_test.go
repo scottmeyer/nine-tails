@@ -580,7 +580,7 @@ func TestCallInterpreterShapeRunsFromAnyCwd(t *testing.T) {
 	if r.out != "hi "+filepath.Join(h.home, "artifacts", id2, "data.sh")+"\n" {
 		t.Errorf("later artifacts/ element not resolved: %q", r.out)
 	}
-	if r := h.ok("load", "a"); !strings.Contains(r.out, "- `interp`: interp\n") {
+	if r := h.ok("load", "a"); !strings.Contains(r.out, "- `interp`: interp (inputs: x)\n") {
 		t.Errorf("interp should be listed:\n%s", r.out)
 	}
 }

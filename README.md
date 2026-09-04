@@ -134,7 +134,9 @@ nine-tails avoid --context <pr-review-context-id> --meta repo-id=my-project \
 
 The next `load` includes those adjustments. Pass metadata on a write only when
 the knowledge should be scoped by that metadata; otherwise it remains useful
-wherever the agent runs.
+wherever the agent runs. To repair a wrong scope without editing history, pass
+the active record to `--supersedes`; omit new text to keep its body and provide
+the exact replacement scope with `--meta`.
 
 ## What should be persisted?
 
@@ -199,7 +201,8 @@ a `[nine-tails-context=...]` capsule, follow it and do not load it again.
 Otherwise, load an explicitly requested agent with
 `nine-tails load <agent> --task "<concise non-sensitive purpose>" --meta repo-id=<literal-repo-id> --meta harness=<actual-harness>`.
 When no agent was named, load `pilot` the same way and select only an agent it
-advertises, using `--context <pilot-receipt>` for the child load. Keep each
+advertises—or a checked-in role explicitly authorized by the repository
+instructions—using `--context <pilot-receipt>` for the child load. Keep each
 receipt paired with its agent. The `--task` label is stored on the receipt, so
 keep the complete task in the harness conversation. Never write secrets,
 authorization, raw external content, or task-only instructions to records,

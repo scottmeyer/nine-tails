@@ -762,7 +762,7 @@ next-action: revisit the concurrency finding
 
 - `recall-memory`: Search prior review experience.
 - `complete-pr-diff`: Retrieve full changed-file content when a patch is
-  missing or truncated.
+  missing or truncated. (inputs: pr*)
 
 ## Available agents
 
@@ -909,6 +909,17 @@ lore remember pr-review "GitHub may omit large patch bodies."
 `note`, `avoid`, and `prefer` choose the `guidance` lane and may supply a small
 formatting hint to the compiler. `remember` chooses the `recall` lane. There is
 no promotion or approval stage.
+
+`--supersedes <record-id>` replaces an active record of the same agent and
+lane. Without new text or stdin, the successor keeps the prior body; its
+metadata is exactly the newly supplied `--meta`, so this is the repair for a
+wrong applicability scope. Pass the current agent's `--context` to retain
+episode provenance. A same-body guidance successor retains the prior brief
+source relationships and does not reappear as a recent adjustment; a changed
+body is new guidance and remains recent until compiled. History is never
+edited in place. An unknown predecessor is not found (exit 3), an inactive
+predecessor is a conflict (exit 7), and a predecessor owned by another agent or
+lane is invalid input (exit 2).
 
 Guidance and recall are separate uses even when both contain ordinary text:
 
@@ -1322,6 +1333,9 @@ Lint strength depends on the source:
 - Dropping a value merely shared by every origin context is a weak heuristic.
 - If at least one source was already unqualified, no condition-loss warning is
   implied.
+- Adding a scope that no source carried and that the sources' origin contexts
+  do not all share is a strong warning: an invented condition hides the item
+  from every load that passes that key.
 
 The lint does not automatically reject semantic generalization. A correction
 first observed in one repository may genuinely be general. The warning makes
@@ -1429,8 +1443,9 @@ creates a new record and artifact and supersedes the old definition. Contexts
 that rendered the older definition continue to refer to its original record.
 Optional `--context` records the episode that created or updated the tool and
 must belong to the owning agent.
-The context capsule includes only the name, description, and useful metadata;
-script contents are loaded only when inspected or executed.
+The context capsule includes the name, description, declared input names and
+required markers, and useful metadata. Executable details and script contents
+are loaded only when inspected or executed.
 
 ### 13.4 Shared tools
 
@@ -1723,6 +1738,10 @@ follow it and do not load it again. Otherwise load the explicitly requested
 agent with a concise, non-sensitive task purpose and useful ambient metadata.
 Keep the complete task in the harness conversation. When no agent was
 requested, use the implementation's discovery agent if it defines one.
+Repository instructions may additionally authorize exact, checked-in agent
+names; a missing definition may be installed from that repository pack and
+loaded with the original discovery receipt without reloading the immutable
+discovery capsule.
 
 Apply the capsule without replacing the original task or higher-priority
 instructions. Keep every context receipt paired with the agent that produced

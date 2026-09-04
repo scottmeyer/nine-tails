@@ -75,7 +75,7 @@ func newRoot(a *app) *cobra.Command {
 		Use:   "nine-tails",
 		Short: "persistent agent context sidecar",
 		Long: `With no agent already selected or injected, start with:
-  nine-tails load pilot --task "<task>" --meta repo-id=<repo> --meta harness=<harness>
+  nine-tails load pilot --task "<concise non-sensitive purpose>" --meta repo-id=<repo> --meta harness=<harness>
 The pilot capsule is the usage guide and the catalog of agents in this store;
 a fresh store seeds it from the binary.
 

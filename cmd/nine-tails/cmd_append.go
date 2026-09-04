@@ -12,14 +12,16 @@ import (
 
 // appendOpts are the flags shared by append and its convenience aliases.
 type appendOpts struct {
-	meta    []string
-	context string
-	stdin   bool
-	format  string
+	meta       []string
+	context    string
+	stdin      bool
+	format     string
+	supersedes string
 }
 
 func (o *appendOpts) bind(c *cobra.Command) {
 	c.Flags().StringArrayVar(&o.meta, "meta", nil, "applicability metadata key=value (repeatable)")
+	c.Flags().StringVar(&o.supersedes, "supersedes", "", "replace this active record of the same agent and lane; --meta becomes its exact scope, and without TEXT its body is kept")
 	c.Flags().StringVar(&o.context, "context", "", "originating context receipt id (ctx_..., not a record id); also supplies the agent when <agent> is omitted")
 	c.Flags().BoolVar(&o.stdin, "stdin", false, "read the body from stdin instead of the argument")
 	c.Flags().StringVar(&o.format, "format", "id", "id (one line) | json | yaml")
@@ -29,7 +31,7 @@ func (o *appendOpts) bind(c *cobra.Command) {
 // (DESIGN §6): with --context, two or more positionals mean the first is the
 // agent (which must match); one positional is the text; with --stdin there
 // are none. Without --context the first positional is always the agent.
-func (a *app) resolveAgentAndText(ctxID string, stdin bool, args []string) (agent string, text []string, err error) {
+func (a *app) resolveAgentAndText(ctxID string, stdin, textOptional bool, args []string) (agent string, text []string, err error) {
 	if ctxID == "" {
 		if len(args) == 0 {
 			return "", nil, cli.Invalid("missing <agent> (or pass --context)")
@@ -44,7 +46,7 @@ func (a *app) resolveAgentAndText(ctxID string, stdin bool, args []string) (agen
 		return "", nil, err
 	}
 	switch {
-	case stdin && len(args) == 0:
+	case len(args) == 0 && (stdin || textOptional):
 		return ctxAgent, nil, nil
 	case len(args) == 0:
 		return "", nil, cli.Invalid("missing text: pass it as an argument or use --stdin")
@@ -67,16 +69,22 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 	if err := a.open(); err != nil {
 		return err
 	}
-	agent, text, err := a.resolveAgentAndText(o.context, o.stdin, args)
+	agent, text, err := a.resolveAgentAndText(o.context, o.stdin, o.supersedes != "", args)
 	if err != nil {
 		return err
 	}
 	if err := store.ValidAgentName(agent); err != nil {
 		return err
 	}
-	body, err := cli.ReadBody(text, o.stdin, a.stdin, false)
-	if err != nil {
-		return err
+	if o.supersedes != "" && !cli.IsID(o.supersedes) {
+		return cli.Invalid("--supersedes wants a record id, not %q", o.supersedes)
+	}
+	var body string
+	if o.supersedes == "" || o.stdin || len(text) > 0 {
+		body, err = cli.ReadBody(text, o.stdin, a.stdin, false)
+		if err != nil {
+			return err
+		}
 	}
 	meta, err := metaFlag(o.meta)
 	if err != nil {
@@ -94,7 +102,12 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 			}
 		}
 		var err error
-		rec, err = store.InsertRecord(tx, store.NewRecord{Agent: agent, Lane: lane, Kind: kind, Name: name, Body: body, OriginContext: o.context, Meta: meta})
+		nr := store.NewRecord{Agent: agent, Lane: lane, Kind: kind, Name: name, Body: body, OriginContext: o.context, Meta: meta}
+		if o.supersedes != "" {
+			rec, err = store.ReplaceRecord(tx, o.supersedes, nr)
+		} else {
+			rec, err = store.InsertRecord(tx, nr)
+		}
 		return err
 	})
 	if err != nil {
@@ -131,7 +144,7 @@ func newAppendCmd(a *app) *cobra.Command {
 	o := &appendOpts{}
 	var lane, kind string
 	c := &cobra.Command{
-		Use:   "append [<agent>] [--] [TEXT]",
+		Use:   "append [<agent>] [--supersedes <record-id>] [--] [TEXT]",
 		Short: "Add a generic immutable record to an agent",
 		Long: `Add a record. Lanes control mechanical treatment: guidance is rendered as
 recent adjustments and compiled into the brief; recall is kept for explicit
@@ -175,7 +188,7 @@ func newNoteCmd(a *app, verb, lane, kind, short string) *cobra.Command {
 	o := &appendOpts{}
 	long, example := noteHelp(verb)
 	c := &cobra.Command{
-		Use:     verb + " [<agent>] [--] [TEXT]",
+		Use:     verb + " [<agent>] [--supersedes <record-id>] [--] [TEXT]",
 		Short:   short,
 		Long:    long,
 		Example: example,
@@ -190,16 +203,17 @@ func newNoteCmd(a *app, verb, lane, kind, short string) *cobra.Command {
 func noteHelp(verb string) (long, example string) {
 	switch verb {
 	case "note":
-		return `Add general guidance that should affect relevant future capsules
+		long, example = `Add general guidance that should affect relevant future capsules
 immediately and is eligible for compilation into the brief. Add --meta only
 when the guidance is genuinely scoped.
 
 On success, stdout is the new immutable rec_... record id by default. A
 ctx_... value passed to --context identifies the originating load receipt,
 not the new record.`, `  nine-tails note pr-review "Repository tests run with make test."
-  nine-tails note --context ctx_72 --meta repo-id=acme "Generated mocks are not edited directly."`
+  nine-tails note --context ctx_72 --meta repo-id=acme "Generated mocks are not edited directly."
+  nine-tails note --context ctx_72 --supersedes rec_41 --meta repo-id=acme`
 	case "avoid":
-		return `Add guidance describing behavior the agent should avoid. It affects
+		long, example = `Add guidance describing behavior the agent should avoid. It affects
 relevant future capsules immediately and is eligible for compilation into the
 brief.
 
@@ -208,7 +222,7 @@ ctx_... value passed to --context identifies the originating load receipt,
 not the new record.`, `  nine-tails avoid pr-review "Do not edit generated files."
   nine-tails avoid --context ctx_72 "Do not infer behavior without reading the implementation."`
 	case "prefer":
-		return `Add guidance describing behavior the agent should prefer. It affects
+		long, example = `Add guidance describing behavior the agent should prefer. It affects
 relevant future capsules immediately and is eligible for compilation into the
 brief.
 
@@ -217,7 +231,7 @@ ctx_... value passed to --context identifies the originating load receipt,
 not the new record.`, `  nine-tails prefer pr-review "Lead with evidence and expected impact."
   nine-tails prefer --context ctx_72 "Run focused tests before the full suite."`
 	case "remember":
-		return `Store a recall fact for explicit retrieval. Recall records are not
+		long, example = `Store a recall fact for explicit retrieval. Recall records are not
 loaded into context capsules and are never compiled into the brief. Find them
 with inspect --lane recall and, when useful, --query.
 
@@ -228,6 +242,12 @@ not the new record.`, `  nine-tails remember pr-review "GitHub may omit large pa
 	default:
 		return "Add an immutable record.", ""
 	}
+	long += `
+
+Use --supersedes rec_... to replace an active record of the same agent and
+lane. With no TEXT or --stdin, it keeps the old body; --meta becomes the exact
+new applicability scope. This fixes scope without editing history.`
+	return long, example
 }
 
 func newBaseCmd(a *app) *cobra.Command {

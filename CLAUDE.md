@@ -22,12 +22,13 @@ worktree. The stable repository identity is `repo-id=nine-tails`.
   reload pilot merely to refresh the current capsule.
 - Use a stable lowercase harness name. Use `unknown` only when the harness
   genuinely cannot be identified.
-- A fresh user store contains only `pilot` and `reflector`. Do not substitute a
-  similarly named personal agent for a missing checked-in repository role.
+- After its first pilot bootstrap, a fresh user store contains only `pilot` and
+  `reflector`. Do not substitute a similarly named personal agent for a missing
+  checked-in repository role.
 
-Every loaded capsule contains the harness-neutral receipt, writeback,
-delegation, data-placement, and persistence-safety protocol. Follow it; do not
-duplicate that versioned protocol in repository instructions.
+Every loaded capsule contains the harness-neutral receipt, correction,
+reflection, delegation, data-placement, and persistence-safety protocol.
+Follow it; do not duplicate that versioned protocol in repository instructions.
 
 ## Repository agents and rules
 

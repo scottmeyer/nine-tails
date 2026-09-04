@@ -35,12 +35,14 @@ func LintConditionLoss(q store.Querier, agent string) ([]Warning, error) {
 }
 
 // LintGeneration runs the condition-loss lint on one generation. For each
-// item with at least one source: if any source has an empty meta multimap,
-// no warning. Otherwise, for each key K present on every source whose value
-// sets intersect, K missing from the item is a STRONG warning. If every
-// source has an origin context, for each key K present on every origin
-// context's metadata (and on no source) whose value sets intersect, K missing
-// from the item is a WEAK warning.
+// item with at least one source: a key=value on the item that no source
+// carries and that the sources' origin contexts do not all share is a
+// STRONG warning (invented scope). Then, if any source has an empty meta
+// multimap, no further warning. Otherwise, for each key K present on every
+// source whose value sets intersect, K missing from the item is a STRONG
+// warning. If every source has an origin context, for each key K present on
+// every origin context's metadata (and on no source) whose value sets
+// intersect, K missing from the item is a WEAK warning.
 func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 	items, err := store.GenerationItems(q, genID)
 	if err != nil {
@@ -48,16 +50,22 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 	}
 	var out []Warning
 	for _, it := range items {
-		srcIDs, err := store.ItemSources(q, genID, it.ID)
+		srcIDs, err := currentSources(q, genID, it.ID)
 		if err != nil {
 			return nil, err
 		}
 		if len(srcIDs) == 0 {
 			continue
 		}
-		srcs, err := store.ListRecords(q, store.Filter{IDs: srcIDs, Status: "*"})
+		listed, err := store.ListRecords(q, store.Filter{IDs: srcIDs, Status: "*"})
 		if err != nil {
 			return nil, err
+		}
+		srcs := listed[:0]
+		for _, s := range listed {
+			if s.Status != "disabled" {
+				srcs = append(srcs, s)
+			}
 		}
 		if len(srcs) == 0 {
 			continue
@@ -68,18 +76,6 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 			metas[i] = s.Meta
 			if len(s.Meta) == 0 {
 				unqualified = true
-			}
-		}
-		if unqualified {
-			continue
-		}
-		for _, k := range commonKeys(metas) {
-			if it.Meta.Has(k) {
-				continue
-			}
-			if vals := intersectValues(metas, k); len(vals) > 0 {
-				out = append(out, Warning{Item: it.ID, Key: k, Strength: "strong", Values: vals, Sources: srcIDs,
-					Message: fmt.Sprintf("item %s drops %s=%s, which every source entry carried explicitly", it.ID, k, vals[0])})
 			}
 		}
 		ctxMetas := make([]store.Meta, 0, len(srcs))
@@ -96,6 +92,35 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 			ctxMetas = append(ctxMetas, c.Meta)
 		}
 		if len(ctxMetas) != len(srcs) {
+			ctxMetas = nil
+		}
+		itemKeys := make([]string, 0, len(it.Meta))
+		for k := range it.Meta {
+			itemKeys = append(itemKeys, k)
+		}
+		sort.Strings(itemKeys)
+		for _, k := range itemKeys {
+			for _, v := range it.Meta[k] {
+				if anyContains(metas, k, v) || (ctxMetas != nil && allContain(ctxMetas, k, v)) {
+					continue
+				}
+				out = append(out, Warning{Item: it.ID, Key: k, Strength: "strong", Values: []string{v}, Sources: srcIDs,
+					Message: fmt.Sprintf("item %s adds %s=%s, which no source carried", it.ID, k, v)})
+			}
+		}
+		if unqualified {
+			continue
+		}
+		for _, k := range commonKeys(metas) {
+			if it.Meta.Has(k) {
+				continue
+			}
+			if vals := intersectValues(metas, k); len(vals) > 0 {
+				out = append(out, Warning{Item: it.ID, Key: k, Strength: "strong", Values: vals, Sources: srcIDs,
+					Message: fmt.Sprintf("item %s drops %s=%s, which every source entry carried explicitly", it.ID, k, vals[0])})
+			}
+		}
+		if ctxMetas == nil {
 			continue
 		}
 		onSources := map[string]bool{}
@@ -115,6 +140,47 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 		}
 	}
 	return out, nil
+}
+
+// currentSources resolves an item's sources to their latest successors: a
+// replaced entry is judged by what it says now, and a retag that replaced
+// several of them collapses to one source.
+func currentSources(q store.Querier, genID, itemID string) ([]string, error) {
+	ids, err := store.ItemSources(q, genID, itemID)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		cur, err := store.LatestSuccessor(q, id)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[cur] {
+			seen[cur] = true
+			out = append(out, cur)
+		}
+	}
+	return out, nil
+}
+
+func anyContains(metas []store.Meta, key, value string) bool {
+	for _, m := range metas {
+		if m.Contains(key, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func allContain(metas []store.Meta, key, value string) bool {
+	for _, m := range metas {
+		if !m.Contains(key, value) {
+			return false
+		}
+	}
+	return true
 }
 
 func commonKeys(metas []store.Meta) []string {

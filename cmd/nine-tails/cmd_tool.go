@@ -37,7 +37,7 @@ func newToolAddCmd(a *app) *cobra.Command {
 	var meta []string
 	var stdin bool
 	c := &cobra.Command{
-		Use:   "add <agent> <name> --script PATH (--description D | --stdin)",
+		Use:   "add <agent> <name> --script PATH (--description D | --stdin) [--context <receipt>]",
 		Short: "Copy a script into the artifact store and register it as a named tool",
 		Long: `Copy a script into the managed artifact store and register it as a named
 tool. Pass the owning agent's ctx_... receipt with --context when this tool was
@@ -108,18 +108,18 @@ created or updated during an episode; it records provenance and must belong to
 			if err := a.open(); err != nil {
 				return err
 			}
-			if context != "" {
-				ctxAgent, err := a.contextAgent(context)
-				if err != nil {
-					return err
-				}
-				if ctxAgent != agent {
-					return cli.Invalid("%s belongs to %s, not %s", context, ctxAgent, agent)
-				}
-			}
 			var rec *store.Record
 			var artifactDir string
 			err = a.st.Tx(func(tx *sql.Tx) (txErr error) {
+				if context != "" {
+					ctx, err := store.GetContext(tx, context)
+					if err != nil {
+						return err
+					}
+					if ctx.Agent != agent {
+						return cli.Invalid("%s belongs to %s, not %s", context, ctx.Agent, agent)
+					}
+				}
 				id, err := store.NewID("tool")
 				if err != nil {
 					return err

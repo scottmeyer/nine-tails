@@ -264,7 +264,7 @@ func TestHooksInstallAndRunHelpExplainTheActivationContract(t *testing.T) {
 		"stdin, stdout, and stderr", "after --", "forwarded unchanged",
 		"exit status", "128+signal", "first real prompt", "harness=claude",
 		"fresh pilot store", "inactive", "/hooks",
-		"persisted as the receipt task", "first prompt containing secrets or raw external content",
+		"persisted as the receipt task", "first prompt containing secrets or raw external",
 		"manual load with a concise purpose",
 		"nine-tails hooks run pilot --claude --meta repo-id=my-project",
 		"nine-tails hooks run pr-review --codex --meta repo-id=my-project -- --model MODEL",

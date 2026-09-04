@@ -102,6 +102,8 @@ func TestModelFacingCommandHelp(t *testing.T) {
 			wants: []string{
 				"eligible for compilation into the brief",
 				"ctx_... value passed to --context identifies the originating load receipt",
+				"Use --supersedes rec_... to replace an active record",
+				"--meta becomes the exact new applicability scope",
 				"Examples:\n  nine-tails note pr-review",
 			},
 		},
@@ -110,6 +112,7 @@ func TestModelFacingCommandHelp(t *testing.T) {
 			args: []string{"avoid", "--help"},
 			wants: []string{
 				"guidance describing behavior the agent should avoid",
+				"--supersedes rec_...",
 				"Examples:\n  nine-tails avoid pr-review",
 			},
 		},
@@ -118,6 +121,7 @@ func TestModelFacingCommandHelp(t *testing.T) {
 			args: []string{"prefer", "--help"},
 			wants: []string{
 				"guidance describing behavior the agent should prefer",
+				"--supersedes rec_...",
 				"Examples:\n  nine-tails prefer pr-review",
 			},
 		},
@@ -126,6 +130,7 @@ func TestModelFacingCommandHelp(t *testing.T) {
 			args: []string{"remember", "--help"},
 			wants: []string{
 				"Recall records are not\nloaded into context capsules and are never compiled into the brief",
+				"--supersedes rec_...",
 				"nine-tails inspect pr-review --lane recall --query \"patch bodies\" --format json",
 			},
 		},

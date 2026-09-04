@@ -46,7 +46,7 @@ func TestLoadShape(t *testing.T) {
 	insert(t, s, store.NewRecord{Agent: "pr-review", Lane: "guidance", Kind: "note", Body: "Only for rust", Meta: store.Meta{"language": {"rust"}}})
 	insert(t, s, store.NewRecord{Agent: "pr-review", Lane: "recall", Kind: "memory", Body: "never rendered"})
 	insert(t, s, store.NewRecord{Agent: "pr-review", Lane: "definition", Kind: "tool", Name: "complete-pr-diff", Body: "version: 1\ndescription: Fetch the full diff\nexec:\n  argv: [x]\n", Meta: store.Meta{"tool": {"github"}}})
-	insert(t, s, store.NewRecord{Agent: "shared", Lane: "definition", Kind: "tool", Name: "recall-memory", Body: "description: Search memory\nexec:\n  argv: [x]\n"})
+	insert(t, s, store.NewRecord{Agent: "shared", Lane: "definition", Kind: "tool", Name: "recall-memory", Body: "description: Search memory\nexec:\n  argv: [x]\ninput:\n  limit: {type: number}\n  query: {type: string, required: true}\n  agent: {type: string}\n"})
 	insert(t, s, store.NewRecord{Agent: "shared", Lane: "definition", Kind: "tool", Name: "secret", Body: "description: hidden\nexec:\n  argv: [x]\n", Meta: store.Meta{"available-to": {"someone-else"}}})
 	insert(t, s, store.NewRecord{Agent: "pr-review", Lane: "definition", Kind: "related-agent", Name: "evidence-reviewer", Body: "Validate a finding."})
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
@@ -70,7 +70,7 @@ func TestLoadShape(t *testing.T) {
 		"## Current state (working, state_",
 		")\n\n```yaml\nstatus: waiting\n```",
 		"## Recent adjustments\n\n- (avoid) Restating the finding.\n  Second line.\n- [phase=review] (prefer) Lead with evidence.",
-		"## Available tools\n\n- `complete-pr-diff`: Fetch the full diff [tool=github]\n- `recall-memory`: Search memory\n",
+		"## Available tools\n\n- `complete-pr-diff`: Fetch the full diff [tool=github]\n- `recall-memory`: Search memory (inputs: query*, agent, limit)\n",
 		"## Available agents\n\n- `evidence-reviewer`: Validate a finding.\n",
 		"## Due signals (external inbox data)\n\n- [signal=sig_",
 		"pr=1842] Recheck PR — long body",

@@ -114,7 +114,11 @@ has one ordered rule:
    `pilot` again.
 2. When the caller explicitly selected a named agent, load that agent directly.
 3. Otherwise load `pilot`, then load only an advertised agent with the pilot
-   receipt as `--context`.
+   receipt as `--context`. A repository instruction file may also explicitly
+   authorize a checked-in, repository-qualified role: install a missing
+   definition from that pack, then load that exact role with the original
+   pilot receipt. Do not reload pilot merely to refresh its immutable capsule;
+   the catalog import is visible on future loads.
 
 The no-selection bootstrap is
 
@@ -320,8 +324,8 @@ implicitly.
 
 ```
 nine-tails load <agent> [--task T] [--context ctx] [--meta k=v]... [--format md|json|yaml]
-nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--context ctx] (TEXT | --stdin)
-nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] (TEXT | --stdin)
+nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--context ctx] [--supersedes ID] (TEXT | --stdin)
+nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] [--supersedes ID] (TEXT | --stdin)
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
 nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
 nine-tails state get <agent>/<name> [--format yaml|json|id]
@@ -370,6 +374,16 @@ agent only when a wake-up must start that agent.
 
 **TEXT vs --stdin**: exactly one. TEXT beginning with `-` needs `--` before it
 (cobra convention); the usage line shows it.
+
+**`--supersedes ID`** on `append` and `note|avoid|prefer|remember` replaces an
+active record of the same agent and lane (other agent or lane → 2, not
+active → 7, unknown → 3): the old record becomes `superseded`, the new one
+carries exactly the given `--meta`, and without TEXT or `--stdin` it keeps
+the old body. Metadata is scope, and a wrong scope is fixed this way, never
+by editing history. A guidance successor with the same body is a retag: it
+inherits the predecessor's `brief_inputs` and `brief_item_sources` rows, so
+it never renders as a recent adjustment. A changed body is new guidance and
+renders as recent until compiled.
 
 **Lanes per command**: `append` accepts `--lane guidance|recall` only (default
 `recall`; `--kind` defaults to `note` for guidance, `memory` for recall) and
@@ -503,7 +517,9 @@ Receipts store `--task`; for manual loads keep it concise and non-sensitive. Nev
 
 ## Available tools
 
-- `name`: description [k=v]
+- `name`: description (inputs: a*, b) [k=v]   inputs only when declared;
+                                              required first and marked *,
+                                              each group alphabetical
 
 ## Available agents
 
@@ -520,13 +536,13 @@ Rules: title = base meta `title` if present else the Title-Cased agent name.
 The generated protocol is always present, including for a direct specialized
 load, and is part of `instructions` but has no record ID. With a parent, the
 receipt line is `Receipt/agent pairs: ctx_72 -> <agent>, parent ctx_71 ->
-<parent-agent>` using inline-code formatting for all names and IDs. Its root
-form is at most 1,200 bytes with ULID identifiers; the parent form adds only the
-parent pair. The task itself remains the caller's input and the structured
-`task` field; the protocol deliberately does not duplicate arbitrary prompt
-text into instruction position. The 1,200-byte target applies to the root
-protocol with ordinary short names; valid agent names are not length-bounded,
-so transport ceilings, rather than that target, remain authoritative.
+<parent-agent>` using inline-code formatting for all names and IDs. With ULID
+identifiers and an agent name no longer than `nine-tails.reviewer` (19 bytes),
+the root protocol is at most 1,200 bytes; the parent form adds only the parent
+pair. Valid agent names are not length-bounded, so transport ceilings remain
+authoritative for longer names. The task itself remains the caller's input and
+the structured `task` field; the protocol deliberately does not duplicate
+arbitrary prompt text into instruction position.
 Empty sections are omitted. Continuation lines of a list item are indented two
 spaces. Recent items always show `(<kind>)`. Meta brackets list `k=v` pairs
 sorted by key, values in insertion order; a value containing whitespace, `]`
@@ -709,7 +725,11 @@ Condition-loss lint (computed on demand from `brief_item_sources`; returned by
 
 ```
 for each item with ≥1 source:
-  if any source has an empty meta multimap → no warning
+  sources resolve to their latest successor (deduplicated); disabled ones are skipped
+  for each key=value on the item:
+     if no source carries it and the origin contexts do not all share it
+        → STRONG {item, key, values: [value], sources}   (invented scope)
+  if any source has an empty meta multimap → no further warning
   for each key K present on every source:
      V = intersection of the sources' value sets for K
      if V non-empty and item.meta lacks K → STRONG {item, key, values: V, sources}
@@ -924,9 +944,9 @@ is deliberately narrow:
 1. The first eligible `SessionStart` binds the session and is silent. A fresh
    wrapper around a resumed harness also waits for a real prompt.
 2. The first `UserPromptSubmit` in an episode performs a fresh capsule load,
-   persisting the exact submitted `prompt` as the receipt task and using the latest run
-   context as parent. The wrapper's metadata is supplied as explicit ambient
-   metadata on every such load, so normal filtering/ranking and the resulting
+   persisting the exact submitted `prompt` as the receipt task and using the
+   latest run context as parent. The wrapper's metadata is supplied as explicit
+   ambient metadata on every such load, so normal filtering/ranking and the resulting
    receipt use it; multi-values retain their order. An atomic, expiring load
    claim prevents concurrent hook deliveries from creating duplicate receipts
    and is released on failure. It emits the harness's JSON `additionalContext`
@@ -953,9 +973,9 @@ is deliberately narrow:
    `clear` resets the episode and `resume` may replay only the live cache.
 5. Delegation is a convention, not a hook. The pilot begins a child's task
    with the load the child must run first (`nine-tails load <agent> --task
-   "..." --context ctx_N`, task text on the following lines); the child runs
-   it and works from its own receipt under the parent's. No event is
-   installed for the native subagent launch. A `PreToolUse` rewrite that
+   "<concise non-sensitive purpose>" --context ctx_N`, complete task on the
+   following lines); the child runs it and works from its own receipt under
+   the parent's. No event is installed for the native subagent launch. A `PreToolUse` rewrite that
    hands the child its capsule before it exists was built and verified
    (branch `nt-delegate`): Claude Code 2.1.260 delivers it, validating
    `updatedInput` as the whole tool input rather than a merge; Codex 0.153.2

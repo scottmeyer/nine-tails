@@ -26,7 +26,8 @@ records:
          `nine-tails agents`, then `nine-tails load <agent> --task "<concise non-sensitive purpose>" --context ctx_N`.
          Apply that capsule while preserving the original task; its receipt is
          `ctx_M`.
-      3. Call advertised tools with `nine-tails call --context ctx_M <tool> --input '{...}'`.
+      3. Inspect an advertised tool, then call it with
+         `nine-tails call --context ctx_M <tool> --input '{...}'`.
       4. At a meaningful boundary (a correction, a recovered failure, a task
          done or blocked) load reflector with `--context ctx_M` and apply it
          inline: change state, guidance, recall, a signal, a reviewed reusable
@@ -49,6 +50,18 @@ records:
       - `--task` is stored on a context receipt. Keep the complete task in the
         harness conversation and use a concise, non-sensitive purpose in a
         manual load.
+      - Metadata is applicability scope, never provenance: a load that passes
+         the same key with another value drops the record. Where a record came
+         from is its origin context. Fix a wrong scope with
+        `nine-tails note|prefer|avoid|remember --context ctx_M --supersedes <id> [--meta k=v]`,
+        which replaces the record, keeps its body, and preserves episode
+        provenance; history is never edited.
+      - Delegating through your harness's own subagent mechanism: begin the
+        child's task with the load it must run first,
+        `nine-tails load <agent> --task "<concise non-sensitive purpose>" --context ctx_M`
+        (add `--meta k=v` for facets), and put the complete task on the lines
+        after. The child runs the load, follows its capsule, and reports the
+        receipt id it gets. Nothing else is needed on any harness.
       - When Recent adjustments grows long, or load says so on stderr, compile:
         `nine-tails compile <agent> --compiler "<compiler-command>"`, using a
         command that reads the document on stdin and writes the new brief on
