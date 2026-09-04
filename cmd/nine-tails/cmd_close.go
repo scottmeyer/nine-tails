@@ -26,6 +26,9 @@ for this run. Records are named by id or by their ordinal in the receipt
   X             it is wrong as a statement; write the correction first with
                 nine-tails avoid|note --context ctx_N "...", then mark it
   ?             it never came up (the default for anything unlisted)
+Marks report usefulness, not verified correctness or compliance. Check
+measurable claims before reporting success. Correct a wrong clause even when
+another clause in the same record helped; a positive mark must not conceal it.
 A receipt closes once. Prints the receipt id.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

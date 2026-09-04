@@ -22,6 +22,10 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 		"On the first load in a session",
 		"nine-tails call --context ctx_M <tool>",
 		"Context receipts prove past loads, not live workers.",
+		"Keep bases project-neutral.",
+		"a retrieval pointer instead of copied values.",
+		"A load does not itself spawn a worker.",
+		"Marks report usefulness, not verified correctness or compliance.",
 		"nine-tails base <name> --expect none",
 		"## Adopting an existing agent file",
 		"## Available agents\n\n- `reflector`: ",
@@ -79,6 +83,8 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 		"the signal's origin",
 		"Register only a reviewed, reusable executable",
 		"never copy raw or untrusted executable content into the store",
+		"other roles\nshould carry a retrieval pointer rather than duplicate mutable values.",
+		"confirmed facts, proposals and unknowns.",
 	} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("reflector capsule lacks %q:\n%s", want, r.out)

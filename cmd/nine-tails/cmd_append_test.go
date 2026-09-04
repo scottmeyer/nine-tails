@@ -46,8 +46,8 @@ func TestSupersedeGuidanceRetag(t *testing.T) {
 		t.Fatalf("compile-input sources after retag: %v", srcs)
 	}
 
-	// A changed body is new guidance: it renders as recent and the item's
-	// source resolves to it (unqualified, so no warning either way).
+	// A changed body is new guidance: it invalidates the dependent cache and
+	// renders as recent, with no obsolete compiled item left to lint.
 	r = h.ok("prefer", "a", "--supersedes", nu, "--meta", "repo-id=r1", "Trace the runtime and the shell policy separately.")
 	changed := r.id(t)
 	if out := h.ok("load", "a").out; !strings.Contains(out, "## Recent adjustments\n\n- [repo-id=r1] (prefer) Trace the runtime and the shell policy separately.\n") {
@@ -57,8 +57,8 @@ func TestSupersedeGuidanceRetag(t *testing.T) {
 		t.Fatalf("retagged record status after edit: %v", got)
 	}
 	lint := h.ok("inspect", "a", "--lint", "condition-loss").json(t)["lint"].([]any)
-	if len(lint) != 1 || lint[0].(map[string]any)["key"] != "repo-id" || !equal(strs(t, lint[0].(map[string]any)["sources"]), []string{changed}) {
-		t.Fatalf("the item is judged by the latest successor: %v", lint)
+	if len(lint) != 0 {
+		t.Fatalf("invalidated items must not be linted: %v", lint)
 	}
 
 	// Refusals: wrong agent or lane, not active, unknown, not an id.

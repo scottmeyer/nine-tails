@@ -400,7 +400,9 @@ func closeNudge(exe, ctxID string) string {
 		"Then `" + exe + " inspect " + ctxID + "` lists what the capsule rendered by ordinal with an excerpt, and " +
 		"`" + exe + " close " + ctxID + " 3=+++ 5=- ...` marks each line that mattered: + +++ +++++ it applied (nudged, shaped, decisive); " +
 		"- --- ----- it hindered (detour, misled, caused a mistake); X it is wrong as a statement, after writing its correction with --context; " +
-		"leave out every line that never came up. If the work is not finished, stop without closing."
+		"leave out every line that never came up. Marks report usefulness, not verified correctness or compliance. " +
+		"Check measurable claims before reporting success; correct a wrong clause even if another clause helped. " +
+		"If the work is not finished, stop without closing."
 }
 
 // tooLargePointer replaces a capsule the harness could not deliver whole. No

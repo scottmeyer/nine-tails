@@ -697,7 +697,8 @@ func InsertRecord(tx Querier, nr NewRecord) (*Record, error) {
 // predecessor's body. A guidance successor with the predecessor's body is a
 // retag, not new guidance: it inherits the predecessor's brief coverage and
 // item sources, so it never renders as a recent adjustment. A changed body is
-// new guidance and renders as recent until compiled.
+// new guidance: invalidate any dependent brief generation in the same
+// transaction, so only surviving sources render until the next compile.
 func ReplaceRecord(tx Querier, oldID string, nr NewRecord) (*Record, error) {
 	old, err := GetRecord(tx, oldID)
 	if err != nil {
@@ -711,6 +712,13 @@ func ReplaceRecord(tx Querier, oldID string, nr NewRecord) (*Record, error) {
 	}
 	if nr.Body == "" {
 		nr.Body = old.Body
+	}
+	if old.Lane == "guidance" && nr.Body != old.Body {
+		// Check before inserting the successor: superseded-by accounting may
+		// depend on oldID being the latest record in its replacement chain.
+		if _, err := InvalidateGenerationForGuidance(tx, old.Agent, old.ID); err != nil {
+			return nil, err
+		}
 	}
 	nr.Supersedes = oldID
 	rec, err := InsertRecord(tx, nr)

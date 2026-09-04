@@ -140,7 +140,10 @@ the exact replacement scope with `--meta`. To retire an obsolete active record
 without a replacement, use `disable <record-id>`; it remains inspectable by ID
 and under its agent's `inspect --all` history. Retiring compiled guidance
 invalidates that brief generation as an inseparable cache; surviving sources
-appear as recent guidance until the next compile.
+appear immediately as recent guidance. Replacing a compiled source with changed
+text does the same: obsolete compiled advice disappears on the next load,
+without waiting for a compiler. Recompile when useful to compact the surviving
+notes, not to make the correction take effect.
 
 ## What should be persisted?
 
@@ -306,6 +309,12 @@ nine-tails compile pr-review
 For a manual or custom-model workflow, use `compile-input` followed by
 `brief put`. Compiler output is validated for complete dispositions and
 installed with compare-and-swap protection.
+
+Keep changing project decisions in one named, scoped state; give other roles
+scoped retrieval pointers instead of copying values into their bases. Keep
+bases project-neutral and verify a reusable role with an unrelated project load.
+New starter guidance teaches this convention; upgrading the binary does not
+overwrite your existing pilot or reflector.
 
 ## Project status and development
 

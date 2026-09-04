@@ -146,6 +146,15 @@ exists, whoever made it, is never touched, and nothing else ever seeds.
 agent. `brief-compiler` is not seeded because the built-in compiler
 instructions already exist.
 
+Starter guidance teaches models to keep mutable project decisions in one
+named, scoped state and give other roles retrieval pointers, preserving facts,
+proposals and unknowns distinctly. Bases stay project-neutral; project-specific
+style and retrieval pointers are scoped guidance, checked with an unrelated
+repo-id load. Proposed additions stay outside ready-to-use factual instructions.
+This is a content convention, not a new state schema or authority hierarchy;
+the current task still governs. Existing
+personalized starters are not overwritten by a binary upgrade.
+
 The harness is a facet, not an agent name: manual root loads use `--meta
 harness=<harness>` and harness-specific notes carry the same scope. `hooks
 run` derives the facet from `--claude|--codex`; an absent value is added, an
@@ -394,8 +403,14 @@ carries exactly the given `--meta`, and without TEXT or `--stdin` it keeps
 the old body. Metadata is scope, and a wrong scope is fixed this way, never
 by editing history. A guidance successor with the same body is a retag: it
 inherits the predecessor's `brief_inputs` and `brief_item_sources` rows, so
-it never renders as a recent adjustment. A changed body is new guidance and
-renders as recent until compiled.
+it never renders as a recent adjustment. A changed body applies immediately
+as recent guidance; compilation is only needed to condense it. If the active generation depends on the
+changed guidance (including a `superseded-by` successor or its latest retag),
+the replacement transaction installs an empty successor generation using the
+same invalidation as `disable`. Every surviving active source becomes recent;
+obsolete compiled meaning cannot coexist with its replacement. Check dependency
+before inserting the replacement so the predecessor is still the latest
+successor. An unrelated or deferred source does not churn the generation.
 
 **Lanes per command**: `append` accepts `--lane guidance|recall` only (default
 `recall`; `--kind` defaults to `note` for guidance, `memory` for recall) and
@@ -666,6 +681,11 @@ open keeps the caller waiting, exactly as with any other program, so a tool
 that daemonizes must redirect both.
 
 ## 10. Compilation (spec §12)
+
+Default compiler instructions keep independently changeable rules in separate
+items, with necessary conditions attached. Practice tallies are self-reported
+usefulness, not correctness or compliance evidence; a mixed item's positive
+marks do not validate every clause or override an explicit correction.
 
 `compile-input <agent>` (default json):
 
@@ -1095,6 +1115,13 @@ Rules: a receipt closes once (again → 7); an id the receipt did not render
 the close on the model's path at the end of a session, the marks are the
 agent's. The base and signals can be marked like any rendered record.
 
+Marks report usefulness, not verified correctness or compliance. The starter,
+close help and hook nudge ask the model to check measurable claims and record
+a wrong clause's correction even if another clause in that record helped.
+The compiler must read corrections despite positive marks; unknown marks
+suggest reviewing relevance and scope, not treating a conditional rule as
+false or discarding a rarely needed safeguard solely for lack of use.
+
 **Hooks put the close on the model's path.** Both harnesses fire `Stop`
 when the model is about to end its turn and accept `{"decision": "block",
 "reason": ...}`, which continues the session with the reason as its next
@@ -1110,4 +1137,5 @@ Magnitude is ordinal. A tally per record (`store.TallyRecord`) counts
 renders, closes, plus, minus, unknown, wrong, the summed strengths, and the
 latest applied time. It is shown in `inspect <agent>` (`brief.tallies`),
 in compile-input on each active item, and read by the lint (§10). `?`
-across many closes is the prune signal: rendered often, useful never.
+across many closes is a relevance-review signal: rendered often, not reported
+useful in those episodes. Pruning remains a semantic judgment.

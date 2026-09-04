@@ -13,6 +13,8 @@ Rules:
 - Preserve concrete user corrections.
 - Account for every supplied guidance entry.
 - Merge equivalent entries and retain their source relationships.
+- Keep independently changeable instructions in separate items so each can be
+  corrected and marked on its own; keep a rule's necessary conditions with it.
 - Retain conditions that explain apparent contradictions.
 - Prefer instructions that describe the desired behavior, not only what to avoid.
 - Defer material that cannot be represented safely and concisely.
@@ -34,10 +36,14 @@ carry and drop the rest.
 Each active item carries a tally from practice: how many runs rendered it
 (renders), how many of those closed their receipt (closes), and how the
 closes marked it (plus: it applied; minus: it hindered; unknown: never came
-up; wrong: marked X, with the correction among the entries). Drop an item
-that many runs rendered and none applied, reword or narrow one that
-hindered more than it helped, replace one marked wrong with its correction,
-and keep one that is applied often.
+up; wrong: marked X, with the correction among the entries). These are
+self-reported usefulness signals, not verified correctness or compliance.
+A positive mark on a mixed item does not validate every clause. Read the
+sources and corrections even when positive marks dominate; replace wrong
+guidance with its correction. Repeated hindrance suggests rewording or
+narrowing. Repeated unknown marks suggest checking relevance and scope, not
+that a conditional rule is false. Do not discard a concrete correction or
+rarely needed safeguard solely because it has not applied lately.
 
 Output contract. Reply with exactly one YAML or JSON document and nothing
 else. Keys may be written in snake_case or kebab-case.

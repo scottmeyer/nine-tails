@@ -147,10 +147,11 @@ func InstallGeneration(tx Querier, agent, expectGen string, items []NewItem, inp
 
 // InvalidateGenerationForGuidance installs an empty successor when entryID is
 // evidence for the agent's active brief generation. This makes every surviving
-// active guidance entry recent again, so disabling one source cannot leave its
-// compiled meaning in capsules or compiler input. A superseded-by successor is
-// evidence too, including its latest record successor. When the active
-// generation does not depend on entryID, this is a no-op.
+// active guidance entry recent again, so disabling or changing one source
+// cannot leave its compiled meaning in capsules or compiler input. A
+// superseded-by successor is evidence too, including its latest record
+// successor. When the active generation does not depend on entryID, this is
+// a no-op.
 func InvalidateGenerationForGuidance(tx Querier, agent, entryID string) (*Generation, error) {
 	gen, err := ActiveGeneration(tx, agent)
 	if errors.Is(err, ErrNotFound) {

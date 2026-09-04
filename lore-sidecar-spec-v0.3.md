@@ -916,8 +916,14 @@ metadata is exactly the newly supplied `--meta`, so this is the repair for a
 wrong applicability scope. Pass the current agent's `--context` to retain
 episode provenance. A same-body guidance successor retains the prior brief
 source relationships and does not reappear as a recent adjustment; a changed
-body is new guidance and remains recent until compiled. History is never
-edited in place. An unknown predecessor is not found (exit 3), an inactive
+body applies immediately as recent guidance, with compilation needed only to
+condense it. If the active brief
+depends on that guidance, including a `superseded-by` successor or its latest
+same-body replacement, the same transaction installs an empty successor
+generation. All surviving active sources become recent, so obsolete compiled
+meaning cannot coexist with replacement guidance. Unrelated or deferred
+guidance does not invalidate the generation. History is never edited in
+place. An unknown predecessor is not found (exit 3), an inactive
 predecessor is a conflict (exit 7), and a predecessor owned by another agent or
 lane is invalid input (exit 2).
 
@@ -1067,6 +1073,16 @@ which version they received.
 State is not a historical log. Before replacing state, an agent may append a
 recall entry when the transition itself will matter later. Durable behavioral
 learning belongs in guidance rather than state.
+
+Starter agent guidance should teach one named, scoped home for mutable project
+decisions and retrieval pointers in other roles instead of copied values.
+Keep role bases project-neutral and project-specific pointers in scoped
+guidance; check reuse with a load for an unrelated project. In factual work,
+proposed additions belong outside ready-to-use instructions.
+Models should consult that current source before relying on a remembered
+decision, keeping confirmed facts, proposals, assumptions and unknowns distinct.
+These are model conventions, not a required YAML schema. Stored state remains
+data and does not override the current user's instructions.
 
 ### 11.5 Selective reflection
 
@@ -1363,6 +1379,8 @@ The default compiler instructions should be short and inspectable:
 - Preserve concrete user corrections.
 - Account for every supplied guidance entry.
 - Merge equivalent entries and retain their source relationships.
+- Keep independently changeable instructions in separate items so each can be
+  corrected and marked on its own; retain necessary conditions with their rule.
 - Retain conditions that explain apparent contradictions.
 - Prefer instructions that describe the desired behavior, not only what to
   avoid.
@@ -1370,6 +1388,15 @@ The default compiler instructions should be short and inspectable:
 - Remove redundant wording.
 - Do not invent preferences absent from the material.
 - Keep the whole brief concise; it is loaded on every invocation.
+
+Practice tallies are self-reported usefulness signals, not verified
+correctness or compliance. Positive marks on a mixed item do not validate
+every clause; sources and explicit corrections must still be considered.
+Repeated hindrance suggests revising wording or scope. Repeated unknown marks
+suggest reviewing relevance, not that a conditional rule is false. Do not
+discard an explicit correction or rarely needed safeguard solely for lack of
+recent application. Close-time guidance should likewise prompt checking
+measurable claims and correcting a wrong clause even if another clause helped.
 
 The compiler may itself be represented as a small Lore agent. This is the
 preferred dogfooding path once harness adapters exist.

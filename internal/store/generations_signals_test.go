@@ -355,7 +355,7 @@ func TestInvalidateGenerationForGuidanceRecognizesCurrentSupersededBySuccessor(t
 	if err := s.Tx(func(tx *sql.Tx) error {
 		var err error
 		current, err = ReplaceRecord(tx, successor.ID, NewRecord{
-			Agent: "a", Lane: "guidance", Kind: "prefer", Body: "latest phrasing",
+			Agent: "a", Lane: "guidance", Kind: "prefer", Meta: Meta{"repo-id": {"r"}},
 		})
 		return err
 	}); err != nil {
