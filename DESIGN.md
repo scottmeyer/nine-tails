@@ -623,6 +623,14 @@ versions are unchanged.
 `nine-tails: state_18 (use --expect state_18 to replace)` to stderr;
 `--format id` prints just the ID; `--format json` the envelope.
 
+Both `state get` and `state put` accept `<agent>/<name>` or a bare `<name>`
+with an explicit `--context ctx_...`. The receipt supplies the agent; an
+explicit agent must match its owner (exit 2 otherwise). Missing receipts are
+exit 3. A bare name without context and malformed targets are exit 2 before
+opening the store. No ambient receipt is inferred. Reads return the current
+named version, not the version rendered in that receipt. Context metadata
+does not filter an explicit named lookup. Existing output streams are unchanged.
+
 ## 9. Tools (spec §13)
 
 Body YAML:

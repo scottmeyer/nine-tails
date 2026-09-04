@@ -587,7 +587,8 @@ func TestPureCommandGroupsRejectUnknownChildrenAndBareShowsHelp(t *testing.T) {
 		child    string
 		helpHash string
 	}{
-		"state":   {child: "get", helpHash: "acc0cfdd20e05ae0ceb90051ba0c22d38ed9cb78aa3dfc97723d5cd25ca711a2"},
+		// State help now advertises the context-qualified read shorthand.
+		"state":   {child: "get", helpHash: "d2752cf2ad545cee64440575572cce7c4799165fda22cf41ef5c689fa3c2db7d"},
 		"context": {child: "list", helpHash: "b66f989a979e7856a46f76b357fda88876442930cc387a71112883cfbcf6e0a6"},
 		"tool":    {child: "add", helpHash: "e7da017ff2f59b4490cbdb911f4380611ee2b70322f38636e5335b00e4d6ea81"},
 		"agent":   {child: "add", helpHash: "dcc6fe5421d3756a8668c2004d056d623864d61d45a215b3cf2fb4ce9831127a"},
@@ -635,7 +636,7 @@ func TestPureCommandGroupsRejectUnknownChildrenAndBareShowsHelp(t *testing.T) {
 				t.Fatalf("group help changed from its non-runnable shape:\n%s", bare.out)
 			}
 			if got := fmt.Sprintf("%x", sha256.Sum256([]byte(bare.out))); got != baseline.helpHash {
-				t.Fatalf("group help bytes changed from f22f6b4: sha256=%s, want %s\n%s", got, baseline.helpHash, bare.out)
+				t.Fatalf("group help bytes changed from approved baseline: sha256=%s, want %s\n%s", got, baseline.helpHash, bare.out)
 			}
 
 			// A space-form help flag precedes a known child in Cobra's baseline

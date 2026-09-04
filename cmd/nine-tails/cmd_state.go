@@ -41,6 +41,7 @@ func newStateCmd(a *app) *cobra.Command {
 		Long: `State is a small YAML snapshot of what is true now. It is loaded directly
 into capsules, never compiled, and replaced with compare-and-swap:
   state get  <agent>/<name>
+  state get  <name> --context ctx_N           (agent taken from the context)
   state put  <agent>/<name> --expect none|<current-id> [--stdin]
   state put  <name> --context ctx_N ...        (agent taken from the context)`,
 	}
@@ -49,9 +50,9 @@ into capsules, never compiled, and replaced with compare-and-swap:
 }
 
 func newStateGetCmd(a *app) *cobra.Command {
-	var format string
+	var format, context string
 	c := &cobra.Command{
-		Use:   "get <agent>/<name>",
+		Use:   "get [<agent>/]<name> [--context ctx_N]",
 		Short: "Print the current state document",
 		Long: `With the default --format yaml, write the YAML state body verbatim to
 stdout and the active state_... record id to stderr as the compare-and-swap
@@ -60,28 +61,23 @@ hint for state put. --format json writes the full record envelope to stdout;
 do not emit the hint.
 
 A state_... record id belongs in state put --expect. A ctx_... context receipt
-id belongs in --context; the two are not interchangeable.`,
+id belongs in --context; the two are not interchangeable. A bare name requires
+--context to select its agent. An explicit agent must match that receipt's
+owner. The read returns current state, not the version seen by the receipt;
+context metadata does not filter an explicitly named state.`,
 		Example: `  nine-tails state get pr-review/working
   nine-tails state get pr-review/working --format json
-  nine-tails state get pr-review/working --format id`,
+  nine-tails state get pr-review/working --format id
+  nine-tails state get working --context ctx_72`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			agent, name, err := cli.SplitAgentName(args[0])
-			if err != nil {
-				return err
-			}
-			if err := store.ValidAgentName(agent); err != nil {
-				return err
-			}
-			if err := store.ValidRecordName("state", name); err != nil {
-				return err
-			}
 			switch format {
 			case "yaml", "", "json", "id":
 			default:
 				return cli.Invalid("unknown format %q (yaml|json|id)", format)
 			}
-			if err := a.open(); err != nil {
+			agent, name, err := a.stateTarget(args[0], context)
+			if err != nil {
 				return err
 			}
 			recs, err := store.ListRecords(a.st.DB, store.Filter{Agent: agent, Lane: "state", Kind: "working-state", Name: name})
@@ -109,7 +105,44 @@ id belongs in --context; the two are not interchangeable.`,
 		},
 	}
 	c.Flags().StringVar(&format, "format", "yaml", "yaml (body verbatim stdout, CAS id stderr)|json (envelope stdout)|id (state id stdout)")
+	c.Flags().StringVar(&context, "context", "", "context receipt id (ctx_...) selecting the agent for a bare name; must match an explicit agent")
 	return c
+}
+
+// stateTarget validates syntax before opening the store, then resolves an
+// explicitly supplied receipt. Never guess an owner from ambient context.
+func (a *app) stateTarget(target, context string) (agent, name string, err error) {
+	if strings.Contains(target, "/") {
+		agent, name, err = cli.SplitAgentName(target)
+		if err != nil {
+			return "", "", err
+		}
+		if err := store.ValidAgentName(agent); err != nil {
+			return "", "", err
+		}
+	} else {
+		if context == "" {
+			return "", "", cli.Invalid("expected <agent>/<name>, or a bare <name> with --context")
+		}
+		name = target
+	}
+	if err := store.ValidRecordName("state", name); err != nil {
+		return "", "", err
+	}
+	if err := a.open(); err != nil {
+		return "", "", err
+	}
+	if context != "" {
+		owner, err := a.contextAgent(context)
+		if err != nil {
+			return "", "", err
+		}
+		if agent != "" && owner != agent {
+			return "", "", cli.Invalid("%s belongs to %s, not %s", context, owner, agent)
+		}
+		agent = owner
+	}
+	return agent, name, nil
 }
 
 func newStatePutCmd(a *app) *cobra.Command {
@@ -148,39 +181,8 @@ Omitting --meta preserves existing state metadata; new state is unqualified.
 			if expect != "none" && (!strings.HasPrefix(expect, "state_") || !store.IsID(expect)) {
 				return cli.Invalid("--expect must be 'none' or a state id like state_18, got %q", expect)
 			}
-			if err := a.open(); err != nil {
-				return err
-			}
-			var agent, name string
-			if strings.Contains(args[0], "/") {
-				var err error
-				agent, name, err = cli.SplitAgentName(args[0])
-				if err != nil {
-					return err
-				}
-				if context != "" {
-					ctxAgent, err := a.contextAgent(context)
-					if err != nil {
-						return err
-					}
-					if ctxAgent != agent {
-						return cli.Invalid("%s belongs to %s, not %s", context, ctxAgent, agent)
-					}
-				}
-			} else {
-				if context == "" {
-					return cli.Invalid("expected <agent>/<name>, or a bare <name> with --context")
-				}
-				ctxAgent, err := a.contextAgent(context)
-				if err != nil {
-					return err
-				}
-				agent, name = ctxAgent, args[0]
-			}
-			if err := store.ValidAgentName(agent); err != nil {
-				return err
-			}
-			if err := store.ValidRecordName("state", name); err != nil {
+			agent, name, err := a.stateTarget(args[0], context)
+			if err != nil {
 				return err
 			}
 			body, err := cli.ReadBody(args[1:], stdin, a.stdin, false)

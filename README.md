@@ -315,6 +315,10 @@ explicitly on creation; `--context` does not copy it. On update, `--meta`
 replaces the complete set and `--clear-meta` explicitly removes it. Bundle
 imports remain exact snapshots, including their metadata.
 
+Both `state get` and `state put` accept a qualified `agent/name`, or a bare
+name with `--context ctx_...`. The receipt identifies the agent, not a past
+state version; an explicit agent must match that receipt's owner.
+
 Keep changing project decisions in one named, scoped state; give other roles
 scoped retrieval pointers instead of copying values into their bases. Keep
 bases project-neutral and verify reuse with a small task from an unrelated

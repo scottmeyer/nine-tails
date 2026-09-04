@@ -154,6 +154,8 @@ func TestModelFacingCommandHelp(t *testing.T) {
 				"state_... record id to stderr as the compare-and-swap hint",
 				"--format json writes the full record envelope to stdout",
 				"nine-tails state get pr-review/working --format id",
+				"nine-tails state get working --context ctx_72",
+				"The read returns current state",
 			},
 		},
 		{

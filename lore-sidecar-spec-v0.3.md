@@ -1045,6 +1045,14 @@ compiler.
 
 State updates use immutable replacement and compare-and-swap:
 
+Both `state get` and `state put` accept `<agent>/<name>` or a bare `<name>`
+with `--context ctx_...`. The receipt supplies the agent; it must match any
+explicit agent (exit 2 on mismatch, exit 3 for a missing receipt). A bare name
+without context or malformed target is rejected before opening the store.
+Never infer a receipt from ambient history. Reads return current named state,
+not the version previously rendered to the receipt. Context metadata does not
+filter this explicit lookup; existing output streams remain unchanged.
+
 ```bash
 lore state get pr-review/working
 
