@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-var installedEvents = []string{"SessionStart", "UserPromptSubmit", "SessionEnd"}
+var installedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"}
 
 // Install merges one owned command handler into each lifecycle event. Existing
 // settings and non-owned hook handlers are retained. Repeated installation

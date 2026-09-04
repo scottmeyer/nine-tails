@@ -820,7 +820,7 @@ Children are unaffected. Never touches records.
 ## 15. Harness adapters (spec §17.2)
 
 `hooks install` writes user-scope command hooks for `SessionStart`,
-`UserPromptSubmit`, and `SessionEnd`. Claude Code uses
+`UserPromptSubmit`, `Stop`, and `SessionEnd`. Claude Code uses
 `$CLAUDE_CONFIG_DIR/settings.json` (default `~/.claude/settings.json`) and
 exec-form `command` + `args`; Codex uses `$CODEX_HOME/hooks.json` (default
 `~/.codex/hooks.json`) and a safely quoted command string plus an absolute
@@ -1015,6 +1015,17 @@ Rules: a receipt closes once (again → 7); an id the receipt did not render
 `contexts.closed_at` is set. Nothing writes automatically: the hooks may put
 the close on the model's path at the end of a session, the marks are the
 agent's. The base and signals can be marked like any rendered record.
+
+**Hooks put the close on the model's path.** Both harnesses fire `Stop`
+when the model is about to end its turn and accept `{"decision": "block",
+"reason": ...}`, which continues the session with the reason as its next
+prompt. In an activated run whose receipt is open, `Stop` answers once with
+the close nudge (record corrections, `inspect ctx_N`, `close ctx_N ...`, or
+stop without closing if the work is not finished); a `Stop` carrying
+`stop_hook_active`, a closed receipt, or a run that never loaded is silent.
+A closed receipt ends the episode: the next `UserPromptSubmit` loads afresh
+with the closed receipt as parent, so marks are per episode and a
+multi-turn session can close as many times as it has pieces of work.
 
 Magnitude is ordinal. A tally per record (`store.TallyRecord`) counts
 renders, closes, plus, minus, unknown, wrong, the summed strengths, and the

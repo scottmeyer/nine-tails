@@ -37,6 +37,9 @@ type Event struct {
 	Source    string
 	Reason    string
 	Prompt    string
+	// StopHookActive is set on a Stop that follows a Stop hook's own
+	// continuation, so a nudge is never repeated in one stop cycle.
+	StopHookActive bool
 }
 
 // Adapter keeps harness-specific paths, config handlers, and event decoding
@@ -49,6 +52,9 @@ type Adapter interface {
 	OwnsHandler(json.RawMessage) bool
 	DecodeEvent(io.Reader) (Event, error)
 	EncodeContext(io.Writer, string, string) error
+	// EncodeContinue answers a Stop by keeping the session going with reason
+	// as its next prompt (both harnesses: decision block).
+	EncodeContinue(io.Writer, string) error
 	// CapsuleMaxBytes is the harness's hard ceiling on one injected capsule;
 	// a capsule over it is not injected and not recorded (capsule.TooLargeError).
 	CapsuleMaxBytes() int
@@ -67,11 +73,12 @@ func For(name Name) (Adapter, error) {
 }
 
 type wireEvent struct {
-	HookEventName string  `json:"hook_event_name"`
-	SessionID     string  `json:"session_id"`
-	Source        *string `json:"source"`
-	Reason        *string `json:"reason"`
-	Prompt        *string `json:"prompt"`
+	HookEventName  string  `json:"hook_event_name"`
+	SessionID      string  `json:"session_id"`
+	Source         *string `json:"source"`
+	Reason         *string `json:"reason"`
+	Prompt         *string `json:"prompt"`
+	StopHookActive *bool   `json:"stop_hook_active"`
 }
 
 func decodeEvent(r io.Reader, name Name) (Event, error) {
@@ -107,6 +114,8 @@ func decodeEvent(r io.Reader, name Name) (Event, error) {
 			return Event{}, fmt.Errorf("invalid %s SessionEnd reason", name)
 		}
 		event.Reason = *in.Reason
+	case "Stop":
+		event.StopHookActive = in.StopHookActive != nil && *in.StopHookActive
 	default:
 		return Event{}, fmt.Errorf("unsupported %s hook event %q", name, event.Name)
 	}
@@ -181,6 +190,10 @@ func (claudeAdapter) EncodeContext(w io.Writer, event, context string) error {
 	return encodeContext(w, event, context)
 }
 
+func (claudeAdapter) EncodeContinue(w io.Writer, reason string) error {
+	return encodeContinue(w, reason)
+}
+
 func (claudeAdapter) CapsuleMaxBytes() int {
 	// Claude caps additionalContext at 10,000 characters and replaces a longer
 	// value with a file preview; bytes bound characters, with a margin.
@@ -217,7 +230,7 @@ func (codexAdapter) Handler(executable, event string) map[string]any {
 	if command, ok := encodedPowerShellCommand("& " + powershellQuote(executable) + dispatch); ok {
 		h["commandWindows"] = command
 	}
-	if event != "SessionEnd" {
+	if event == "SessionStart" || event == "UserPromptSubmit" {
 		// A capsule is already bounded by nine-tails. Ask Codex to pass the
 		// complete hook context rather than replacing a large capsule with a
 		// file preview.
@@ -249,10 +262,24 @@ func (codexAdapter) EncodeContext(w io.Writer, event, context string) error {
 	return encodeContext(w, event, context)
 }
 
+func (codexAdapter) EncodeContinue(w io.Writer, reason string) error {
+	return encodeContinue(w, reason)
+}
+
 func (codexAdapter) CapsuleMaxBytes() int {
 	// Cached Markdown is JSON-escaped into a run marker capped at 1 MiB:
 	// 140 KiB stays below it even under Go JSON's worst-case six-byte escape.
 	return 140 * 1024
+}
+
+// encodeContinue is the Stop answer both harnesses accept: block means
+// "do not stop yet", and reason becomes the session's next prompt.
+func encodeContinue(w io.Writer, reason string) error {
+	out := struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}{"block", reason}
+	return json.NewEncoder(w).Encode(out)
 }
 
 func encodeContext(w io.Writer, event, context string) error {

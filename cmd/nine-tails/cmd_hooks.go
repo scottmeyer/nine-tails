@@ -215,8 +215,29 @@ func newHooksDispatchCmd(a *app) *cobra.Command {
 				}
 				return nil
 			}
+			if decision.Stop {
+				return a.dispatchStop(adapter, event, decision)
+			}
 			if !decision.Load {
-				return nil
+				// A closed receipt ends the episode: this prompt loads afresh
+				// with the closed receipt as parent (DESIGN §18).
+				if decision.Context == "" {
+					return nil
+				}
+				a.home, a.homeFlag = decision.Home, ""
+				if err := a.open(); err != nil {
+					return cli.ToolFailed("hook dispatch: %v", err)
+				}
+				ctx, err := store.GetContext(a.st.DB, decision.Context)
+				if err != nil || ctx.ClosedAt == "" {
+					return nil
+				}
+				if err := capability.EndEpisode(event.SessionID); err != nil {
+					return cli.ToolFailed("hook dispatch: end episode: %v", err)
+				}
+				if decision, err = capability.Admit(event); err != nil || !decision.Active || !decision.Load {
+					return nil
+				}
 			}
 			if s := os.Getenv("NINE_TAILS_NOW"); s != "" {
 				t, err := time.Parse(time.RFC3339, s)
@@ -268,6 +289,45 @@ func newHooksDispatchCmd(a *app) *cobra.Command {
 	addHarnessFlags(c, &claude, &codex)
 	c.Flags().StringVar(&owner, "owner", "", "installed-entry ownership marker")
 	return c
+}
+
+// dispatchStop asks, once per stop cycle, for the open receipt to be closed
+// before the session ends. A closed receipt, a receipt that never loaded, or
+// a Stop that follows this hook's own continuation is silent.
+func (a *app) dispatchStop(adapter harnessadapter.Adapter, event harnessadapter.Event, decision harnessadapter.Decision) error {
+	if event.StopHookActive || decision.Context == "" {
+		return nil
+	}
+	a.home, a.homeFlag = decision.Home, ""
+	if err := a.open(); err != nil {
+		return cli.ToolFailed("hook dispatch: %v", err)
+	}
+	ctx, err := store.GetContext(a.st.DB, decision.Context)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		return cli.ToolFailed("hook dispatch: %v", err)
+	}
+	if ctx.ClosedAt != "" {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "nine-tails"
+	}
+	return adapter.EncodeContinue(a.stdout, closeNudge(exe, ctx.ID))
+}
+
+// closeNudge is the Stop hook's continuation prompt: harness-neutral, one
+// receipt, the marks legend, and permission to stop without closing.
+func closeNudge(exe, ctxID string) string {
+	return "nine-tails: if your work under [nine-tails-context=" + ctxID + "] is finished, close the receipt before you stop. " +
+		"First record any correction you received: `" + exe + " prefer|avoid|note --context " + ctxID + " \"...\"`. " +
+		"Then `" + exe + " inspect " + ctxID + "` lists what the capsule rendered by ordinal with an excerpt, and " +
+		"`" + exe + " close " + ctxID + " 3=+++ 5=- ...` marks each line that mattered: + +++ +++++ it applied (nudged, shaped, decisive); " +
+		"- --- ----- it hindered (detour, misled, caused a mistake); X it is wrong as a statement, after writing its correction with --context; " +
+		"leave out every line that never came up. If the work is not finished, stop without closing."
 }
 
 // tooLargePointer replaces a capsule the harness could not deliver whole. No
