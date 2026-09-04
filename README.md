@@ -135,6 +135,24 @@ and per repository on request. Nothing else is needed: no per-repo store, no
 sync step, no repository awareness in the binary. To hand an agent to another
 machine or person, `export --bundle` it and `import` it there.
 
+The same rule covers several instances of one agent, say two builders on
+different tracks. They stay one agent so their learnings roll up; each load
+carries what distinguishes it, and metadata targets it:
+
+```sh
+nine-tails load builder --task "..." --meta repo-id=my_repo --meta track=auth
+nine-tails signal --subject "..."                          # everyone
+nine-tails signal builder --subject "..."                  # every builder
+nine-tails signal builder --meta track=auth --subject "..." # the auth-track builder
+```
+
+The instance itself is the context receipt, `ctx_N`, which every correction
+records as its origin. Do not invent names like `builder@session`; they split
+the memory you want combined. A harness that knows its session id passes it
+as `--meta session=<id>`; the binary never reads it from the environment.
+Something every builder must keep knowing is guidance (`note builder`), not
+a signal.
+
 ## Content agents the spec expects
 
 These are ordinary agents, created with `base`; nothing about them is built in.

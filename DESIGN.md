@@ -66,6 +66,22 @@ stores and never get their own: keying memory by checkout directory forks it
   `repo-id`, and only when a second repository actually needs the name.
 - A branch or worktree name is invocation metadata (`--meta branch=<name>`)
   that lands on the receipt; it is never scope.
+- An agent instance is its context receipt, never a name. Several builders on
+  different tracks are one agent, `builder`, whose learnings roll up together;
+  each load carries what distinguishes it (`--meta track=auth`,
+  `--meta session=<id>`) and the receipt records it as origin. Address the
+  ladder with what already exists: `signal` alone reaches everyone,
+  `signal builder` every builder, `signal builder --meta track=auth` the
+  builder that loaded with that key (the conflict rule does the targeting, so
+  every load must pass the key, exactly as with `repo-id`). Names like
+  `builder@session` fragment memory and are not used. The binary never reads
+  a harness session id from the environment; the adapter or instruction file
+  passes it as `--meta` in one place.
+- Something every builder must keep knowing is guidance (`note builder`), not
+  a signal: a signal has a when and a done, and the first instance to
+  acknowledge it removes it for the rest. Something every agent of every type
+  must know belongs in the instruction file, the one cross-agent guidance
+  channel.
 - Tools act on the working directory they are called from, never on a stored
   checkout path, so one definition serves every worktree.
 - State is per agent, not per checkout: uniqueness is by name, so two
