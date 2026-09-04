@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -394,8 +395,23 @@ func (d *Definition) Argv(in map[string]any, home string) []string {
 	return argv
 }
 
+// Interrupted reports that nine-tails itself received a termination signal
+// while the tool ran. Run has already forwarded that signal to the tool's
+// process group and waited for the tool; the caller decides how to exit.
+type Interrupted struct{ Signal os.Signal }
+
+func (e *Interrupted) Error() string { return fmt.Sprintf("interrupted by %v", e.Signal) }
+
+// ExitCode is the shell convention for a process ended by e.Signal
+// (128 + signal number).
+func (e *Interrupted) ExitCode() int { return signalExitCode(e.Signal) }
+
 // Run executes the tool without a shell, feeding stdin per the declared mode
-// and streaming stdout/stderr through.
+// and streaming stdout/stderr through. The tool runs in its own process group
+// where the platform has them, so a timeout ends its descendants too. Because
+// that group is not the terminal's, a termination signal delivered to
+// nine-tails while the tool runs is forwarded to the group and reported as
+// *Interrupted; a second signal kills the group outright.
 func (d *Definition) Run(c Call) error {
 	if err := d.ValidateInput(c.Input); err != nil {
 		return err
@@ -427,7 +443,41 @@ func (d *Definition) Run(c Call) error {
 	}
 	cmd.Stdout = c.Stdout
 	cmd.Stderr = c.Stderr
-	err := cmd.Run()
+
+	// Subscribe before Start so a signal landing during startup is not lost;
+	// the forwarder only acts once the process exists.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, forwardedSignals...)
+	defer signal.Stop(signals)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%w: %v", ErrStart, err)
+	}
+	done := make(chan struct{})
+	forwarded := make(chan os.Signal, 1)
+	go func() {
+		var first os.Signal
+		for {
+			select {
+			case sig := <-signals:
+				if first == nil {
+					first = sig
+					forwarded <- sig
+					forwardSignal(cmd, sig)
+				} else {
+					_ = terminateProcessTree(cmd)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	select {
+	case sig := <-forwarded:
+		return &Interrupted{Signal: sig}
+	default:
+	}
 	if err == nil {
 		return nil
 	}

@@ -23,6 +23,8 @@ Dependencies (keep it to these): `modernc.org/sqlite`, `github.com/spf13/cobra`,
 - Errors: first stderr line is `nine-tails: <summary>`; detail lines may follow,
   indented two spaces. With `--format json` the same error is also written to
   stdout as `{"error": "...", "code": N}` so structured callers can parse it.
+  The one exception is `call`: a tool's stderr streams through untouched, so
+  on a failed call the summary line follows the tool's own output (§9).
 - Every key nine-tails emits in its own JSON or YAML is `snake_case`
   (`created_at`, `origin_context`, `context_id`, `available_at`). The one
   exception is a harness-owned lifecycle response: adapters must reproduce the
@@ -46,6 +48,96 @@ $NINE_TAILS_HOME/
 
 Every command that accesses the knowledge store creates the home and database
 on first use. Harness install/uninstall and an inactive lifecycle gate do not.
+
+### 1.1 One store per user; repositories and worktrees are metadata
+
+There is one store per user. Repositories, clones and worktrees are not
+stores and never get their own: keying memory by checkout directory forks it
+(a fresh worktree would find no agents and silently create an empty store).
+
+- A repository is ambient metadata on `load`: `--meta repo-id=<name>`. The
+  value is written literally in that repository's agent instruction file
+  (CLAUDE.md, AGENTS.md or equivalent), so every harness passes the same value
+  and every worktree inherits it because the file is checked in. nine-tails
+  never computes it; it knows nothing about version control.
+- Nested loads, appends and calls carry the repository through `--context`,
+  so it is passed once per session.
+- Records are unqualified unless a correction is explicitly repo-specific
+  (`--meta repo-id=<name>`), exactly as spec §9.1 says. The compiler sees the
+  origin context's `repo-id` and the condition-loss lint flags a dropped one.
+  A load that carries no `repo-id` sees everything: a key present on only one
+  side never excludes (spec §8.2).
+- Agent names are global. An agent whose base is specific to one repository
+  is a name (`nine-tails.reviewer`), not a store. It is shared with a second
+  repository by generalizing the base and scoping the specifics with
+  `repo-id`, and only when a second repository actually needs the name.
+- A branch or worktree name is invocation metadata (`--meta branch=<name>`)
+  that lands on the receipt; it is never scope.
+- An agent instance is its context receipt, never a name. Several builders on
+  different tracks are one agent, `builder`, whose learnings roll up together;
+  each load carries what distinguishes it (`--meta track=auth`,
+  `--meta session=<id>`) and the receipt records it as origin. Address the
+  ladder with what already exists: `signal` alone reaches everyone,
+  `signal builder` every builder, `signal builder --meta track=auth` the
+  builder that loaded with that key (the conflict rule does the targeting, so
+  every load must pass the key, exactly as with `repo-id`). Names like
+  `builder@session` fragment memory and are not used. The binary never reads
+  a harness session id from the environment; the adapter or instruction file
+  passes it as `--meta` in one place.
+- Something every builder must keep knowing is guidance (`note builder`), not
+  a signal: a signal has a when and a done, and the first instance to
+  acknowledge it removes it for the rest. Something every agent of every type
+  must know belongs in the instruction file, the one cross-agent guidance
+  channel.
+- Tools act on the working directory they are called from, never on a stored
+  checkout path, so one definition serves every worktree.
+- State is per agent, not per checkout: uniqueness is by name, so two
+  checkouts of one repository working on the same agent share `working` and
+  CAS keeps one truth. If one agent must hold state for several repositories
+  at once, that is the spec §22 "state conventions" tripwire; the smallest
+  response is a per-repository name plus `repo-id` meta.
+- Sharing an agent with another machine or person is spec §8.5: an export
+  bundle, committed alongside the code when that is convenient. Never a
+  second store.
+
+In this repository `./nt` selects the freshly built binary and nothing else.
+
+### 1.2 Entry agent and starter
+
+`pilot` is the conventional entry agent: its base is the usage guide, its
+related agents are the catalog of what the store offers, and a model session
+starts with
+
+```
+nine-tails load pilot --task "<task>" --meta repo-id=<repo> --meta harness=<harness>
+```
+
+That line is the whole per-repository bootstrap; it is the one thing a
+repository's instruction file (or a harness hook) must say, and it never
+changes. Everything else a session needs to know is in the capsule it gets
+back, so the guide is versioned with the behavior it describes and corrected
+like any other agent (`note pilot --context ctx_N`, `base pilot`).
+
+The starter is two ordinary export documents embedded in the binary,
+`internal/starter/pilot.yaml` and `internal/starter/reflector.yaml`. `load
+pilot` on a store that lacks an agent named there imports that document and
+says so on stderr; an agent that already exists, whoever made it, is never
+touched, and nothing else ever seeds. `pilot` is not a reserved name: it is
+edited, exported and imported like any agent. `brief-compiler` is not seeded
+because the built-in compiler instructions already exist.
+
+The harness is a facet of pilot, not a name: `--meta harness=<harness>` on
+the load and on the notes that are harness-specific. One pilot learns to use
+nine-tails; each harness's quirks stay scoped to it.
+
+Foreign agent definitions (a subagent file, an AGENTS.md, a catalog entry)
+are adopted by the model following the recipe in pilot's base: `base` for
+the instructions, `tool add` for real executables only, `agent add pilot`
+to advertise, then load and read back. There is no markdown importer:
+which part is base, guidance or tool is a semantic judgment (spec §5.2), and
+the mechanical part is already `base`, `agent add` and `import --stdin`. The
+starter files are the template for agent packs: one document per agent,
+imported with `import`.
 
 `config.yaml` (all optional, defaults shown; the spec calls these configurable):
 
@@ -188,6 +280,7 @@ internal/tokens/                deterministic estimate
 internal/tool/                  YAML tool body parse/validate/exec
 internal/compile/               compile-input, output validate, coverage, install, lint
 internal/bundle/                export/import
+internal/starter/               embedded starter documents (pilot, reflector); seeded by `load pilot`
 internal/cli/                   flags, config, body reading, output helpers, errors
 internal/harness/               shared adapter contract, reversible JSON merge,
                                 ephemeral capability/session binding
@@ -222,7 +315,7 @@ nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N]
 nine-tails tool add <agent> <name> --script PATH (--description D | --stdin) [--meta]...
 nine-tails agent add <agent> <name> --description D [--meta]...
 nine-tails call [--context ctx | --agent A] <tool> [--input JSON | --stdin]
-nine-tails signal <agent> --subject S [--body B | --stdin] [--at RFC3339|+5m] [--dedupe-key K] [--meta]... [--context ctx]
+nine-tails signal [<agent>] --subject S [--body B | --stdin] [--at RFC3339|+5m] [--dedupe-key K] [--meta]... [--context ctx]
 nine-tails signal ack <sig-id> --lease <token>
 nine-tails tick [--claim] [--lease 5m] [--agent A]
 nine-tails context list [--agent A] [--limit N] | pin <ctx-id> | unpin <ctx-id> | gc [--older-than 30d] [--dry-run]
@@ -252,16 +345,20 @@ and `state put`, `<agent>` is optional when `--context` is given and defaults
 to the context's agent. Rule: with `--context`, if two or more positionals are
 given the first is the agent (and must match the context's agent, else exit 2
 `nine-tails: ctx_72 belongs to pr-review, not evidence-reviewer`); if one is
-given it is the TEXT; with `--stdin` there are no positionals. `signal` always
-takes an explicit agent (signals are legitimately addressed elsewhere).
+given it is the TEXT; with `--stdin` there are no positionals. `signal` takes
+an optional agent and defaults to `shared`: a signal is a signal, not a
+message, and every agent that loads sees a shared one (§7 rule 7). Name an
+agent only when a wake-up must start that agent.
 
 **TEXT vs --stdin**: exactly one. TEXT beginning with `-` needs `--` before it
 (cobra convention); the usage line shows it.
 
 **Lanes per command**: `append` accepts `--lane guidance|recall` only (default
 `recall`; `--kind` defaults to `note` for guidance, `memory` for recall) and
-rejects `--kind brief-item`; `put` accepts `--lane definition|state` only and
-runs state validation (§8) for state and tool validation (§9) for
+rejects `--kind brief-item`; `put` accepts `--lane definition|state` only. The
+state lane has exactly one kind, `working-state` (anything else is exit 2, so
+`state get`, `state put` and `load` always agree on what a named state is);
+`put` runs state validation (§8) for state and tool validation (§9) for
 definition/tool. No v0 command produces `status=disabled`.
 
 `--meta k=v` may repeat; splits at the first `=`; missing `=` or empty key → 2.
@@ -302,13 +399,15 @@ Candidates:
    asc. A tool body that fails `tool.Parse` is skipped.
 6. **Related agents**: active definition/related-agent records owned by the
    agent. Sort: score desc, name asc.
-7. **Signals**: `signal_delivery` rows for the agent, state != acknowledged,
+7. **Signals**: `signal_delivery` rows for the agent and for `shared` (those
+   whose `available-to` names the agent or is absent), state != acknowledged,
    `available_at <= now`, joined to records, passing the conflict rule. Sort:
    score desc, then available_at asc, rowid asc. Load never mutates delivery.
 
-`shared` is an ordinary agent name for storage and inspect. The only
-cross-agent visibility is shared tools (rule 5); `call` applies the same
-filter. `available-to` on any other record is ordinary metadata.
+`shared` is an ordinary agent name for storage and inspect. The cross-agent
+visibility is shared tools (rule 5) and shared signals (rule 7), both honoring
+`available-to`; `call` applies the tool filter. `available-to` on any other
+record is ordinary metadata.
 
 Conflict rule (2–7): for each key present on BOTH the record and the resolved
 metadata, if the value sets are disjoint, exclude the record.
@@ -475,9 +574,18 @@ booleans `true`/`false`, objects/arrays as compact JSON; an element whose
 placeholder input is absent (and not required) is removed from argv. Never add
 `--`. stdin: `json` = the whole input object as JSON (unknown keys forwarded);
 `text` = the string value of input key `text` (empty if absent); `none` =
-closed. Run with `exec.Command`, env inherits plus `NINE_TAILS_HOME`,
-`NINE_TAILS_AGENT`, and `NINE_TAILS_CONTEXT` when given. stdout → stdout,
-stderr → stderr, exit code passed through; cannot start / timeout → 5.
+closed. Run with `exec.Command` in its own process group; env inherits plus
+`NINE_TAILS_HOME`, `NINE_TAILS_AGENT`, and `NINE_TAILS_CONTEXT` when given.
+stdout and stderr are the tool's: both stream through untouched, never
+buffered or re-indented, and a failed call's summary line follows the tool's
+output. Exit code passed through; cannot start / timeout → 5, and a timeout
+kills the whole group. SIGINT, SIGTERM or SIGHUP received by nine-tails while
+the tool runs is forwarded to the group (a second one kills it) and nine-tails
+then exits 128+signal with a summary line, so Ctrl-C ends the tool exactly as
+it would had the tool shared the terminal's group. What a successful tool
+leaves running is its own business: a descendant that keeps stdout or stderr
+open keeps the caller waiting, exactly as with any other program, so a tool
+that daemonizes must redirect both.
 
 ## 10. Compilation (spec §12)
 
@@ -595,11 +703,19 @@ back, so no id is consumed. Non-dry-run JSON is exactly
 
 ## 11. Signals (spec §15)
 
-`signal <agent> ...` creates one record (lane=signal, kind=signal, body, meta
-with `subject=<S>` plus user meta) and one `signal_delivery` row
-(`available_at` = `--at` or now, state pending). If `(agent, dedupe-key)`
-exists nonterminal, print the existing ID, write `nine-tails: deduplicated
-against sig_44` to stderr, exit 0.
+`signal [<agent>] ...` creates one record (lane=signal, kind=signal, body,
+meta with `subject=<S>` plus user meta) and one `signal_delivery` row
+(`available_at` = `--at` or now, state pending). The agent defaults to
+`shared`: every agent's load renders it (subject to the conflict rule and
+`available-to`), so "pass repo-id, not repo, on load" reaches whoever loads
+next without naming anyone. If `(agent, dedupe-key)` exists nonterminal, print
+the existing ID, write `nine-tails: deduplicated against sig_44` to stderr,
+exit 0.
+
+`tick` lists shared signals like any other, with agent `shared`. A wake-up
+adapter has nothing to start for them and leaves them unclaimed; a person or
+coordinator retires a stale broadcast with `tick --claim --agent shared` and
+`signal ack`.
 
 `tick`: rows with state pending, or leased with `leased_until <= now`, and
 `available_at <= now`; live leases are not listed; ordered by available_at
@@ -651,11 +767,17 @@ omitted_artifacts: [tool_12]      # tools referencing artifacts/ when no --bundl
 `--include` defaults to `base,brief,journal,state,tools,agents`. `--bundle
 FILE.tar` writes `manifest.yaml` plus `artifacts/<id>/<file>`.
 
-Import: one transaction, any validation failure → 2 and nothing written. Every
-record gets a new id; `supersedes` and `origin_context` are cleared; `meta`
-gains `imported-from=<old-id>`; lane defaults to `recall` when missing; a
-definition or state whose name is active in the target agent is superseded;
-artifacts are copied under the new id and argv paths rewritten. Imported brief
+Import: one transaction, any validation failure → 2 and nothing written. An
+import document describes exactly one agent: the top-level `agent` is the
+target, and a record that names a different agent is exit 2 (edit the record
+to move it; nothing is rewritten silently). Every record gets a new id;
+`supersedes` and `origin_context` are cleared; `meta` gains
+`imported-from=<old-id>`; lane defaults to `recall` when missing (kind to
+`working-state` for the state lane); a definition or state whose name is active
+in the target agent is superseded; artifacts are copied under the new id and
+argv paths rewritten. A tool whose artifact the document does not carry (a
+plain YAML export) is skipped with a warning and the active definition is
+kept, so a re-import never replaces a working tool with a broken one. Imported brief
 items are ordinary kind=brief-item guidance records outside any generation and
 therefore never render (rule 4 excludes the kind) until a compile installs
 them — export reports this. Contexts, generations and delivery rows are never

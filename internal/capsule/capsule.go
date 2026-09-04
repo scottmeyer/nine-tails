@@ -113,8 +113,8 @@ type Skipped struct {
 type Capsule struct {
 	ContextID       string       `json:"context_id" yaml:"context_id"`
 	Agent           string       `json:"agent" yaml:"agent"`
-	Task            string       `json:"task,omitempty" yaml:"task,omitempty"`
-	Parent          string       `json:"parent_context,omitempty" yaml:"parent_context,omitempty"`
+	Task            string       `json:"task" yaml:"task"`
+	Parent          string       `json:"parent_context" yaml:"parent_context"`
 	Metadata        store.Meta   `json:"metadata" yaml:"metadata"`
 	Instructions    string       `json:"instructions" yaml:"instructions"`
 	State           []StateView  `json:"state" yaml:"state"`
@@ -337,7 +337,7 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	})
 
 	// ---- signals ----
-	due, err := store.DueSignals(tx, req.Agent, req.Now)
+	due, err := store.DueSignalsVisible(tx, req.Agent, req.Now)
 	if err != nil {
 		var orphaned *store.OrphanedSignalRecordsError
 		if !errors.As(err, &orphaned) {

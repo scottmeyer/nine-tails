@@ -1,5 +1,7 @@
 #!/bin/sh
-# Project-local nine-tails: uses the freshly built binary and a store inside
-# this repo (.nine-tails/, gitignored). This is the dogfooding entry point.
+# Project-local nine-tails: runs the freshly built binary from this checkout
+# (make build first). It does not pick a store: the store is the ordinary one
+# (NINE_TAILS_HOME if set, else ~/.nine-tails), so every clone and worktree of
+# this repository shares one memory. This is the dogfooding entry point.
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-exec env NINE_TAILS_HOME="$ROOT/.nine-tails" "$ROOT/bin/nine-tails" "$@"
+exec "$ROOT/bin/nine-tails" "$@"

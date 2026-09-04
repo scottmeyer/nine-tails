@@ -68,11 +68,13 @@ func newSignalCmd(a *app) *cobra.Command {
 	var meta []string
 	var stdin bool
 	c := &cobra.Command{
-		Use:   "signal <agent> --subject S [--body B | --stdin] [--at RFC3339|+5m] [--dedupe-key K]",
+		Use:   "signal [<agent>] --subject S [--body B | --stdin] [--at RFC3339|+5m] [--dedupe-key K]",
 		Short: "Address a signal (reminder, scheduled work, external event) to an agent",
-		Long: `Create a signal for an agent. It appears in that agent's capsule under
-"Due signals" once its availability time (--at, default now) has passed, and
-tick --claim leases it for wake-up. The subject is stored as meta subject=S;
+		Long: `Create a signal. Without <agent> it is addressed to shared and appears in
+every agent's capsule under "Due signals" once its availability time (--at,
+default now) has passed; scope it with --meta (repo-id=...) like any record.
+Name an agent only when a wake-up must start that agent: tick --claim leases
+the signal for it. The subject is stored as meta subject=S;
 the body may be empty, a --body string, or --stdin (arbitrary external data —
 load shows a capped excerpt, inspect shows it all).
 
@@ -83,14 +85,14 @@ stderr and exits 0. --at accepts RFC 3339 or +<n><s|m|h|d>. Prints the id.
 Acknowledge a leased signal with: signal ack <sig-id> --lease <token>`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			agent := "shared"
 			switch len(args) {
 			case 0:
-				return cli.Invalid("missing <agent>: signal <agent> --subject S [--body B | --stdin]")
 			case 1:
+				agent = args[0]
 			default:
-				return cli.Invalid("signal takes one positional (the agent); put the body in --body or --stdin")
+				return cli.Invalid("signal takes at most one positional (the agent); put the body in --body or --stdin")
 			}
-			agent := args[0]
 			if strings.TrimSpace(subject) == "" {
 				return cli.Invalid("--subject is required")
 			}

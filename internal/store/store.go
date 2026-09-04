@@ -370,6 +370,9 @@ func ValidNamedRecord(lane, kind, name string) error {
 		}
 		return nil
 	}
+	if lane == "state" && kind != "working-state" {
+		return fmt.Errorf("%w: state records use kind working-state (got %q); state get and state put resolve only that kind", ErrInvalid, kind)
+	}
 	return ValidRecordName(kind, name)
 }
 

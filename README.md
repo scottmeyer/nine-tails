@@ -31,8 +31,10 @@ make build            # ./bin/nine-tails
 
 Storage lives in `$NINE_TAILS_HOME` (default `~/.nine-tails`): one SQLite
 file, an `artifacts/` directory for registered scripts, and an optional
-`config.yaml`. In this repository `./nt` is a wrapper that uses `./bin/nine-tails`
-with a repo-local store in `.nine-tails/`.
+`config.yaml`. There is one store per user; repositories and worktrees are
+metadata, not stores (see below). In this repository `./nt` runs
+`./bin/nine-tails` (`make build` first in a fresh clone or worktree) against
+that ordinary store, so every checkout shares one memory.
 
 ## Five-minute tour
 
@@ -74,6 +76,8 @@ nine-tails call --context ctx_2 complete-pr-diff --input '{"pr": 1842}'
 #    leases it for an external scheduler.
 nine-tails signal pr-review --at +2h --subject "Recheck PR 1842 after CI" \
   --dedupe-key my_repo:pr-1842:recheck-ci --meta pr=1842
+#    Without an agent a signal is for everyone who loads; scope it with --meta.
+nine-tails signal --subject "Pass --meta repo-id=my_repo on load" --meta repo-id=my_repo
 nine-tails tick --claim --lease 5m
 
 # 8. Inspect and repair anything from an ordinary agent session.
@@ -177,30 +181,63 @@ section. It is not stolen automatically: killing a hook process inside that
 section can leave a stale `.lock` directory, causing later events to time out
 inactive until that lock is removed.
 
-The portable manual integration remains useful for other harnesses. Put this
-in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
+The portable manual integration remains useful for other harnesses. Put one
+line in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
 
 ```md
-When asked to use a nine-tails agent:
-
-1. Run `nine-tails load <name> --task "<task>" --meta k=v ...` with useful
-   ambient metadata. Apply the returned capsule to the task.
-2. Keep the `[nine-tails-context=ctx_N]` id. Use
-   `nine-tails load <other> --context ctx_N --task ...` when the capsule
-   advertises a narrower agent under "Available agents".
-3. Record recurring user corrections with `nine-tails prefer|avoid|note
-   --context ctx_N "..."`. Add `--meta` only when explicitly scoping them.
-4. Call advertised tools with `nine-tails call --context ctx_N <tool> --input '{...}'`.
-5. At a meaningful episode boundary (a correction, a recovered failure, a
-   completed or blocked task) load `reflector` with `--context ctx_N` and
-   apply it inline: update state, guidance, recall, a signal, or a tool — or
-   nothing. Zero writes is a valid outcome.
-6. Use `nine-tails inspect` when asked to explain or repair an agent.
+Start with `nine-tails load pilot --task "<task>" --meta repo-id=<repo> --meta harness=<harness>` and follow its capsule.
 ```
+
+`pilot` is the entry agent. Its capsule is the usage guide (load, keep the
+context id, record corrections with `--context`, call tools, reflect at
+boundaries, inspect to repair) and the catalog of agents in the store. A fresh
+store seeds pilot and reflector from documents embedded in the binary, so one
+binary bootstraps any user or harness; from then on pilot is an ordinary agent
+you correct and compile like any other. The recipe for adopting an existing
+agent file into nine-tails is in the same capsule; the model does the
+adapting, and `nine-tails import --stdin` takes the canonical document from a
+pipe.
+
+## Repositories and worktrees
+
+One store per user. A repository is not a store; it is ambient metadata:
+
+```sh
+nine-tails load pr-review --task "Review PR 1842" --meta repo-id=my_repo
+```
+
+Write the `repo-id` value into the repository's agent instruction file so every
+harness, clone and worktree passes the same one; nine-tails never derives it
+from version control. Corrections stay unqualified unless you scope them
+(`--meta repo-id=my_repo`), so an agent learns across repositories by default
+and per repository on request. Nothing else is needed: no per-repo store, no
+sync step, no repository awareness in the binary. To hand an agent to another
+machine or person, `export --bundle` it and `import` it there.
+
+The same rule covers several instances of one agent, say two builders on
+different tracks. They stay one agent so their learnings roll up; each load
+carries what distinguishes it, and metadata targets it:
+
+```sh
+nine-tails load builder --task "..." --meta repo-id=my_repo --meta track=auth
+nine-tails signal --subject "..."                          # everyone
+nine-tails signal builder --subject "..."                  # every builder
+nine-tails signal builder --meta track=auth --subject "..." # the auth-track builder
+```
+
+The instance itself is the context receipt, `ctx_N`, which every correction
+records as its origin. Do not invent names like `builder@session`; they split
+the memory you want combined. A harness that knows its session id passes it
+as `--meta session=<id>`; the binary never reads it from the environment.
+Something every builder must keep knowing is guidance (`note builder`), not
+a signal.
 
 ## Content agents the spec expects
 
-These are ordinary agents, created with `base`; nothing about them is built in.
+These are ordinary agents. `reflector` is seeded by the first `load pilot`
+(from `internal/starter/reflector.yaml`) and shown here for reference;
+`brief-compiler` is created with `base` only when you want to customize the
+built-in compiler instructions.
 
 ```sh
 nine-tails base reflector --stdin <<'EOF'

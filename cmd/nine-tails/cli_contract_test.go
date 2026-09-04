@@ -454,12 +454,12 @@ func TestInspectAllIncludesSectionHistories(t *testing.T) {
 func TestStateGetOnlyResolvesWorkingStateKind(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "a", "Base.")
-	h.ok("put", "a", "--lane", "state", "--kind", "archived-state", "--name", "working", "source: archive")
+	// The state lane has exactly one kind, so put and state get always agree.
+	requireExit(t, h.run("put", "a", "--lane", "state", "--kind", "archived-state", "--name", "working", "source: archive"), 2, "working-state")
 	h.ok("state", "put", "a/working", "--expect", "none", "source: live")
 	if r := h.ok("state", "get", "a/working"); r.out != "source: live\n" {
-		t.Fatalf("state get resolved another kind: %q", r.out)
+		t.Fatalf("state get: %q", r.out)
 	}
-	h.ok("put", "a", "--lane", "state", "--kind", "archived-state", "--name", "archive-only", "source: archive")
 	requireExit(t, h.run("state", "get", "a/archive-only"), 3, "no active state")
 	for _, target := range []string{"Bad_Name/working", "a/Bad_Name", "a/none", "a/work/extra"} {
 		requireExit(t, h.run("state", "get", target), 2, "")

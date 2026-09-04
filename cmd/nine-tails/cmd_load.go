@@ -8,6 +8,7 @@ import (
 
 	"github.com/scottmeyer/nine-tails/internal/capsule"
 	"github.com/scottmeyer/nine-tails/internal/cli"
+	"github.com/scottmeyer/nine-tails/internal/starter"
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
@@ -31,6 +32,19 @@ Anything omitted for budget is summarized on stderr (md) or in "truncated" (json
 			}
 			if err := store.ValidAgentName(args[0]); err != nil {
 				return err
+			}
+			// pilot is the entry agent (DESIGN §1.2): loading it on a store that
+			// lacks it seeds pilot and reflector from the documents embedded in
+			// the binary, so one binary bootstraps any store. Existing agents,
+			// whoever made them, are never touched.
+			if args[0] == "pilot" {
+				seeded, err := starter.Seed(a.st, a.cfg.StateMaxBytes)
+				if err != nil {
+					return err
+				}
+				if len(seeded) > 0 {
+					fmt.Fprintf(a.stderr, "nine-tails: seeded %s from the built-in starter (ordinary agents; edit with nine-tails base <agent>)\n", strings.Join(seeded, " and "))
+				}
 			}
 			m, err := metaFlag(meta)
 			if err != nil {

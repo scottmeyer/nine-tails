@@ -12,8 +12,8 @@ import (
 type Context struct {
 	ID        string `json:"context_id" yaml:"context_id"`
 	Agent     string `json:"agent" yaml:"agent"`
-	Parent    string `json:"parent_context,omitempty" yaml:"parent_context,omitempty"`
-	Task      string `json:"task,omitempty" yaml:"task,omitempty"`
+	Parent    string `json:"parent_context" yaml:"parent_context"`
+	Task      string `json:"task" yaml:"task"`
 	Budget    int    `json:"budget" yaml:"budget"`
 	CreatedAt string `json:"created_at" yaml:"created_at"`
 	Pinned    bool   `json:"pinned" yaml:"pinned"`
