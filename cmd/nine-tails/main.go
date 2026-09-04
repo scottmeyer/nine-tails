@@ -108,6 +108,7 @@ func newRoot(a *app) *cobra.Command {
 		newCompileCmd(a),
 		newExportCmd(a),
 		newImportCmd(a),
+		newHooksCmd(a),
 	)
 	return root
 }
@@ -331,7 +332,10 @@ func reportStartupError(stdout, stderr io.Writer, argv []string, err error) int 
 
 func main() {
 	now := time.Now
-	if s := os.Getenv("NINE_TAILS_NOW"); s != "" {
+	// A globally installed inactive hook must be byte-silent and must reach
+	// its capability gate even if the surrounding environment happens to carry
+	// an invalid test clock. All ordinary commands retain strict clock parsing.
+	if s := os.Getenv("NINE_TAILS_NOW"); s != "" && !isHookDispatchInvocation(os.Args[1:]) {
 		t, err := time.Parse(time.RFC3339, s)
 		if err != nil {
 			err = cli.Invalid("NINE_TAILS_NOW must be RFC 3339: %v", err)
@@ -341,6 +345,10 @@ func main() {
 	}
 	a := &app{stdout: os.Stdout, stderr: os.Stderr, stdin: os.Stdin, now: now}
 	os.Exit(run(a, os.Args[1:]))
+}
+
+func isHookDispatchInvocation(argv []string) bool {
+	return len(argv) >= 2 && argv[0] == "hooks" && argv[1] == "dispatch"
 }
 
 // ---- small shared helpers for command files ----

@@ -569,6 +569,7 @@ $LORE_HOME/
 ├── lore.db
 ├── artifacts/
 │   └── <record-id>/
+├── runtime/        # optional private, ephemeral adapter capabilities
 └── exports/
 ```
 
@@ -1629,6 +1630,7 @@ lore call       Invoke a named executable tool.
 lore signal     Create or acknowledge an inbox item.
 lore tick       Read or lease due signals for external delivery.
 lore context    Inspect, pin, or garbage-collect context receipts.
+lore hooks      Install, remove, or explicitly activate a harness adapter.
 ```
 
 ### 16.2 Convenience commands
@@ -1677,7 +1679,8 @@ operations. `note`, `avoid`, and `prefer` default to the `guidance` lane;
 | 7 | Compare-and-swap or lease conflict |
 
 Exact numeric assignments are less important than stable, documented
-behavior.
+behavior. An explicit harness-supervisor command may preserve the launched
+harness's normal status and use the shell convention `128 + signal` on Unix.
 
 ## 17. Harness Integration
 
@@ -1721,6 +1724,67 @@ A native adapter may:
 - Deliver due signals as new harness invocations.
 
 Native integration improves ergonomics but does not change Lore's data model.
+
+An implementation that installs user-scope lifecycle hooks must distinguish
+global invocation from activation. The harness may invoke a cheap gate for
+every session, but Lore work is conditional on an explicit wrapper such as:
+
+```text
+lore hooks install (--claude|--codex)
+lore hooks uninstall (--claude|--codex)
+lore hooks run <agent> [--meta key=value]... (--claude|--codex) [-- HARNESS_ARGS...]
+```
+
+The wrapper owns a short-lived unguessable capability, binds it atomically to
+the first eligible harness session identifier, and attempts revocation when
+the process or session ends. Admission must combine process-tree-inherited
+proof, best-effort owner-PID liveness, and a bounded renewable expiry rather
+than trusting an ambient activation flag. Because a PID is not a process-birth
+identity, adapters must state the bounded PID-reuse caveat when a surviving
+descendant can retain and renew the proof. Ordinary startup in a nested harness
+that inherits the environment must not displace the bound session. Outside
+that live binding, the installed gate exits successfully and emits no bytes
+before it decodes lifecycle input or opens Lore's config/store.
+
+If a harness changes session identifiers for clear/resume without a preceding
+transition reason, its lifecycle JSON may be insufficient to distinguish a
+root transition from the same transition in an inheriting nested process. An
+adapter may accept that documented transition only if it states the resulting
+process-tree activation scope and does not claim stronger process identity.
+
+For a bound session, `UserPromptSubmit` is the reliable task boundary. The
+first real prompt in an episode atomically claims and loads a fresh capsule
+with the exact prompt as the receipt task and emits it through the harness's
+documented model-context response. Concurrent delivery must not create
+duplicate receipts. Later prompts in that episode do not duplicate the full
+capsule. When a harness reports compaction, the adapter may replay an ephemeral
+cached copy without loading the store or creating a new receipt. A resume may
+replay only a cache from the same still-live wrapper. Clearing a session starts
+a new episode that waits for its first real prompt; the latest context
+identifier may parent that new load.
+
+The wrapper may accept repeatable `--meta key=value` ambient metadata. It must
+validate that multimap before opening or mutating the store, keep it in the
+ephemeral harness-neutral run state, and apply it to every fresh episode load.
+It therefore participates in ordinary record filtering/ranking and is recorded
+on each context receipt; replaying a cached compact/resume capsule performs no
+new metadata or receipt operation. Implementations must bound its encoded size
+before launch, reserve sufficient marker space for the adapter's maximum cached
+capsule, and reject every over-limit state mutation before replacement. A
+successful marker write must always remain readable by the next hook.
+
+Installation must be idempotent, use recognizable ownership markers, merge
+with unrelated JSON settings and hook handlers, and remove only owned entries.
+Harness-specific paths, event schemas, and wire casing stay behind a shared
+adapter contract rather than entering the knowledge model. An adapter should
+not read unstable transcript files, capture a transcript by default, or turn
+session-end into unconditional reflection. Harness trust review and hook
+permissions remain the harness's security boundary.
+
+Adapter-specific output and cache ceilings may clamp a configured capsule
+budget when required to deliver complete context through a harness or keep the
+ephemeral capability within its bounded marker format. Such a clamp remains an
+adapter concern and does not change core `load` budgeting.
 
 ### 17.3 Graceful degradation
 

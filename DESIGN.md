@@ -17,13 +17,18 @@ Dependencies (keep it to these): `modernc.org/sqlite`, `github.com/spf13/cobra`,
 - Data on stdout, diagnostics on stderr, never interactive, never colored.
 - Every mutation is an immutable record; only mechanical fields change in place.
 - Exit codes exactly as spec §16.4: 0 ok, 2 invalid input, 3 not found,
-  4 store failure, 5 tool/adapter failure, 6 budget cannot fit, 7 CAS/lease conflict.
+  4 store failure, 5 tool/adapter failure, 6 budget cannot fit, 7 CAS/lease
+  conflict. `hooks run` is the explicit supervisor exception: after a successful
+  launch it preserves the child status (or Unix `128 + signal`).
 - Errors: first stderr line is `nine-tails: <summary>`; detail lines may follow,
   indented two spaces. With `--format json` the same error is also written to
   stdout as `{"error": "...", "code": N}` so structured callers can parse it.
-- Every key nine-tails emits in JSON or YAML is `snake_case` (`created_at`,
-  `origin_context`, `context_id`, `available_at`). Model-authored inputs
-  (compiler output, import documents) are accepted in snake_case or kebab-case.
+- Every key nine-tails emits in its own JSON or YAML is `snake_case`
+  (`created_at`, `origin_context`, `context_id`, `available_at`). The one
+  exception is a harness-owned lifecycle response: adapters must reproduce the
+  external wire schema exactly (`hookSpecificOutput`, `hookEventName`,
+  `additionalContext`). Model-authored inputs (compiler output, import
+  documents) are accepted in snake_case or kebab-case.
 
 ## 1. Home directory and config
 
@@ -35,10 +40,12 @@ $NINE_TAILS_HOME/
 ├── nine-tails.db      # SQLite, WAL, busy_timeout 5000ms, BEGIN IMMEDIATE writes
 ├── artifacts/<record-id>/<basename>
 ├── exports/
+├── runtime/           # private, ephemeral `hooks run` capabilities only
 └── config.yaml        # optional
 ```
 
-Every command creates the home and database on first use.
+Every command that accesses the knowledge store creates the home and database
+on first use. Harness install/uninstall and an inactive lifecycle gate do not.
 
 `config.yaml` (all optional, defaults shown; the spec calls these configurable):
 
@@ -172,6 +179,7 @@ cmd/nine-tails/cmd_call.go      call
 cmd/nine-tails/cmd_signal.go    signal, signal ack, tick
 cmd/nine-tails/cmd_compile.go   compile-input, brief put, compile
 cmd/nine-tails/cmd_export.go    export, import
+cmd/nine-tails/cmd_hooks.go     harness install/uninstall, explicit run, dispatch gate
 internal/store/                 all SQL: records, metadata, contexts, generations,
                                 signals, state CAS, RecentGuidance (the ONLY
                                 implementation of §7 rule 4)
@@ -181,6 +189,8 @@ internal/tool/                  YAML tool body parse/validate/exec
 internal/compile/               compile-input, output validate, coverage, install, lint
 internal/bundle/                export/import
 internal/cli/                   flags, config, body reading, output helpers, errors
+internal/harness/               shared adapter contract, reversible JSON merge,
+                                ephemeral capability/session binding
 ```
 
 Error mapping: `store.ErrNotFound → 3`, `store.ErrConflict → 7`,
@@ -223,6 +233,9 @@ nine-tails export <agent> [--include base,brief,journal,state,tools,agents] [--b
 nine-tails import (FILE.yaml | FILE.tar | --stdin)
 nine-tails agents [--format text|json]
 nine-tails config
+nine-tails hooks install (--claude|--codex)
+nine-tails hooks uninstall (--claude|--codex)
+nine-tails hooks run <agent> [--meta k=v]... (--claude|--codex) [-- HARNESS_ARGS...]
 ```
 
 **Mutation output.** Every mutating command prints exactly one line on stdout:
@@ -657,7 +670,152 @@ stringified.
 retention, and no active record has `origin_context_id` = that context.
 Children are unaffected. Never touches records.
 
-## 15. Testing
+## 15. Harness adapters (spec §17.2)
+
+`hooks install` writes user-scope command hooks for `SessionStart`,
+`UserPromptSubmit`, and `SessionEnd`. Claude Code uses
+`$CLAUDE_CONFIG_DIR/settings.json` (default `~/.claude/settings.json`) and
+exec-form `command` + `args`; Codex uses `$CODEX_HOME/hooks.json` (default
+`~/.codex/hooks.json`) and a safely quoted command string plus an absolute
+System32 `commandWindows` when installed natively on Windows. Off-Windows
+installation omits that platform-bound override, preventing a shared config
+home from later resolving a cwd-controlled `powershell.exe`. These shapes
+follow the current official lifecycle contracts:
+<https://code.claude.com/docs/en/hooks> and
+<https://learn.chatgpt.com/docs/hooks>.
+
+The currently consumed lifecycle enums are adapter-specific. Claude accepts
+`SessionStart.source` = `startup|resume|clear|compact|fork` and
+`SessionEnd.reason` = `clear|resume|logout|prompt_input_exit|other`. Codex
+accepts the same start sources except `fork`, while its end reason is currently
+only `other`. Unknown events or enum values are rejected as an active adapter
+failure; they are never decoded on the inactive path.
+
+Installation parses JSON before changing it, preserves unknown top-level
+settings and every non-owned group/handler, and atomically replaces only
+handlers carrying the recognizable `nine-tails.hooks/v1` command marker.
+Reinstall removes prior owned handlers before adding one current handler per
+event. Uninstall removes only marked handlers; because the harness schemas
+provide no legal ownership field for parent hook objects, harmless empty
+parent arrays/objects are retained rather than guessing that they are ours.
+A missing config is already uninstalled. Install/uninstall print the resolved
+settings path. Codex's non-managed hook trust is outside nine-tails: after
+install or any changed command hash the user must review and trust the entries
+with `/hooks` before Codex will run them.
+
+Replacement is platform-specific. Unix uses a same-directory rename and
+retains the prior file mode. Windows uses `ReplaceFileW` for an existing
+settings file, retaining its destination DACL and attributes, and write-through
+`MoveFileExW` for a new file, which inherits the directory ACL. `ReplaceFileW`
+always receives a unique same-directory backup name; the documented partial
+failure that moves the original to that backup is restored synchronously, or
+the retained recovery path is reported without deleting the original.
+
+An installed hook means **the harness invokes a tiny gate globally**, not that
+nine-tails work runs globally. `hooks run <agent> --claude|--codex` is the sole
+activation surface. It verifies a loadable agent base, closes that database
+connection, creates a random 256-bit capability in an ephemeral file beneath
+`runtime/` (Unix mode-restricted or protected by the Windows home directory's
+inherited ACL), launches the selected harness with its path/token/home in the
+environment, waits as the capability's live owner, and removes it when the
+child exits. Repeatable `--meta key=value` is validated with the same string
+multimap parser as `load` before any config/store access. Its JSON encoding is
+limited to 128 KiB at that boundary; `BeginRun` repeats the check for
+programmatic callers. The marker records that ambient metadata with the owner
+PID, harness, agent, creation/expiry, and session state. An atomic cross-process
+lock binds the first eligible
+`SessionStart.session_id`; an ordinary nested same-harness startup that merely
+inherits the environment has a different session id and remains inactive. Owner
+liveness, a rolling 24-hour expiry, private path/mode checks, the random token,
+and exact harness/home matching reject fabricated markers and ordinarily age
+out crash leftovers. PID liveness is best-effort: if the wrapper crashes but
+an explicitly launched descendant retains the secret environment, rapid OS
+reuse of the wrapper PID within that 24-hour window can make its marker appear
+live again. That descendant remains inside the explicitly activated process
+tree, but PID alone is not a process-birth proof. A live but idle run must
+receive a lifecycle event at least once per 24 hours to renew its capability.
+
+On Unix, `runtime/` and marker permissions are enforced as 0700 and 0600. Go's
+Windows file modes do not expose ACL privacy, so Windows validates ordinary
+non-reparse directory/file types and relies on the ACL inherited from
+`NINE_TAILS_HOME`; a shared Windows home is not a supported activation
+boundary. The wrapper handles foreground Ctrl-C/Ctrl-\\ without exiting or
+duplicating the signal, so the child receives the terminal's group delivery
+and may continue. Parent-received TERM/HUP is forwarded with a bounded grace
+period, after which wrapper cleanup still runs; group delivery can also have
+reached the child directly.
+
+The inactive path is exit 0 with no stdout or stderr. It checks only the
+environment and tiny capability file, before decoding hook stdin, parsing
+`NINE_TAILS_NOW`, loading config, or opening SQLite. Admitted lifecycle behavior
+is deliberately narrow:
+
+1. The first eligible `SessionStart` binds the session and is silent. A fresh
+   wrapper around a resumed harness also waits for a real prompt.
+2. The first `UserPromptSubmit` in an episode performs a fresh capsule load,
+   using the exact submitted `prompt` as the receipt task and the latest run
+   context as parent. The wrapper's metadata is supplied as explicit ambient
+   metadata on every such load, so normal filtering/ranking and the resulting
+   receipt use it; multi-values retain their order. An atomic, expiring load
+   claim prevents concurrent hook deliveries from creating duplicate receipts
+   and is released on failure. It emits the harness's JSON `additionalContext`
+   response and caches that Markdown plus its context id in the private run
+   file. Claude's adapter
+   clamps the configured load budget to 2,800 estimated tokens (smaller
+   configured budgets remain smaller), keeping the full capsule below its
+   current 10,000-character hook-output spill threshold. Codex clamps at
+   40,000 estimated tokens. Every write limits the non-capsule envelope to 192
+   KiB and the complete encoded marker to 1 MiB, so even the cache's worst-case
+   Go JSON escaping remains readable; an over-limit lifecycle field or update
+   fails before atomic replacement and leaves the prior marker intact.
+3. Later prompts in the same episode are silent. `SessionStart` with
+   `source=compact` re-emits the cached capsule without opening the store or
+   creating another receipt. A resume re-emits it only when the same live run
+   already has a cache.
+4. `clear` starts a new episode and waits for its next real prompt; the prior
+   context id remains only as that next receipt's parent. Claude `SessionEnd`
+   reasons `clear` and `resume` permit exactly their matching next source to
+   bind; other ends revoke. Codex has no transitional end reason, so a
+   cross-session-id `SessionStart` with `clear` or `resume` rebinds directly;
+   `clear` resets the episode and `resume` may replay only the live cache.
+
+Codex's cross-id transition is the narrow limit of session-id-only isolation:
+its hook input has no process identity that distinguishes a root clear/resume
+from the same transition in a nested Codex process that inherited the wrapper
+environment. Normal nested startup/prompt/end events remain inert, but a
+nested cross-id clear/resume could claim the live capability. The activation
+scope is therefore the explicit wrapper's process tree, not a proof of one OS
+process. Do not nest Codex inside an active wrapper when that distinction is a
+security boundary.
+
+Adapters never read `transcript_path`, capture tool traffic, contact a network
+service, start a daemon, or trigger reflection. Reflection remains an explicit
+choice at a meaningful episode boundary. Every active dispatch failure maps
+to adapter exit 5, never blocking exit 2, and therefore fails open under both
+harnesses' command-hook rules; inactive or mismatched sessions stay
+byte-silent. The wrapper streams the harness's stdio, returns a child's normal
+exit status (or shell-conventional `128 + signal` on Unix), and reports
+install, uninstall, launch, and cleanup failures as
+external-adapter exit 5. Agent/config/store failures found before launch retain
+their ordinary CLI code.
+
+On Windows the wrapper resolves the harness first: `.exe` targets execute
+directly, while `.cmd`/`.bat` shims are rejected as adapter exit 5 with a native
+`.exe` installation hint. Windows PowerShell 5.1 remarshal through `cmd.exe`
+cannot preserve arbitrary argv safely, so the wrapper does not pretend batch
+launch is equivalent to `exec` form. Codex's installed `commandWindows` is a
+different path: it invokes the native nine-tails executable through an
+explicit noninteractive UTF-16LE-encoded PowerShell command resolved beneath
+the real System32 directory.
+
+The portable state lock is an atomic directory and has no stale-owner stealing.
+A hook killed during its millisecond-scale critical section can leave the
+`.lock` directory behind; subsequent events time out inactive and wrapper
+cleanup can report exit 5 until the stale lock is removed. Expiry and
+best-effort owner liveness still keep the capability marker from admitting an
+unrelated process.
+
+## 16. Testing
 
 - `internal/*`: Go unit tests on `t.TempDir()`.
 - `cmd/nine-tails/cli_test.go`: in-process harness with a temp home and a fixed
@@ -666,8 +824,11 @@ Children are unaffected. Never touches records.
   body via `internal/store`. AC20 runs N goroutines each opening its own store
   and installing a generation; exactly one is active afterward.
 - `make test`, `make build` (→ `./bin/nine-tails`), `make install`.
+- Harness tests set `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and
+  `NINE_TAILS_HOME` to `t.TempDir()` fixtures and feed simulated lifecycle JSON;
+  they never install into or invoke the user's real harness.
 
-## 16. Deliberately not built in v0
+## 17. Deliberately not built in v0
 
 Recurring schedules, automatic compile thresholds, tool-call telemetry,
 embeddings, a daemon, a TUI, colored output, per-agent permissions, any notion

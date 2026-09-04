@@ -91,10 +91,94 @@ Every mutation prints the new id on one line; add `--format json` for the full
 record. Errors begin with a `nine-tails:` summary line on stderr and may add
 indented diagnostic lines. Exit codes are 2 (invalid), 3 (not found), 4
 (store), 5 (tool), 6 (budget), and 7 (conflict).
+`hooks run` preserves its launched harness's exit status (or Unix
+`128 + signal`) after a successful launch.
 
 ## Using nine-tails from an agent harness
 
-Put this in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
+For native prompt injection in Claude Code or Codex, install the small user
+hook adapter once:
+
+```sh
+nine-tails hooks install --claude   # $CLAUDE_CONFIG_DIR/settings.json
+nine-tails hooks install --codex    # $CODEX_HOME/hooks.json
+
+# Then explicitly launch one mechanically active agent session:
+nine-tails hooks run pr-review --meta repo-id=my_repo --claude
+nine-tails hooks run pr-review --meta repo-id=my_repo --codex -- --model MODEL
+```
+
+The default config locations are `~/.claude/settings.json` and
+`~/.codex/hooks.json`; the shown environment variables relocate their whole
+config homes and are useful for isolated setups. Codex requires a separate
+trust review for new or changed non-managed hooks: open `/hooks` after
+installation and approve the three nine-tails entries. See the current
+[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) and
+[Codex hooks reference](https://learn.chatgpt.com/docs/hooks).
+
+Installation makes the harness invoke a tiny gate globally. It does **not**
+make every Claude/Codex chat a nine-tails run. Unless the current harness is in
+a process tree started by `hooks run` and its session binds that live
+capability, the gate exits 0 without output, decoding hook input, or opening
+the nine-tails store. Installation is idempotent and merge-preserving; remove
+only its recognizable entries with `nine-tails hooks uninstall --claude` or
+`--codex`. Existing settings are replaced atomically: Unix retains the file
+mode, while Windows `ReplaceFileW` retains an existing destination's DACL and
+attributes; a newly created Windows settings file inherits its directory ACL.
+
+Within an active run, the first real user prompt atomically claims and loads a
+fresh capsule and uses that exact prompt as its task. Later prompts in the same
+episode are silent. Compaction re-injects the cached capsule without creating
+another receipt; a same-run resume can do the same. `/clear` waits for the next
+real prompt and starts a new receipt parented to the last one. Repeatable
+`hooks run --meta key=value` values are parsed as the usual string multimap and
+become ambient metadata on every fresh episode load, including its filtering,
+ranking, and context receipt; cached compact/resume replay does not create or
+change metadata. The encoded activation metadata is capped at 128 KiB and
+rejected as invalid input before config or store access. Every marker update
+also enforces reserved-envelope and 1 MiB total encoded limits, so a successful
+write cannot make the next hook silently reject its own state. Claude capsules
+are loaded at no more than 2,800 estimated
+tokens so its current
+10,000-character hook-output ceiling cannot replace the capsule with a file
+preview. Codex capsules are capped at 40,000 estimated tokens so their escaped
+cache stays below the private marker's 1 MiB read limit. The adapter never
+reads transcripts or triggers unconditional reflection, and it runs no daemon
+or network service.
+
+Claude currently reports `SessionStart` sources `startup`, `resume`, `clear`,
+`compact`, and `fork`, plus transition-capable `SessionEnd` reasons `clear` and
+`resume`. Codex reports the first four start sources but only `other` at
+session end, so a live wrapper accepts Codex's cross-session-id `clear` and
+`resume` starts directly. An ordinary nested Codex startup remains inert, but
+hook JSON has no process identity: a nested Codex that inherits the capability
+could claim it after its own cross-id clear/resume while the root is still
+live. Avoid nested Codex sessions inside one active wrapper when that boundary
+matters; wrapper cleanup, random proof, owner liveness, and expiry still limit
+the capability to that explicit process tree and lifetime.
+
+Owner-PID liveness is best-effort rather than a process-birth identity. If the
+wrapper crashes while its explicitly launched descendant survives, PID reuse
+inside the marker's rolling 24-hour window can make that inherited capability
+appear live again; under normal inheritance the random proof stays within that
+process tree.
+
+On Unix, the ephemeral runtime directory and marker are restricted to 0700 and
+0600. On Windows they inherit the ACL on `NINE_TAILS_HOME`, which therefore
+must not be a shared home. The wrapper stays alive on foreground Ctrl-C while
+Claude/Codex handles the interrupted turn, then removes the marker when the
+harness exits. On Windows it launches native `.exe` harnesses directly and
+rejects `.cmd`/`.bat` shims with exit 5 because Windows PowerShell 5.1 cannot
+preserve arbitrary arguments through the batch remarshal; install a native
+Claude/Codex executable for `hooks run`.
+
+The portable state lock is an atomic directory held only for a short critical
+section. It is not stolen automatically: killing a hook process inside that
+section can leave a stale `.lock` directory, causing later events to time out
+inactive until that lock is removed.
+
+The portable manual integration remains useful for other harnesses. Put this
+in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
 
 ```md
 When asked to use a nine-tails agent:
@@ -185,6 +269,7 @@ internal/capsule/    assembly, ranking, budget, rendering
 internal/tool/       tool YAML parse/validate/exec
 internal/compile/    compiler contract, coverage, install, lint
 internal/bundle/     export/import
+internal/harness/    Claude/Codex hook config, lifecycle gate, run capability
 internal/cli/        flags, config, errors
 ```
 
