@@ -716,6 +716,11 @@ func TestBuildInput(t *testing.T) {
 		!reflect.DeepEqual(in.InputEntries, []string{e2.ID}) {
 		t.Errorf("after install: %+v", in)
 	}
+	// each active item lists the entries it represents, with their own
+	// metadata, so a compiler can re-derive scope instead of inheriting it
+	if srcs := in.ActiveGeneration.Items[0].Sources; len(srcs) != 1 || srcs[0].ID != e1.ID || !reflect.DeepEqual(srcs[0].Meta, e1.Meta) {
+		t.Errorf("item sources: %+v", srcs)
+	}
 }
 
 // An origin context that carried no metadata (or rendered nothing) still

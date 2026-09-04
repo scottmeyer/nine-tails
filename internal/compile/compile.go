@@ -43,11 +43,21 @@ type GenerationView struct {
 	Items []ItemView `json:"items" yaml:"items"`
 }
 
-// ItemView is one active brief item.
+// ItemView is one active brief item with the guidance entries it stands for,
+// so a compiler can re-derive the item's scope from evidence instead of
+// inheriting whatever an earlier compile wrote.
 type ItemView struct {
+	ID      string       `json:"id" yaml:"id"`
+	Key     string       `json:"key" yaml:"key"`
+	Body    string       `json:"body" yaml:"body"`
+	Meta    store.Meta   `json:"meta" yaml:"meta"`
+	Sources []SourceView `json:"sources" yaml:"sources"`
+}
+
+// SourceView is one guidance entry an active item represents: its id and the
+// metadata that entry carried explicitly.
+type SourceView struct {
 	ID   string     `json:"id" yaml:"id"`
-	Key  string     `json:"key" yaml:"key"`
-	Body string     `json:"body" yaml:"body"`
 	Meta store.Meta `json:"meta" yaml:"meta"`
 }
 
@@ -131,7 +141,19 @@ func BuildInput(q store.Querier, agent string) (*Input, error) {
 		}
 		gv := &GenerationView{ID: gen.ID, Items: []ItemView{}}
 		for _, it := range items {
-			gv.Items = append(gv.Items, ItemView{ID: it.ID, Key: it.Name, Body: it.Body, Meta: it.Meta})
+			srcIDs, err := store.ItemSources(q, gen.ID, it.ID)
+			if err != nil {
+				return nil, err
+			}
+			sources := []SourceView{}
+			for _, id := range srcIDs {
+				src, err := store.GetRecord(q, id)
+				if err != nil {
+					return nil, err
+				}
+				sources = append(sources, SourceView{ID: id, Meta: src.Meta})
+			}
+			gv.Items = append(gv.Items, ItemView{ID: it.ID, Key: it.Name, Body: it.Body, Meta: it.Meta, Sources: sources})
 		}
 		in.ActiveGeneration = gv
 		in.ExpectGeneration = gen.ID

@@ -24,7 +24,12 @@ The new generation replaces the active one completely: re-emit (merged or
 reworded as needed) every active item that should survive, reusing its key so
 the lineage is recorded, and drop items that no longer apply. Item metadata is
 applicability scope, not description: keep the scope that every source shares
-(for example repo-id) unless the guidance is genuinely general.
+(for example repo-id) unless the guidance is genuinely general, and never add
+a key or value that no source entry or shared origin context carried; an
+invented scope silently hides the item from every load that passes that key.
+An active item's metadata was written by an earlier compile, not by anyone
+giving guidance: when re-emitting it, keep only the scope its listed sources
+carry and drop the rest.
 
 Output contract. Reply with exactly one YAML or JSON document and nothing
 else. Keys may be written in snake_case or kebab-case.
@@ -33,7 +38,8 @@ input_entries: [rec_41, rec_42]      # echo the input's input_entries unchanged
 items:
   - key: concise-evidence            # unique; must match ^[a-z0-9][a-z0-9.-]*$
     body: Lead with concrete evidence and keep prose concise.
-    meta: {phase: review-comment}    # optional; values are scalars or lists of scalars;
+    meta: {repo-id: my_repo}         # optional; only scope the sources carried;
+                                     # values are scalars or lists of scalars;
                                      # keys are non-empty and may not contain whitespace, =, [ or ]
 entries:                             # exactly one row per id in input_entries
   - id: rec_41
