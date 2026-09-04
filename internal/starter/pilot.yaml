@@ -52,6 +52,11 @@ records:
       - A signal is a signal: `nine-tails signal --subject "..."` reaches every
         agent that loads; name an agent only when something must be woken for it.
       - Record a harness quirk with `--meta harness=<harness>` on the note.
+      - Metadata is applicability scope, never provenance: a load that passes
+        the same key with another value drops the record. Where a record came
+        from is its origin context. Fix a wrong scope with
+        `nine-tails note|prefer|avoid <agent> --supersedes <id> [--meta k=v]`,
+        which replaces the record and keeps its body; history is never edited.
       - Delegating through your harness's own subagent mechanism: begin the
         child's task with the load it must run first,
         `nine-tails load <agent> --task "<task>" --context ctx_M` (add

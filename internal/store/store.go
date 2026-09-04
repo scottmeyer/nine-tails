@@ -669,6 +669,60 @@ func InsertRecord(tx Querier, nr NewRecord) (*Record, error) {
 	return rec, nil
 }
 
+// ReplaceRecord inserts nr as the successor of the active record oldID, which
+// must belong to the same agent and lane. An empty nr.Body keeps the
+// predecessor's body. A guidance successor with the predecessor's body is a
+// retag, not new guidance: it inherits the predecessor's brief coverage and
+// item sources, so it never renders as a recent adjustment. A changed body is
+// new guidance and renders as recent until compiled.
+func ReplaceRecord(tx Querier, oldID string, nr NewRecord) (*Record, error) {
+	old, err := GetRecord(tx, oldID)
+	if err != nil {
+		return nil, err
+	}
+	if old.Status != "active" {
+		return nil, fmt.Errorf("%w: %s is not an active record", ErrConflict, oldID)
+	}
+	if old.Agent != nr.Agent || old.Lane != nr.Lane {
+		return nil, fmt.Errorf("%w: %s belongs to %s/%s, not %s/%s", ErrInvalid, oldID, old.Agent, old.Lane, nr.Agent, nr.Lane)
+	}
+	if nr.Body == "" {
+		nr.Body = old.Body
+	}
+	nr.Supersedes = oldID
+	rec, err := InsertRecord(tx, nr)
+	if err != nil {
+		return nil, err
+	}
+	if rec.Lane == "guidance" && rec.Body == old.Body {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO brief_inputs(generation_id, entry_record_id, disposition, coverage, successor_record_id)
+			SELECT generation_id, ?, disposition, coverage, successor_record_id FROM brief_inputs WHERE entry_record_id = ?`, rec.ID, oldID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO brief_item_sources(generation_id, item_record_id, entry_record_id)
+			SELECT generation_id, item_record_id, ? FROM brief_item_sources WHERE entry_record_id = ?`, rec.ID, oldID); err != nil {
+			return nil, err
+		}
+	}
+	return rec, nil
+}
+
+// LatestSuccessor follows supersession forward from id and returns the last
+// record in the chain (id itself when nothing supersedes it).
+func LatestSuccessor(q Querier, id string) (string, error) {
+	for {
+		var next string
+		err := q.QueryRow(`SELECT id FROM records WHERE supersedes_id = ? ORDER BY rowid DESC LIMIT 1`, id).Scan(&next)
+		if errors.Is(err, sql.ErrNoRows) {
+			return id, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		id = next
+	}
+}
+
 func insertMeta(tx Querier, id string, m Meta) error {
 	for _, k := range SortedKeys(m) {
 		for _, v := range m[k] {

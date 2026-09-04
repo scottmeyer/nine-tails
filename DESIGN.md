@@ -300,8 +300,8 @@ implicitly.
 
 ```
 nine-tails load <agent> [--task T] [--context ctx] [--meta k=v]... [--format md|json|yaml]
-nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--context ctx] (TEXT | --stdin)
-nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] (TEXT | --stdin)
+nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--context ctx] [--supersedes ID] (TEXT | --stdin)
+nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] [--supersedes ID] (TEXT | --stdin)
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
 nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
 nine-tails state get <agent>/<name> [--format yaml|json|id]
@@ -348,6 +348,16 @@ agent only when a wake-up must start that agent.
 
 **TEXT vs --stdin**: exactly one. TEXT beginning with `-` needs `--` before it
 (cobra convention); the usage line shows it.
+
+**`--supersedes ID`** on `append` and `note|avoid|prefer|remember` replaces an
+active record of the same agent and lane (other agent or lane → 2, not
+active → 7, unknown → 3): the old record becomes `superseded`, the new one
+carries exactly the given `--meta`, and without TEXT or `--stdin` it keeps
+the old body. Metadata is scope, and a wrong scope is fixed this way, never
+by editing history. A guidance successor with the same body is a retag: it
+inherits the predecessor's `brief_inputs` and `brief_item_sources` rows, so
+it never renders as a recent adjustment. A changed body is new guidance and
+renders as recent until compiled.
 
 **Lanes per command**: `append` accepts `--lane guidance|recall` only (default
 `recall`; `--kind` defaults to `note` for guidance, `memory` for recall) and
@@ -662,6 +672,7 @@ Condition-loss lint (computed on demand from `brief_item_sources`; returned by
 
 ```
 for each item with ≥1 source:
+  sources resolve to their latest successor (deduplicated); disabled ones are skipped
   for each key=value on the item:
      if no source carries it and the origin contexts do not all share it
         → STRONG {item, key, values: [value], sources}   (invented scope)
