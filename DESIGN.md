@@ -304,6 +304,7 @@ nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [-
 nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] [--supersedes ID] (TEXT | --stdin)
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
 nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
+nine-tails disable <id> [--format id|json|yaml]
 nine-tails state get <agent>/<name> [--format yaml|json|id]
 nine-tails state put [<agent>/]<name> --expect ID|none [--context ctx] [--meta]... (TEXT | --stdin)
 nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N] [--query Q] [--all]
@@ -365,7 +366,14 @@ rejects `--kind brief-item`; `put` accepts `--lane definition|state` only. The
 state lane has exactly one kind, `working-state` (anything else is exit 2, so
 `state get`, `state put` and `load` always agree on what a named state is);
 `put` runs state validation (§8) for state and tool validation (§9) for
-definition/tool. No v0 command produces `status=disabled`.
+definition/tool.
+
+**`disable <id>`** is the only producer of `status=disabled` (spec §8.2):
+the record leaves every load, call and compile, keeps its history, stays in
+`inspect --all`, and frees its name (the unique index covers active names
+only), so a retired tool's name can be reused without supersession. Brief
+items (compile a new generation) and signals (`signal ack`) are refused with
+2; a record that is not active → 7; unknown → 3.
 
 `--meta k=v` may repeat; splits at the first `=`; missing `=` or empty key → 2.
 

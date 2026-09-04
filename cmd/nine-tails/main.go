@@ -94,6 +94,7 @@ func newRoot(a *app) *cobra.Command {
 		newBaseCmd(a),
 		newInspectCmd(a),
 		newPutCmd(a),
+		newDisableCmd(a),
 		newStateCmd(a),
 		newContextCmd(a),
 		newAgentsCmd(a),
