@@ -59,8 +59,9 @@ func argvOf(t *testing.T, body map[string]any) []string {
 func TestToolAddWithDescription(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "a", "Base.")
+	ctx := contextID(t, h.ok("load", "a", "--task", "register a tool").out)
 	script := writeScript(t, "echo-input.sh", "cat\necho \"$1\"\n")
-	r := h.ok("tool", "add", "a", "echo-input", "--script", script, "--description", "Echo the input", "--meta", "tool=shell")
+	r := h.ok("tool", "add", "a", "echo-input", "--script", script, "--description", "Echo the input", "--meta", "tool=shell", "--context", ctx)
 	id := r.id(t)
 	if !toolIDRe.MatchString(id) || strings.Count(r.out, "\n") != 1 {
 		t.Fatalf("tool add should print one tool id line, got %q", r.out)
@@ -89,6 +90,9 @@ func TestToolAddWithDescription(t *testing.T) {
 	}
 	if !strings.Contains(r.out, `"shell"`) {
 		t.Errorf("meta not stored:\n%s", r.out)
+	}
+	if !strings.Contains(r.out, `"origin_context": "`+ctx+`"`) {
+		t.Errorf("episode provenance not stored:\n%s", r.out)
 	}
 	// load lists it under Available tools with its description and meta.
 	r = h.ok("load", "a")
@@ -123,6 +127,31 @@ func TestToolAddWithDescription(t *testing.T) {
 	r = h.ok("load", "a")
 	if !strings.Contains(r.out, "- `echo-input`: Echo v2\n") || strings.Contains(r.out, "Echo the input") {
 		t.Errorf("capsule should show only the new definition:\n%s", r.out)
+	}
+}
+
+func TestToolAddContextMustBelongToAgent(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "A.")
+	h.ok("base", "b", "B.")
+	ctx := contextID(t, h.ok("load", "a", "--task", "register a tool").out)
+	script := writeScript(t, "context.sh", "true\n")
+
+	r := h.run("tool", "add", "b", "probe", "--script", script, "--description", "Probe", "--context", ctx)
+	if r.code != 2 || r.out != "" || !strings.Contains(r.err, ctx+" belongs to a, not b") {
+		t.Fatalf("mismatched tool context=%#v", r)
+	}
+	entries, err := os.ReadDir(filepath.Join(h.home, "artifacts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("rejected context left artifacts: %v", entries)
+	}
+
+	r = h.run("tool", "add", "a", "probe", "--script", script, "--description", "Probe", "--context", "ctx_00000000000000000000000000")
+	if r.code != 3 || r.out != "" {
+		t.Fatalf("unknown tool context=%#v", r)
 	}
 }
 

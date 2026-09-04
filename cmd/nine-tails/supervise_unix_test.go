@@ -10,11 +10,14 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	harnessadapter "github.com/scottmeyer/nine-tails/internal/harness"
 )
 
 func TestHooksRunSurvivesForegroundInterruptAndCleansCapability(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "reviewer", "Review carefully.")
+	installTestHarnessAdapter(t, harnessadapter.Codex)
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	interrupted := filepath.Join(dir, "interrupted")
@@ -90,6 +93,7 @@ printf done > "$NT_DONE"
 func TestHooksRunReportsShellConventionalSignalStatus(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "reviewer", "Review carefully.")
+	installTestHarnessAdapter(t, harnessadapter.Codex)
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "codex")
 	if err := os.WriteFile(fixture, []byte("#!/bin/sh\nkill -TERM $$\n"), 0o700); err != nil {

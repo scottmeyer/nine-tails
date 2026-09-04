@@ -13,6 +13,7 @@ import (
 	"github.com/scottmeyer/nine-tails/internal/capsule"
 	"github.com/scottmeyer/nine-tails/internal/cli"
 	harnessadapter "github.com/scottmeyer/nine-tails/internal/harness"
+	"github.com/scottmeyer/nine-tails/internal/starter"
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
@@ -49,7 +50,22 @@ func newHooksInstallCmd(a *app) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "install (--claude|--codex)",
 		Short: "Merge the nine-tails lifecycle gate into user settings",
-		Args:  cobra.NoArgs,
+		Long: `Merge nine-tails-owned SessionStart, UserPromptSubmit, and SessionEnd
+handlers into the selected harness's user settings. This one-time installation
+is a prerequisite for "nine-tails hooks run"; reinstall after the nine-tails
+executable moves.
+
+The handlers are a global but inactive gate. Outside a live capability created
+by "hooks run", they exit successfully and silently without decoding hook
+input, loading nine-tails configuration, or opening the store. In an active
+run, the first real prompt loads and injects a fresh capsule, persisting that
+prompt as the receipt task.
+
+Codex treats new or changed non-managed hooks as untrusted. After --codex,
+review and trust the installed entries with /hooks before the first run.`,
+		Example: `  nine-tails hooks install --claude
+  nine-tails hooks install --codex`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, err := selectedHarness(claude, codex)
 			if err != nil {
@@ -105,7 +121,29 @@ func newHooksRunCmd(a *app) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "run <agent> (--claude|--codex) [--meta key=value]... [-- HARNESS_ARGS...]",
 		Short: "Launch one harness session as a mechanically active agent run",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `Launch the selected harness inside one explicitly active nine-tails run.
+Prerequisite: first install the matching owned adapter with
+"nine-tails hooks install --claude" or "nine-tails hooks install --codex".
+The command refuses to launch when that complete adapter is absent. For Codex,
+also review and trust new or changed entries with /hooks.
+
+The claude or codex executable is resolved from PATH and launched in the
+current directory with stdin, stdout, and stderr connected directly. Put every
+harness argument after --; those arguments are forwarded unchanged. The
+wrapper supervises the harness for its full lifetime, returns its exit status,
+and maps Unix signal termination to the conventional 128+signal status.
+
+SessionStart only binds the live capability. The first real prompt loads and
+injects the capsule and is persisted as the receipt task; later prompts in that
+episode are silent. For a first prompt containing secrets or raw external
+content, use a manual load with a concise purpose instead of native hook mode.
+The selected flag supplies authoritative harness=claude or
+harness=codex metadata. A fresh pilot store is seeded just as with "load
+pilot". Globally installed hooks outside this wrapper remain inactive and
+byte-silent.`,
+		Example: `  nine-tails hooks run pilot --claude --meta repo-id=my-project
+  nine-tails hooks run pr-review --codex --meta repo-id=my-project -- --model MODEL`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, err := selectedHarness(claude, codex)
 			if err != nil {
@@ -119,6 +157,9 @@ func newHooksRunCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := addHarnessMetadata(parsedMeta, name); err != nil {
+				return err
+			}
 			if err := harnessadapter.ValidateMetadata(harnessadapter.Metadata(parsedMeta)); err != nil {
 				return cli.Invalid("%v", err)
 			}
@@ -126,8 +167,29 @@ func newHooksRunCmd(a *app) *cobra.Command {
 			if err := store.ValidAgentName(agent); err != nil {
 				return err
 			}
+			adapter, _ := harnessadapter.For(name)
+			executable, err := os.Executable()
+			if err != nil {
+				return cli.ToolFailed("locate nine-tails executable: %v", err)
+			}
+			settingsPath, installed, err := harnessadapter.Installed(adapter, executable)
+			if err != nil {
+				return cli.ToolFailed("check %s hook adapter installation: %v", name, err)
+			}
+			if !installed {
+				return cli.ToolFailed("the nine-tails-owned %s hook adapter is not installed for this executable at %s; run `nine-tails hooks install --%s` to install or reinstall it", name, settingsPath, name)
+			}
 			if err := a.open(); err != nil {
 				return err
+			}
+			if agent == "pilot" {
+				seeded, err := starter.Seed(a.st, a.cfg.StateMaxBytes)
+				if err != nil {
+					return err
+				}
+				if len(seeded) > 0 {
+					fmt.Fprintf(a.stderr, "nine-tails: seeded %s from the built-in starter (ordinary agents; edit with nine-tails base <agent>)\n", strings.Join(seeded, " and "))
+				}
 			}
 			if _, err := store.ActiveNamed(a.st.DB, agent, "definition", "agent-base", "base"); err != nil {
 				return err
@@ -166,6 +228,17 @@ func newHooksRunCmd(a *app) *cobra.Command {
 	addHarnessFlags(c, &claude, &codex)
 	c.Flags().StringArrayVar(&meta, "meta", nil, "ambient metadata key=value for each fresh episode (repeatable)")
 	return c
+}
+
+func addHarnessMetadata(meta store.Meta, name harnessadapter.Name) error {
+	want := string(name)
+	for _, got := range meta["harness"] {
+		if got != want {
+			return cli.Invalid("--meta harness=%s conflicts with selected --%s; omit it or use --meta harness=%s", got, name, want)
+		}
+	}
+	meta.Add("harness", want)
+	return nil
 }
 
 func newHooksDispatchCmd(a *app) *cobra.Command {

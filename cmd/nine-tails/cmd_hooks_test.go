@@ -193,6 +193,7 @@ func TestHooksRunOwnsChildLifetimeAndCleansCapability(t *testing.T) {
 	}
 	h := newHarness(t)
 	h.ok("base", "reviewer", "Review carefully.")
+	installTestHarnessAdapter(t, harnessadapter.Codex)
 	bin := t.TempDir()
 	script := filepath.Join(bin, "codex")
 	body := `#!/bin/sh
@@ -200,6 +201,7 @@ test -n "$NINE_TAILS_RUN_TOKEN" || exit 91
 test -f "$NINE_TAILS_RUN_FILE" || exit 92
 grep -Fq '"repo-id":["my_repo"]' "$NINE_TAILS_RUN_FILE" || exit 93
 grep -Fq '"phase":["review","comment"]' "$NINE_TAILS_RUN_FILE" || exit 94
+grep -Fq '"harness":["codex"]' "$NINE_TAILS_RUN_FILE" || exit 95
 printf 'runfile:%s\n' "$NINE_TAILS_RUN_FILE"
 printf 'home:%s\n' "$NINE_TAILS_HOME"
 printf 'args:%s\n' "$*"

@@ -72,9 +72,30 @@ func (a *app) close() {
 // cmd_*.go file and registers through this function so files stay disjoint.
 func newRoot(a *app) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "nine-tails",
-		Short:         "persistent agent context sidecar",
-		Long:          "Start a session with:\n  nine-tails load pilot --task \"<task>\" --meta repo-id=<repo> --meta harness=<harness>\nThe pilot capsule is the usage guide and the catalog of agents in this store; a fresh store seeds it from the binary.\n\nnine-tails resolves a named agent into a context capsule, records corrections, carries small versioned state, exposes named tools, and carries signals into future invocations.\n\nData goes to stdout, diagnostics to stderr. Never interactive. Mutations print the new id on one line; add --format json for the full record.",
+		Use:   "nine-tails",
+		Short: "persistent agent context sidecar",
+		Long: `With no agent already selected or injected, start with:
+  nine-tails load pilot --task "<task>" --meta repo-id=<repo> --meta harness=<harness>
+The pilot capsule is the usage guide and the catalog of agents in this store;
+a fresh store seeds it from the binary.
+
+nine-tails resolves a named agent into a context capsule, records corrections,
+carries small versioned state, exposes named tools, and carries signals into
+future invocations.
+
+Data goes to stdout and diagnostics to stderr. nine-tails itself never prompts;
+hooks run explicitly launches a harness, which may be interactive. Mutation
+output is command-specific; see that command's help.
+
+Exit codes are 0 success, 2 invalid input, 3 not found, 4 store failure,
+5 tool or adapter failure, 6 unused, and 7 compare-and-swap or lease conflict.
+call and hooks run may instead preserve a child exit status or use 128+signal.
+When --format json is present, errors also go to stdout as an error/code object;
+call is the exception because its stdout belongs exclusively to the tool.
+
+A ctx_... id is a context receipt created by load and passed to --context.
+Immutable record ids such as base_..., rec_..., state_..., and tool_... are
+inspected or used for compare-and-swap; they are not context ids.`,
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -84,24 +105,26 @@ func newRoot(a *app) *cobra.Command {
 	root.SetIn(a.stdin)
 	root.PersistentFlags().StringVar(&a.homeFlag, "home", "", "override NINE_TAILS_HOME")
 
-	root.AddCommand(
+	everyday := []*cobra.Command{
 		newLoadCmd(a),
-		newAppendCmd(a),
-		newNoteCmd(a, "note", "guidance", "note", "Add a guidance note (lane guidance, kind note)"),
-		newNoteCmd(a, "avoid", "guidance", "avoid", "Record something the agent should avoid (lane guidance, kind avoid)"),
-		newNoteCmd(a, "prefer", "guidance", "prefer", "Record a preference (lane guidance, kind prefer)"),
-		newNoteCmd(a, "remember", "recall", "memory", "Record a fact for later recall (lane recall, kind memory; never compiled into the brief)"),
-		newBaseCmd(a),
+		newNoteCmd(a, "note", "guidance", "note", "Add reusable operating guidance"),
+		newNoteCmd(a, "avoid", "guidance", "avoid", "Teach behavior the agent should avoid"),
+		newNoteCmd(a, "prefer", "guidance", "prefer", "Teach behavior the agent should prefer"),
+		newNoteCmd(a, "remember", "recall", "memory", "Store a fact for explicit lookup"),
 		newInspectCmd(a),
-		newPutCmd(a),
 		newStateCmd(a),
-		newContextCmd(a),
 		newAgentsCmd(a),
+		newCallCmd(a),
+		newSignalCmd(a),
+	}
+	advanced := []*cobra.Command{
+		newAppendCmd(a),
+		newBaseCmd(a),
+		newPutCmd(a),
+		newContextCmd(a),
 		newConfigCmd(a),
 		newToolCmd(a),
-		newCallCmd(a),
 		newAgentCmd(a),
-		newSignalCmd(a),
 		newTickCmd(a),
 		newCompileInputCmd(a),
 		newBriefCmd(a),
@@ -109,7 +132,20 @@ func newRoot(a *app) *cobra.Command {
 		newExportCmd(a),
 		newImportCmd(a),
 		newHooksCmd(a),
+	}
+	root.AddGroup(
+		&cobra.Group{ID: "everyday", Title: "Everyday Commands:"},
+		&cobra.Group{ID: "advanced", Title: "Advanced Commands:"},
 	)
+	for _, cmd := range everyday {
+		cmd.GroupID = "everyday"
+	}
+	for _, cmd := range advanced {
+		cmd.GroupID = "advanced"
+	}
+	root.SetHelpCommandGroupID("advanced")
+	root.SetCompletionCommandGroupID("advanced")
+	root.AddCommand(append(everyday, advanced...)...)
 	return root
 }
 

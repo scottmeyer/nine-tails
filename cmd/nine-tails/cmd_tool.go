@@ -33,13 +33,19 @@ Call it with ` + "`nine-tails call`" + `.`,
 }
 
 func newToolAddCmd(a *app) *cobra.Command {
-	var script, description, format string
+	var script, description, format, context string
 	var meta []string
 	var stdin bool
 	c := &cobra.Command{
 		Use:   "add <agent> <name> --script PATH (--description D | --stdin)",
 		Short: "Copy a script into the artifact store and register it as a named tool",
-		Args:  cobra.ExactArgs(2),
+		Long: `Copy a script into the managed artifact store and register it as a named
+tool. Pass the owning agent's ctx_... receipt with --context when this tool was
+created or updated during an episode; it records provenance and must belong to
+<agent>. Inspect and review a script before registering it.`,
+		Example: `  nine-tails tool add pr-review complete-pr-diff --script ./complete-pr-diff.sh \
+    --description "Read the complete PR diff" --context ctx_72`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateRecordFormat(format); err != nil {
 				return err
@@ -102,6 +108,15 @@ func newToolAddCmd(a *app) *cobra.Command {
 			if err := a.open(); err != nil {
 				return err
 			}
+			if context != "" {
+				ctxAgent, err := a.contextAgent(context)
+				if err != nil {
+					return err
+				}
+				if ctxAgent != agent {
+					return cli.Invalid("%s belongs to %s, not %s", context, ctxAgent, agent)
+				}
+			}
 			var rec *store.Record
 			var artifactDir string
 			err = a.st.Tx(func(tx *sql.Tx) (txErr error) {
@@ -130,7 +145,7 @@ func newToolAddCmd(a *app) *cobra.Command {
 				if _, err := tool.Parse(body); err != nil {
 					return cli.Invalid("tool body: %v", err)
 				}
-				rec, err = store.PutNamed(tx, store.NewRecord{ID: id, Agent: agent, Lane: "definition", Kind: "tool", Name: name, Body: body, Meta: m}, "")
+				rec, err = store.PutNamed(tx, store.NewRecord{ID: id, Agent: agent, Lane: "definition", Kind: "tool", Name: name, Body: body, OriginContext: context, Meta: m}, "")
 				if err == nil {
 					keepArtifact = true
 				}
@@ -149,6 +164,7 @@ func newToolAddCmd(a *app) *cobra.Command {
 	c.Flags().StringVar(&description, "description", "", "one-line description shown in capsules")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read a full YAML tool body from stdin instead of --description")
 	c.Flags().StringArrayVar(&meta, "meta", nil, "applicability metadata key=value (repeatable)")
+	c.Flags().StringVar(&context, "context", "", "originating context receipt id (ctx_...); must belong to <agent>")
 	c.Flags().StringVar(&format, "format", "id", "id|json|yaml")
 	return c
 }

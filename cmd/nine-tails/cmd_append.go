@@ -20,7 +20,7 @@ type appendOpts struct {
 
 func (o *appendOpts) bind(c *cobra.Command) {
 	c.Flags().StringArrayVar(&o.meta, "meta", nil, "applicability metadata key=value (repeatable)")
-	c.Flags().StringVar(&o.context, "context", "", "originating context id; also supplies the agent when <agent> is omitted")
+	c.Flags().StringVar(&o.context, "context", "", "originating context receipt id (ctx_..., not a record id); also supplies the agent when <agent> is omitted")
 	c.Flags().BoolVar(&o.stdin, "stdin", false, "read the body from stdin instead of the argument")
 	c.Flags().StringVar(&o.format, "format", "id", "id (one line) | json | yaml")
 }
@@ -173,9 +173,12 @@ signal). With --context the <agent> may be omitted.`,
 
 func newNoteCmd(a *app, verb, lane, kind, short string) *cobra.Command {
 	o := &appendOpts{}
+	long, example := noteHelp(verb)
 	c := &cobra.Command{
-		Use:   verb + " [<agent>] [--] [TEXT]",
-		Short: short,
+		Use:     verb + " [<agent>] [--] [TEXT]",
+		Short:   short,
+		Long:    long,
+		Example: example,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.doAppend(o, lane, kind, "", args)
 		},
@@ -184,17 +187,69 @@ func newNoteCmd(a *app, verb, lane, kind, short string) *cobra.Command {
 	return c
 }
 
+func noteHelp(verb string) (long, example string) {
+	switch verb {
+	case "note":
+		return `Add general guidance that should affect relevant future capsules
+immediately and is eligible for compilation into the brief. Add --meta only
+when the guidance is genuinely scoped.
+
+On success, stdout is the new immutable rec_... record id by default. A
+ctx_... value passed to --context identifies the originating load receipt,
+not the new record.`, `  nine-tails note pr-review "Repository tests run with make test."
+  nine-tails note --context ctx_72 --meta repo-id=acme "Generated mocks are not edited directly."`
+	case "avoid":
+		return `Add guidance describing behavior the agent should avoid. It affects
+relevant future capsules immediately and is eligible for compilation into the
+brief.
+
+On success, stdout is the new immutable rec_... record id by default. A
+ctx_... value passed to --context identifies the originating load receipt,
+not the new record.`, `  nine-tails avoid pr-review "Do not edit generated files."
+  nine-tails avoid --context ctx_72 "Do not infer behavior without reading the implementation."`
+	case "prefer":
+		return `Add guidance describing behavior the agent should prefer. It affects
+relevant future capsules immediately and is eligible for compilation into the
+brief.
+
+On success, stdout is the new immutable rec_... record id by default. A
+ctx_... value passed to --context identifies the originating load receipt,
+not the new record.`, `  nine-tails prefer pr-review "Lead with evidence and expected impact."
+  nine-tails prefer --context ctx_72 "Run focused tests before the full suite."`
+	case "remember":
+		return `Store a recall fact for explicit retrieval. Recall records are not
+loaded into context capsules and are never compiled into the brief. Find them
+with inspect --lane recall and, when useful, --query.
+
+On success, stdout is the new immutable rec_... record id by default. A
+ctx_... value passed to --context identifies the originating load receipt,
+not the new record.`, `  nine-tails remember pr-review "GitHub may omit large patch bodies."
+  nine-tails inspect pr-review --lane recall --query "patch bodies" --format json`
+	default:
+		return "Add an immutable record.", ""
+	}
+}
+
 func newBaseCmd(a *app) *cobra.Command {
 	var meta []string
 	var expect, format string
 	var stdin bool
 	c := &cobra.Command{
-		Use:   "base <agent> [--] [TEXT]",
+		Use:   "base <agent> [--expect none|<base-id>] [--] [TEXT]",
 		Short: "Create or replace an agent's base instructions",
-		Long: `Create an agent by giving it base instructions. This is exactly
+		Long: `Use --expect none for safe creation: the command fails with a conflict
+if an active base already exists. Omitting --expect is unconditional: it
+creates a new immutable base and supersedes any active base.
+
+Create an agent by giving it base instructions. This is exactly
   put <agent> --lane definition --kind agent-base --name base
-Replacing the base creates a new immutable record that supersedes the old one.
-Use --meta title="..." to set the capsule title. Prints the new record id.`,
+
+For a compare-and-swap replacement, pass the current base_... record id to
+--expect. Use --meta title="..." to set the capsule title. By default stdout
+is the new base_... record id; --format json or yaml prints its envelope.`,
+		Example: `  nine-tails base pr-review --expect none --meta title="PR Review Agent" \
+    "Review proposed changes for correctness."
+  nine-tails base pr-review --expect base_4 --stdin < base.md`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateRecordFormat(format); err != nil {
@@ -227,7 +282,7 @@ Use --meta title="..." to set the capsule title. Prints the new record id.`,
 		},
 	}
 	c.Flags().StringArrayVar(&meta, "meta", nil, "metadata key=value (repeatable); title=... names the capsule")
-	c.Flags().StringVar(&expect, "expect", "", "compare-and-swap: 'none' to create only, or the current base id")
+	c.Flags().StringVar(&expect, "expect", "", "CAS: 'none' for safe creation, or current base record id (base_...); omit to supersede unconditionally")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read the body from stdin")
 	c.Flags().StringVar(&format, "format", "id", "id|json|yaml")
 	return c

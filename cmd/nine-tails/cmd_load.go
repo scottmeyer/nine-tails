@@ -23,8 +23,15 @@ adjustments, tools, related agents and due signals into one capsule. Nothing
 eligible is cut for size: the capsule reports its estimated size and how many
 adjustments are uncompiled, and past the configured threshold it advises a
 compile on stderr. Every load persists an immutable context receipt listing
-the exact record ids emitted; its id appears in the capsule as
-[nine-tails-context=ctx_N]. Pass --context to inherit a parent's metadata.`,
+the exact record ids emitted. Its opaque ctx_... id appears as
+[nine-tails-context=...] in the capsule and is the only kind of id accepted by
+later --context flags; record ids and state CAS ids are not contexts. Pass
+--context to inherit a parent's metadata and link the new receipt.
+
+The --task value is stored on that receipt. Use a concise, non-sensitive
+purpose and keep the complete task in the calling harness conversation.`,
+		Example: `  nine-tails load pilot --task "Review this change" --meta repo-id=acme --meta harness=my-harness
+  nine-tails load reviewer --task "Review this change" --context <pilot-context-id>`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := a.open(); err != nil {
@@ -78,8 +85,8 @@ the exact record ids emitted; its id appears in the capsule as
 			return err
 		},
 	}
-	c.Flags().StringVar(&task, "task", "", "what this invocation is for (recorded on the receipt)")
-	c.Flags().StringVar(&ctx, "context", "", "parent context id to inherit metadata from")
+	c.Flags().StringVar(&task, "task", "", "concise non-sensitive purpose stored on the receipt; the caller retains the full task")
+	c.Flags().StringVar(&ctx, "context", "", "parent context receipt id (ctx_...); inherit its metadata")
 	c.Flags().StringArrayVar(&meta, "meta", nil, "ambient metadata key=value (repeatable)")
 	c.Flags().StringVar(&format, "format", "md", "md|json|yaml")
 	return c

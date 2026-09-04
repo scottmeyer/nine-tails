@@ -6,9 +6,54 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 )
 
 var installedEvents = []string{"SessionStart", "UserPromptSubmit", "SessionEnd"}
+
+// Installed reports whether every lifecycle event required by the adapter has
+// its canonical unfiltered handler group for executable. It is read-only: a
+// missing settings file, incomplete installation, stale executable path, or
+// filtered/reframed handler returns false without creating or changing files.
+func Installed(a Adapter, executable string) (path string, installed bool, err error) {
+	path, err = a.SettingsPath()
+	if err != nil {
+		return "", false, fmt.Errorf("locate %s settings: %w", a.Name(), err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		return path, false, fmt.Errorf("resolve executable: %w", err)
+	}
+	root, _, _, err := readSettingsIfExists(path)
+	if err != nil || root == nil {
+		return path, false, err
+	}
+	hooks, err := objectField(root, "hooks", false)
+	if err != nil {
+		return path, false, fmt.Errorf("%s: %w", path, err)
+	}
+	if hooks == nil {
+		return path, false, nil
+	}
+	for _, event := range installedEvents {
+		groups, err := eventGroups(hooks[event], event, false)
+		if err != nil {
+			return path, false, fmt.Errorf("%s: %w", path, err)
+		}
+		handler, err := json.Marshal(a.Handler(executable, event))
+		if err != nil {
+			return path, false, err
+		}
+		want, err := json.Marshal(map[string]any{"hooks": []json.RawMessage{handler}})
+		if err != nil {
+			return path, false, err
+		}
+		if !hasCanonicalGroup(groups, want) {
+			return path, false, nil
+		}
+	}
+	return path, true, nil
+}
 
 // Install merges one owned command handler into each lifecycle event. Existing
 // settings and non-owned hook handlers are retained. Repeated installation
@@ -229,6 +274,20 @@ func removeOwned(a Adapter, groups []json.RawMessage) []json.RawMessage {
 		out = append(out, updated)
 	}
 	return out
+}
+
+func hasCanonicalGroup(groups []json.RawMessage, want json.RawMessage) bool {
+	var canonical any
+	if json.Unmarshal(want, &canonical) != nil {
+		return false
+	}
+	for _, groupRaw := range groups {
+		var candidate any
+		if json.Unmarshal(groupRaw, &candidate) == nil && reflect.DeepEqual(candidate, canonical) {
+			return true
+		}
+	}
+	return false
 }
 
 func rawGroupsEqual(a, b []json.RawMessage) bool {

@@ -29,7 +29,18 @@ follows its output and its exit status is returned verbatim. A tool that
 cannot start or times out is exit 5. SIGINT, SIGTERM or SIGHUP received while
 the tool runs is forwarded to the tool's process group and nine-tails exits
 128+signal. The tool sees NINE_TAILS_HOME, NINE_TAILS_AGENT and, with
---context, NINE_TAILS_CONTEXT.`,
+--context, NINE_TAILS_CONTEXT.
+
+Inspect tool definitions before calling with
+  nine-tails inspect <agent> --include tools --format yaml
+or inspect one immutable tool_... record id directly. A ctx_... value is a
+context receipt id used with --context, not a tool record id.
+
+The tool inherits nine-tails' current working directory (cwd), so invoke call
+from the worktree or directory the tool should act on. Literal artifacts/...
+argv entries are resolved under NINE_TAILS_HOME instead.`,
+		Example: `  nine-tails inspect pr-review --include tools --format yaml
+  nine-tails call --context ctx_72 complete-pr-diff --input '{"repo":"acme/payments","pr":1842}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentGiven := cmd.Flags().Changed("agent")
@@ -128,7 +139,7 @@ the tool runs is forwarded to the tool's process group and nine-tails exits
 			return cli.ToolFailed("%s (%s): %v", name, rec.ID, err)
 		},
 	}
-	c.Flags().StringVar(&context, "context", "", "calling context id; supplies the agent and NINE_TAILS_CONTEXT")
+	c.Flags().StringVar(&context, "context", "", "calling context receipt id (ctx_..., not a tool record id); supplies the agent and NINE_TAILS_CONTEXT")
 	c.Flags().StringVar(&agent, "agent", "", "calling agent (default: the context's agent, else shared)")
 	c.Flags().StringVar(&input, "input", "", "JSON object of inputs (default {})")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read the JSON input object from stdin")

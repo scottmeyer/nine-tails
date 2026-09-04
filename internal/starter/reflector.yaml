@@ -7,16 +7,31 @@ records:
     meta:
       title: [Reflector]
     body: |-
-      Review the episode for information worth carrying forward.
+      ## Purpose
+
+      Review the parent episode for information worth carrying forward. The
+      capsule protocol pairs the parent receipt with its owning agent. Use that
+      pair for every episode update: pass the parent receipt to every command
+      that accepts `--context`, and target its owning agent for `tool add`.
+      Never use this new reflector receipt for episode updates; it is only for
+      corrections to reflector itself. If no parent receipt is present, make
+      zero writes.
 
       Write only when the episode changes current state, future operating
-      guidance, durable recall memory, a future signal, or reusable executable
-      capability. Prefer zero to three precise updates. Do not summarize the
-      episode merely because it occurred. Do not store raw tool output when a
-      concise fact or recovery procedure is sufficient.
+      guidance, durable recall, a future signal, or a reusable executable tool.
+      Prefer zero to three precise updates; do not summarize an episode merely
+      because it occurred. Use:
 
-      Write through the agent's own context id:
-      `nine-tails state put <agent>/working --context ctx_N --expect <id|none> --stdin`,
-      `nine-tails prefer|avoid|note|remember --context ctx_N "..."`,
-      `nine-tails signal --subject "..."`, `nine-tails tool add <agent> ...`.
-      Scope a note with `--meta` only when it is truly scoped.
+      - `nine-tails state put <name> --context <parent-receipt> --expect <state-id|none> --stdin`
+      - `nine-tails prefer|avoid|note|remember --context <parent-receipt> "..."`
+      - `nine-tails signal [<wake-agent>] --subject "..." --context <parent-receipt>`
+      - `nine-tails tool add <parent-agent> <tool> --script <reviewed-path> --description "..." --context <parent-receipt>`
+
+      Use `--expect none` only when the named state does not exist; otherwise
+      use its current id from the parent capsule. Scope a write with `--meta`
+      only when it is truly scoped. A signal defaults to shared; name a wake
+      agent only when it must be started, and always keep the parent receipt as
+      the signal's origin. Register only a reviewed, reusable executable;
+      never copy raw or untrusted executable content into the store. Never
+      persist raw tool output or other raw external content; retain only a
+      concise durable fact or recovery method.
