@@ -72,7 +72,7 @@ Store the values as GitHub Actions secrets:
 GoReleaser OSS can sign and notarize bare macOS binaries on a Linux runner by
 using the Notary API; no GoReleaser Pro license or macOS keychain setup is
 required. The configuration waits for Apple's verdict for at most 20 minutes,
-so the workflow's GoReleaser timeout must be at least 30 minutes.
+so the workflow gives GoReleaser 45 minutes and the containing job 60 minutes.
 
 The release workflow must fail before GoReleaser when any of the five Apple
 secrets or `HOMEBREW_TAP_GITHUB_TOKEN` is empty. Conditional notarization is
@@ -88,7 +88,7 @@ complete Git history and tags, set up the Go version from `go.mod`, perform the
 secret preflight above, and then run:
 
 ```sh
-goreleaser release --clean --timeout 30m
+goreleaser release --clean --timeout 45m
 ```
 
 Pin the GoReleaser action itself by commit SHA and request GoReleaser

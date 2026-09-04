@@ -62,7 +62,7 @@ release:
 # Apple values so a stable Homebrew release can never silently be unsigned.
 notarize:
   macos:
-    - enabled: '{{ and (not .IsSnapshot) (isEnvSet "MACOS_SIGN_P12") }}'
+    - enabled: '{{ and (not .IsSnapshot) (isEnvSet "MACOS_SIGN_P12") (isEnvSet "MACOS_SIGN_PASSWORD") (isEnvSet "MACOS_NOTARY_KEY") (isEnvSet "MACOS_NOTARY_KEY_ID") (isEnvSet "MACOS_NOTARY_ISSUER_ID") }}'
       ids:
         - nine-tails
       sign:

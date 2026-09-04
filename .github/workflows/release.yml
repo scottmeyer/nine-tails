@@ -16,7 +16,7 @@ jobs:
   release:
     name: Publish release
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Check out source and tags
         uses: actions/checkout@v7
@@ -66,7 +66,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.18.0
-          args: release --clean --timeout 30m
+          args: release --clean --timeout 45m
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
