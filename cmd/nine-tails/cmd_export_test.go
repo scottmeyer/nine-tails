@@ -13,27 +13,17 @@ import (
 
 // seedExportAgent creates agent "a" with one record per export section
 // (except brief, which needs a compile) and a tool whose script lives under
-// artifacts/. Ids are deterministic (global counter), so the tool body can
-// name its own artifact path; the id is asserted after the put.
+// artifacts/. tool add copies the script under the id it mints, so the body
+// names its own artifact path without predicting the id.
 func seedExportAgent(t *testing.T, h *harness) (toolID string) {
 	t.Helper()
 	h.ok("base", "a", "--meta", "title=Agent A", "Base one.")
 	h.ok("prefer", "a", "--meta", "repo-id=my_repo", "Lead with evidence.")
 	h.ok("remember", "a", "The build takes ten minutes.")
 	h.ok("state", "put", "a/working", "--expect", "none", "status: waiting")
-	toolID = "tool_5"
-	body := "version: 1\ndescription: Say hi\nexec:\n  argv: [\"artifacts/" + toolID + "/x.sh\", \"{{ who }}\"]\ninput:\n  who: {type: string}\n"
-	r := h.okIn(body, "put", "a", "--lane", "definition", "--kind", "tool", "--name", "x", "--stdin")
-	if got := r.id(t); got != toolID {
-		t.Fatalf("tool id: got %s want %s", got, toolID)
-	}
-	dir := filepath.Join(h.home, "artifacts", toolID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "x.sh"), []byte("#!/bin/sh\necho hi \"$1\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	script := writeScript(t, "x.sh", "echo hi \"$1\"\n")
+	body := "version: 1\ndescription: Say hi\nexec:\n  argv: [\"{{ who }}\"]\ninput:\n  who: {type: string}\n"
+	toolID = h.okIn(body, "tool", "add", "a", "x", "--script", script, "--stdin").id(t)
 	h.ok("put", "a", "--lane", "definition", "--kind", "related-agent", "--name", "helper", "A helper agent.")
 	return toolID
 }
@@ -59,11 +49,11 @@ func TestExportYAMLShape(t *testing.T) {
 	if len(recs) != 6 {
 		t.Fatalf("want 6 records, got %d:\n%s", len(recs), r.out)
 	}
-	wantIDs := []string{"base_1", "rec_2", "rec_3", "state_4", "tool_5", "rel_6"}
+	wantPrefixes := []string{"base_", "rec_", "rec_", "state_", "tool_", "rel_"}
 	for i, rec := range recs {
 		m := rec.(map[string]any)
-		if m["id"] != wantIDs[i] {
-			t.Errorf("records[%d] = %v, want %s (oldest first)", i, m["id"], wantIDs[i])
+		if id, _ := m["id"].(string); !strings.HasPrefix(id, wantPrefixes[i]) || (i == 4 && id != toolID) {
+			t.Errorf("records[%d] = %v, want a %s id (oldest first)", i, m["id"], wantPrefixes[i])
 		}
 		if m["status"] != "active" || m["created_at"] == nil {
 			t.Errorf("envelope %v", m)
@@ -207,7 +197,13 @@ func TestImportStdinAndTwiceSupersedesBase(t *testing.T) {
 	}
 	r = h2.okIn(doc, "import", "--stdin", "--format", "json")
 	ids := r.json(t)["ids"].(map[string]any)
-	if len(ids) != 5 || ids["base_1"] == nil || !strings.HasPrefix(ids["base_1"].(string), "base_") {
+	bases := 0
+	for old, new := range ids {
+		if strings.HasPrefix(old, "base_") && strings.HasPrefix(new.(string), "base_") {
+			bases++
+		}
+	}
+	if len(ids) != 5 || bases != 1 {
 		t.Errorf("json ids map: %v", ids)
 	}
 	r = h2.ok("inspect", "a", "--all", "--lane", "definition", "--kind", "agent-base", "--format", "json")
@@ -252,7 +248,7 @@ func TestImportRejectsBadInput(t *testing.T) {
 	}
 	sig := "nine_tails_export: 1\nagent: a\nrecords:\n  - id: sig_1\n    lane: signal\n    kind: signal\n    body: ping\n  - body: kept\n"
 	r = h.okIn(sig, "import", "--stdin")
-	if strings.TrimSpace(r.out) != "rec_1" || !strings.Contains(r.err, "warning: skipped sig_1") {
+	if !strings.HasPrefix(strings.TrimSpace(r.out), "rec_") || !strings.Contains(r.err, "warning: skipped sig_1") {
 		t.Errorf("signal should be skipped with a warning: out=%q err=%q", r.out, r.err)
 	}
 }
@@ -388,7 +384,7 @@ func TestExportIncludeMustNameASection(t *testing.T) {
 func TestImportAcceptsQuotedVersion(t *testing.T) {
 	h := newHarness(t)
 	r := h.okIn("nine_tails_export: \"1\"\nagent: v\nrecords:\n  - body: kept\n", "import", "--stdin")
-	if strings.TrimSpace(r.out) != "rec_1" {
+	if !strings.HasPrefix(strings.TrimSpace(r.out), "rec_") {
 		t.Errorf("quoted version should import: %q", r.out)
 	}
 	r = h.runIn("nine_tails_export: \"2\"\nagent: v\nrecords: []\n", "import", "--stdin")

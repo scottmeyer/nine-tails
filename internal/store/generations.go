@@ -142,7 +142,7 @@ type NewItem struct {
 // the generation being superseded ("" when none). Returns the new generation
 // and the created item records in order.
 func InstallGeneration(tx Querier, agent, expectGen string, items []NewItem, inputs []BriefInput) (*Generation, []*Record, error) {
-	genID, err := NextID(tx, "gen")
+	genID, err := NewID("gen")
 	if err != nil {
 		return nil, nil, err
 	}

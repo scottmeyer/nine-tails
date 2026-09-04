@@ -44,7 +44,7 @@ func CreateContext(tx Querier, agent, parent, task string, estimatedTokens int, 
 	if err := ValidateMeta(meta); err != nil {
 		return nil, err
 	}
-	id, err := NextID(tx, "ctx")
+	id, err := NewID("ctx")
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func CreateContext(tx Querier, agent, parent, task string, estimatedTokens int, 
 }
 
 // CreateContextWithID persists a receipt under an ID the caller already
-// allocated with NextID (so the capsule header can carry it before render).
+// minted with NewID (so the capsule header can carry it before render).
 func CreateContextWithID(tx Querier, id, agent, parent, task string, estimatedTokens int, meta Meta, rendered []ContextRecord) error {
 	if err := ValidateMeta(meta); err != nil {
 		return err

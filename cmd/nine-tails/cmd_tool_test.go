@@ -13,7 +13,7 @@ import (
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
-var toolIDRe = regexp.MustCompile(`^tool_[0-9]+$`)
+var toolIDRe = regexp.MustCompile(`^tool_[0-9A-Z]+$`)
 
 // writeScript writes a shell script (not executable: tool add must chmod it).
 func writeScript(t *testing.T, name, body string) string {
@@ -227,38 +227,38 @@ func TestToolAddErrors(t *testing.T) {
 	if len(entries) != 0 {
 		t.Errorf("failed adds left artifacts: %v", entries)
 	}
-	r := h.ok("tool", "add", "a", "x", "--script", script, "--description", "d")
-	if r.id(t) != "tool_1" {
-		t.Errorf("failed adds must not consume ids: got %s", r.id(t))
+	first := h.ok("tool", "add", "a", "x", "--script", script, "--description", "d").id(t)
+	if !strings.HasPrefix(first, "tool_") {
+		t.Errorf("tool id: %s", first)
 	}
-	r = h.ok("tool", "add", "a", "x", "--script", script, "--description", "json out", "--format", "json")
+	r := h.ok("tool", "add", "a", "x", "--script", script, "--description", "json out", "--format", "json")
 	m := r.json(t)
-	if m["id"] != "tool_2" || m["kind"] != "tool" || m["lane"] != "definition" || m["name"] != "x" || m["supersedes"] != "tool_1" {
+	if id, _ := m["id"].(string); !strings.HasPrefix(id, "tool_") || id == first || m["kind"] != "tool" || m["lane"] != "definition" || m["name"] != "x" || m["supersedes"] != first {
 		t.Errorf("json envelope: %v", m)
 	}
 }
 
 func TestToolAddRefusesPreexistingArtifactSymlink(t *testing.T) {
 	h := newHarness(t)
-	h.ok("config") // create the store layout without consuming an id
+	h.ok("config") // create the store layout
 	outside := t.TempDir()
-	link := filepath.Join(h.home, "artifacts", "tool_1")
+	// Ids are unpredictable, so stage the collision against the artifact
+	// writer directly: a symlink already occupying the record's directory.
+	link := filepath.Join(h.home, "artifacts", "tool_STAGED")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	script := writeScript(t, "escape.sh", "echo unsafe\n")
-	r := h.run("tool", "add", "a", "escape", "--script", script, "--description", "must stay contained")
-	if r.code != 4 || !strings.Contains(r.err, "artifact directory") {
-		t.Fatalf("pre-existing symlink: code=%d stdout=%q stderr=%q", r.code, r.out, r.err)
+	if _, err := createToolArtifact(h.home, "tool_STAGED", "escape.sh", []byte("echo unsafe\n")); err == nil || !strings.Contains(err.Error(), "artifact directory") {
+		t.Fatalf("pre-existing symlink: err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outside, "escape.sh")); !os.IsNotExist(err) {
-		t.Fatalf("tool add wrote outside its artifact directory: %v", err)
+		t.Fatalf("artifact writer wrote outside its directory: %v", err)
 	}
 	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("pre-existing symlink was removed or replaced: info=%v err=%v", info, err)
 	}
 	if r := h.run("inspect", "a"); r.code != 3 {
-		t.Fatalf("failed tool add wrote a record: code=%d output=%s", r.code, r.out)
+		t.Fatalf("no record should exist: code=%d output=%s", r.code, r.out)
 	}
 }
 

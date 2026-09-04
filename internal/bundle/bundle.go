@@ -978,7 +978,7 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 						warn("skipped %s: tool %q references %s, which this document does not carry (export it with --bundle); the active definition is kept", label, name, strings.Join(missing, ", "))
 						continue
 					}
-					id, err := store.NextID(tx, store.Prefix(lane, kind))
+					id, err := store.NewID(store.Prefix(lane, kind))
 					if err != nil {
 						return err
 					}

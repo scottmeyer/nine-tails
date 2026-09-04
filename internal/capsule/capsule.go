@@ -151,7 +151,7 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		return nil, fmt.Errorf("base %s has a corrupt body: not valid UTF-8 text", base.ID)
 	}
 
-	ctxID, err := store.NextID(tx, "ctx")
+	ctxID, err := store.NewID("ctx")
 	if err != nil {
 		return nil, err
 	}

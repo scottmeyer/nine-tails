@@ -222,7 +222,8 @@ func Write(w io.Writer, format string, v any) error {
 	}
 }
 
-// IsID reports whether s looks like a nine-tails identifier (prefix_N).
+// IsID reports whether s looks like a nine-tails identifier: prefix_ULID, or
+// prefix_N from a store created before schema v3.
 func IsID(s string) bool {
 	i := strings.LastIndex(s, "_")
 	if i <= 0 || i == len(s)-1 {
@@ -234,7 +235,7 @@ func IsID(s string) bool {
 		}
 	}
 	for _, ch := range s[i+1:] {
-		if ch < '0' || ch > '9' {
+		if !(ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z') {
 			return false
 		}
 	}
