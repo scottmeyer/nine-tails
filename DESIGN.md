@@ -588,7 +588,9 @@ expect_base: base_4
 base: {id: base_4, body: "..."}
 active_generation:         # null when none
   id: gen_11
-  items: [{id: item_81, key: concise-evidence, body: "...", meta: {...}}]
+  items:                   # sources: the entries each item represents, with
+    - {id: item_81, key: concise-evidence, body: "...", meta: {...},   # their own
+       sources: [{id: rec_12, meta: {...}}]}                          # metadata
 input_entries: [rec_41, rec_42]         # exactly the ids in entries[]
 entries:                                 # RecentGuidance(agent), oldest first
   - id: rec_41

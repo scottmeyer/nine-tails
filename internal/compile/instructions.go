@@ -27,6 +27,9 @@ applicability scope, not description: keep the scope that every source shares
 (for example repo-id) unless the guidance is genuinely general, and never add
 a key or value that no source entry or shared origin context carried; an
 invented scope silently hides the item from every load that passes that key.
+An active item's metadata was written by an earlier compile, not by anyone
+giving guidance: when re-emitting it, keep only the scope its listed sources
+carry and drop the rest.
 
 Output contract. Reply with exactly one YAML or JSON document and nothing
 else. Keys may be written in snake_case or kebab-case.
