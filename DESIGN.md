@@ -239,7 +239,15 @@ CREATE TABLE signal_delivery (                    -- spec §15.3
 );
 CREATE UNIQUE INDEX signal_dedupe ON signal_delivery(agent, dedupe_key)
     WHERE dedupe_key IS NOT NULL AND state != 'acknowledged';
-PRAGMA user_version = 3;   -- 2: contexts.token_budget became estimated_tokens; 3: prefix_ULID ids, seq dropped
+CREATE TABLE context_marks (                      -- §18: one mark per rendered record
+    context_id TEXT NOT NULL,
+    record_id  TEXT NOT NULL,
+    mark       TEXT NOT NULL,                     -- + +++ +++++ - --- ----- X ?
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (context_id, record_id)
+);
+-- contexts also carries closed_at TEXT (null until closed)
+PRAGMA user_version = 4;   -- 2: contexts.token_budget became estimated_tokens; 3: prefix_ULID ids, seq dropped; 4: context_marks, contexts.closed_at
 ```
 
 `records.name`: required for lane=definition, lane=state, and kind=brief-item;
@@ -330,6 +338,7 @@ nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] [--s
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
 nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
 nine-tails disable <id> [--format id|json|yaml]
+nine-tails close <ctx-id> [<id|ordinal>=<mark>]... [--format id|json|yaml]
 nine-tails state get <agent>/<name> [--format yaml|json|id]
 nine-tails state put [<agent>/]<name> --expect ID|none [--context ctx] [--meta]... (TEXT | --stdin)
 nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N] [--query Q] [--all]
@@ -671,7 +680,9 @@ active_generation:         # null when none
   id: gen_11
   items:                   # sources: the entries each item represents, with
     - {id: item_81, key: concise-evidence, body: "...", meta: {...},   # their own
-       sources: [{id: rec_12, meta: {...}}]}                          # metadata
+       sources: [{id: rec_12, meta: {...}}],                          # metadata
+       tally: {renders: 30, closes: 12, plus: 7, minus: 1, unknown: 4, wrong: 0,
+               plus_weight: 15, minus_weight: 1, last_applied: "..."}} # §18
 input_entries: [rec_41, rec_42]         # exactly the ids in entries[]
 entries:                                 # RecentGuidance(agent), oldest first
   - id: rec_41
@@ -741,6 +752,7 @@ Condition-loss lint (computed on demand from `brief_item_sources`; returned by
 
 ```
 for each item with ≥1 source:
+  practice (§18): marked X by ≥2 runs → STRONG; ≥3 closes and hindered > applied → STRONG
   sources resolve to their latest successor (deduplicated); disabled ones are skipped
   for each key=value on the item:
      if no source carries it and the origin contexts do not all share it
@@ -869,7 +881,7 @@ Children are unaffected. Never touches records.
 ## 15. Harness adapters (spec §17.2)
 
 `hooks install` writes user-scope command hooks for `SessionStart`,
-`UserPromptSubmit`, and `SessionEnd`. Claude Code uses
+`UserPromptSubmit`, `Stop`, and `SessionEnd`. Claude Code uses
 `$CLAUDE_CONFIG_DIR/settings.json` (default `~/.claude/settings.json`) and
 exec-form `command` + `args`; Codex uses `$CODEX_HOME/hooks.json` (default
 `~/.codex/hooks.json`) and a safely quoted command string plus an absolute
@@ -1060,3 +1072,42 @@ Recurring schedules, automatic compile thresholds, tool-call telemetry,
 embeddings, a daemon, a TUI, colored output, per-agent permissions, any notion
 of approval. The reflector and `brief-compiler` agents are content, not code:
 they are created with `base` (see README) and are part of dogfooding.
+
+## 18. Close: the run's verdict on what it was shown
+
+A receipt records what a run was shown, not what mattered. `close <ctx-id>`
+is the run's verdict, given while the model is still alive: one mark per
+rendered record, named by id or by its ordinal in the receipt (`inspect
+ctx_N` lists both with an excerpt).
+
+| Mark | Meaning for this run |
+| --- | --- |
+| `+` `+++` `+++++` | it applied: nudged, shaped the work, decisive |
+| `-` `---` `-----` | it hindered: a detour, misled, caused a mistake |
+| `?` | never came up; the default for anything unlisted |
+| `X` | wrong as a statement, regardless of this run |
+
+Rules: a receipt closes once (again → 7); an id the receipt did not render
+→ 2; `X` needs a guidance record written with `--context ctx_N` first (else
+2), so a kill always carries its correction. Marks are stored in
+`context_marks` (one row per rendered record, `?` written explicitly) and
+`contexts.closed_at` is set. Nothing writes automatically: the hooks may put
+the close on the model's path at the end of a session, the marks are the
+agent's. The base and signals can be marked like any rendered record.
+
+**Hooks put the close on the model's path.** Both harnesses fire `Stop`
+when the model is about to end its turn and accept `{"decision": "block",
+"reason": ...}`, which continues the session with the reason as its next
+prompt. In an activated run whose receipt is open, `Stop` answers once with
+the close nudge (record corrections, `inspect ctx_N`, `close ctx_N ...`, or
+stop without closing if the work is not finished); a `Stop` carrying
+`stop_hook_active`, a closed receipt, or a run that never loaded is silent.
+A closed receipt ends the episode: the next `UserPromptSubmit` loads afresh
+with the closed receipt as parent, so marks are per episode and a
+multi-turn session can close as many times as it has pieces of work.
+
+Magnitude is ordinal. A tally per record (`store.TallyRecord`) counts
+renders, closes, plus, minus, unknown, wrong, the summed strengths, and the
+latest applied time. It is shown in `inspect <agent>` (`brief.tallies`),
+in compile-input on each active item, and read by the lint (§10). `?`
+across many closes is the prune signal: rendered often, useful never.

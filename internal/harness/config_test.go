@@ -58,7 +58,7 @@ func TestInstallMergeIdempotentAndUninstallOwnedOnly(t *testing.T) {
 			if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 				t.Fatalf("mode=%o", info.Mode().Perm())
 			}
-			assertOwnedCount(t, first, adapter, 3)
+			assertOwnedCount(t, first, adapter, 4)
 
 			_, changed, err = Install(adapter, "/opt/Nine Tails/bin/nine-tails")
 			if err != nil || changed {
@@ -74,7 +74,7 @@ func TestInstallMergeIdempotentAndUninstallOwnedOnly(t *testing.T) {
 				t.Fatalf("upgrade changed=%v err=%v", changed, err)
 			}
 			upgraded, _ := os.ReadFile(path)
-			assertOwnedCount(t, upgraded, adapter, 3)
+			assertOwnedCount(t, upgraded, adapter, 4)
 			if bytes.Contains(upgraded, []byte("/opt/Nine Tails")) {
 				t.Fatal("old owned executable survived reinstall")
 			}

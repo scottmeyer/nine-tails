@@ -221,6 +221,8 @@ type Decision struct {
 	Parent   string
 	Capsule  string // cached context for compaction/resume; creates no receipt
 	Claim    string // single-winner claim for a fresh episode load
+	Stop     bool   // a Stop in the bound session; Context is the open receipt, if any
+	Context  string // the episode's receipt once loaded
 }
 
 // Admit atomically binds the first root SessionStart and rejects all other
@@ -232,7 +234,7 @@ func (c *Capability) Admit(event Event) (Decision, error) {
 		if !validStartSource(c.harness, event.Source) {
 			return Decision{}, nil
 		}
-	case "UserPromptSubmit":
+	case "UserPromptSubmit", "Stop":
 	case "SessionEnd":
 		if !validEndReason(c.harness, event.Reason) {
 			return Decision{}, nil
@@ -286,11 +288,22 @@ func (c *Capability) Admit(event Event) (Decision, error) {
 			} else if (event.Source == "compact" || event.Source == "resume") && s.Loaded {
 				decision.Capsule = s.Capsule
 			}
+		case "Stop":
+			if s.SessionID == "" || s.SessionID != event.SessionID {
+				return nil
+			}
+			decision.Active, decision.Stop, decision.Context = true, true, s.ContextID
+			if !s.Loaded {
+				decision.Context = ""
+			}
 		case "UserPromptSubmit":
 			if s.SessionID == "" || s.SessionID != event.SessionID {
 				return nil
 			}
 			decision.Active = true
+			if s.Loaded {
+				decision.Context = s.ContextID
+			}
 			if !s.Loaded {
 				now := time.Now().UTC()
 				claimedAt, claimedErr := time.Parse(time.RFC3339Nano, s.ClaimedAt)
@@ -350,6 +363,22 @@ func (c *Capability) CommitContext(sessionID, claim, contextID, capsule string) 
 }
 
 // AbortLoad releases a failed load claim so the next real prompt can retry.
+// EndEpisode forgets the loaded episode so the next prompt loads afresh,
+// keeping the last receipt as the parent of the next one. Dispatch calls it
+// when it finds the episode's receipt closed (DESIGN §18).
+func (c *Capability) EndEpisode(sessionID string) error {
+	return c.withState(func(s *runState) error {
+		if !c.valid(s, c.home) || s.SessionID != sessionID || !s.Loaded {
+			return nil
+		}
+		s.Loaded = false
+		s.Capsule = ""
+		s.LoadClaim = ""
+		s.ClaimedAt = ""
+		return nil
+	})
+}
+
 func (c *Capability) AbortLoad(sessionID, claim string) error {
 	return c.withState(func(s *runState) error {
 		if !c.valid(s, c.home) || s.SessionID != sessionID || s.LoadClaim != claim {

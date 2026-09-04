@@ -334,3 +334,59 @@ func TestHooksRequireExactlyOneHarness(t *testing.T) {
 		}
 	}
 }
+
+// Stop asks for the close once per stop cycle while the episode's receipt is
+// open; a closed receipt ends the episode so the next prompt loads afresh.
+func TestStopAsksForCloseAndCloseEndsEpisode(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "reviewer", "Review carefully.")
+	run, err := harnessadapter.BeginRun(h.home, "reviewer", harnessadapter.Claude, harnessadapter.Metadata{"repo-id": {"r1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = run.Close() })
+	setRunEnvironment(t, run)
+	owner := "--owner=" + harnessadapter.OwnerTag()
+
+	h.runIn(`{"hook_event_name":"SessionStart","session_id":"root","source":"startup"}`, "hooks", "dispatch", "--claude", owner)
+	// No episode yet: a Stop is silent.
+	if r := h.runIn(`{"hook_event_name":"Stop","session_id":"root","stop_hook_active":false}`, "hooks", "dispatch", "--claude", owner); r.code != 0 || r.out != "" {
+		t.Fatalf("stop before load: %#v", r)
+	}
+	r := h.runIn(`{"hook_event_name":"UserPromptSubmit","session_id":"root","prompt":"review change 17"}`, "hooks", "dispatch", "--claude", owner)
+	ctx, _ := decodeHookContext(t, r.out, "UserPromptSubmit")
+
+	r = h.runIn(`{"hook_event_name":"Stop","session_id":"root","stop_hook_active":false}`, "hooks", "dispatch", "--claude", owner)
+	var cont struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if r.code != 0 || json.Unmarshal([]byte(r.out), &cont) != nil || cont.Decision != "block" ||
+		!strings.Contains(cont.Reason, "close "+ctx) || !strings.Contains(cont.Reason, "stop without closing") {
+		t.Fatalf("stop with open receipt: %#v", r)
+	}
+	if r := h.runIn(`{"hook_event_name":"Stop","session_id":"root","stop_hook_active":true}`, "hooks", "dispatch", "--claude", owner); r.code != 0 || r.out != "" {
+		t.Fatalf("stop after own continuation must be silent: %#v", r)
+	}
+	if r := h.runIn(`{"hook_event_name":"Stop","session_id":"other","stop_hook_active":false}`, "hooks", "dispatch", "--claude", owner); r.code != 0 || r.out != "" {
+		t.Fatalf("stop from another session must be silent: %#v", r)
+	}
+
+	h.ok("close", ctx, "0=+")
+	if r := h.runIn(`{"hook_event_name":"Stop","session_id":"root","stop_hook_active":false}`, "hooks", "dispatch", "--claude", owner); r.code != 0 || r.out != "" {
+		t.Fatalf("stop with closed receipt must be silent: %#v", r)
+	}
+	// The next prompt starts a new episode under the closed receipt.
+	r = h.runIn(`{"hook_event_name":"UserPromptSubmit","session_id":"root","prompt":"review change 18"}`, "hooks", "dispatch", "--claude", owner)
+	next, _ := decodeHookContext(t, r.out, "UserPromptSubmit")
+	if next == ctx {
+		t.Fatal("a closed receipt should end the episode")
+	}
+	inspected := h.ok("inspect", next, "--format", "json")
+	if !strings.Contains(inspected.out, `"parent_context": "`+ctx+`"`) || !strings.Contains(inspected.out, `"task": "review change 18"`) {
+		t.Fatalf("new episode receipt: %s", inspected.out)
+	}
+	if r := h.runIn(`{"hook_event_name":"UserPromptSubmit","session_id":"root","prompt":"follow up"}`, "hooks", "dispatch", "--claude", owner); r.out != "" {
+		t.Fatalf("same open episode must not reload: %#v", r)
+	}
+}

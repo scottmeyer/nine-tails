@@ -9,7 +9,7 @@ import (
 	"reflect"
 )
 
-var installedEvents = []string{"SessionStart", "UserPromptSubmit", "SessionEnd"}
+var installedEvents = []string{"SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"}
 
 // Installed reports whether every lifecycle event required by the adapter has
 // its canonical unfiltered handler group for executable. It is read-only: a
