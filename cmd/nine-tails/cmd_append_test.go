@@ -35,8 +35,15 @@ func TestSupersedeGuidanceRetag(t *testing.T) {
 	if out := h.ok("load", "a").out; strings.Contains(out, "## Recent adjustments") {
 		t.Fatalf("a retag must not render as recent:\n%s", out)
 	}
-	if in := h.ok("compile-input", "a").json(t); len(in["input_entries"].([]any)) != 0 {
+	in := h.ok("compile-input", "a").json(t)
+	if len(in["input_entries"].([]any)) != 0 {
 		t.Fatalf("a retag must not need compiling: %v", in["input_entries"])
+	}
+	// The compiler sees the successor as the item's only source, with the
+	// new metadata, exactly as the lint does.
+	srcs := in["active_generation"].(map[string]any)["items"].([]any)[0].(map[string]any)["sources"].([]any)
+	if len(srcs) != 1 || srcs[0].(map[string]any)["id"] != nu || len(srcs[0].(map[string]any)["meta"].(map[string]any)) != 0 {
+		t.Fatalf("compile-input sources after retag: %v", srcs)
 	}
 
 	// A changed body is new guidance: it renders as recent and the item's
