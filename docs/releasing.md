@@ -39,12 +39,11 @@ The tag workflow needs these permissions:
 ```yaml
 permissions:
   contents: write
-  id-token: write
-  attestations: write
 ```
 
-`contents: write` is required by GoReleaser. The other two permissions are
-needed only when the workflow creates GitHub artifact attestations.
+`contents: write` is required by GoReleaser. If the workflow later creates
+GitHub artifact attestations, add `id-token: write` and
+`attestations: write` at that time.
 
 ## Apple signing and notarization
 
@@ -95,6 +94,9 @@ Pin the GoReleaser action itself by commit SHA and request GoReleaser
 `v2.18.0`. Pass the standard `GITHUB_TOKEN`, the tap token, and all five Apple
 secrets as environment variables with the exact names listed above. Keep the
 ordinary CI test job separate and require it before tags are cut.
+GoReleaser's GitHub release preflight is configured to fail on repository,
+tag, or immutable-release lookup errors before builds begin; it supplements,
+but does not replace, the explicit secret preflight.
 
 ## Cutting a release
 

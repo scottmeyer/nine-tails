@@ -55,6 +55,8 @@ release:
     owner: scottmeyer
     name: nine-tails
   prerelease: auto
+  preflight:
+    fail_on_error: true
 
 # GoReleaser's cross-platform notary pipe signs bare Mach-O binaries with a
 # Developer ID Application certificate, then submits them to Apple's service.
