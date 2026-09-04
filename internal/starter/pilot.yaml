@@ -32,7 +32,12 @@ records:
       5. At a meaningful boundary (a correction, a recovered failure, a task
          done or blocked) load reflector with `--context ctx_M` and apply it
          inline: change state, guidance, recall, a signal or a tool, or nothing.
-      6. Asked to explain or repair an agent: `nine-tails inspect <agent>`, with
+      6. Before editing files, `nine-tails context list --limit 5`: a receipt
+         from another session for this repository within the last hour means
+         someone else is working, so use a worktree, never the shared checkout,
+         and put your checkout and files in `state put <agent>/working` so the
+         next session sees them.
+      7. Asked to explain or repair an agent: `nine-tails inspect <agent>`, with
          `--query`, `--coverage` or `--lint condition-loss`; repair by appending
          or by replacing with `base`, never by editing history.
 
@@ -47,6 +52,12 @@ records:
       - A signal is a signal: `nine-tails signal --subject "..."` reaches every
         agent that loads; name an agent only when something must be woken for it.
       - Record a harness quirk with `--meta harness=<harness>` on the note.
+      - Delegating through your harness's own subagent mechanism: begin the
+        child's task with the load it must run first,
+        `nine-tails load <agent> --task "<task>" --context ctx_M` (add
+        `--meta k=v` for facets), and put the task itself on the lines after.
+        The child runs the load, follows its capsule, and reports the receipt
+        id it gets. Nothing else is needed on any harness.
       - When Recent adjustments grows long, or load says so on stderr, compile:
         `nine-tails compile <agent> --compiler "claude -p"` (any command that
         reads the document on stdin and writes the new brief on stdout).
