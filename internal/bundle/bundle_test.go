@@ -615,6 +615,27 @@ func TestImportSupersedesSameNamed(t *testing.T) {
 	}
 }
 
+func TestImportStateMetadataIsExactSnapshot(t *testing.T) {
+	src := openStore(t)
+	putNamed(t, src, store.NewRecord{Agent: "a", Lane: "state", Kind: "working-state", Name: "working", Body: "status: imported"})
+	doc, err := Export(src.DB, ExportOptions{Agent: "a", Include: []string{"state"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := openStore(t)
+	old := putNamed(t, dst, store.NewRecord{Agent: "a", Lane: "state", Kind: "working-state", Name: "working", Body: "status: old", Meta: store.Meta{"repo-id": {"old-project"}}})
+	if _, err := Import(dst, doc, nil, ImportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.ActiveNamed(dst.DB, "a", "state", "working-state", "working")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current.Meta) != 1 || !current.Meta.Has("imported-from") || current.Body != "status: imported" || current.Supersedes != old.ID {
+		t.Fatalf("import inherited destination scope or lost replacement: %+v", current)
+	}
+}
+
 func TestReadDocumentKebabAndDefaults(t *testing.T) {
 	doc, err := ReadDocument([]byte(`nine-tails-export: 1
 agent: a

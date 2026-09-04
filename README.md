@@ -310,9 +310,15 @@ For a manual or custom-model workflow, use `compile-input` followed by
 `brief put`. Compiler output is validated for complete dispositions and
 installed with compare-and-swap protection.
 
+State updates preserve existing metadata when `--meta` is omitted. Set scope
+explicitly on creation; `--context` does not copy it. On update, `--meta`
+replaces the complete set and `--clear-meta` explicitly removes it. Bundle
+imports remain exact snapshots, including their metadata.
+
 Keep changing project decisions in one named, scoped state; give other roles
 scoped retrieval pointers instead of copying values into their bases. Keep
-bases project-neutral and verify a reusable role with an unrelated project load.
+bases project-neutral and verify reuse with a small task from an unrelated
+domain, not just an unrelated project load or neutral names.
 New starter guidance teaches this convention; upgrading the binary does not
 overwrite your existing pilot or reflector.
 

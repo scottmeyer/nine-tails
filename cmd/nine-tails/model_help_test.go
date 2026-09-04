@@ -163,6 +163,9 @@ func TestModelFacingCommandHelp(t *testing.T) {
 				"Use --expect none\nto create safely",
 				"A context id is not a\nstate record id and cannot be used for --expect",
 				"nine-tails state put pr-review/working --expect none",
+				"Omitting --meta preserves existing state metadata",
+				"--meta replaces the complete metadata set",
+				"--clear-meta explicitly removes it",
 			},
 		},
 		{

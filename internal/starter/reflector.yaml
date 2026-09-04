@@ -42,6 +42,8 @@ records:
 
       Keep changing project decisions in one named, scoped state; other roles
       should carry a retrieval pointer rather than duplicate mutable values.
+      Set scope explicitly when creating state. Ordinary state updates preserve
+      existing metadata; --meta replaces the whole set and --clear-meta removes it.
       Preserve the distinction between confirmed facts, proposals and unknowns.
       Record only what the episode supports. Positive close marks report that
       guidance helped, not that the result was correct or every clause followed;

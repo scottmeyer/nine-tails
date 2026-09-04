@@ -972,6 +972,21 @@ func Resolve(q Querier, agent, kind, name string) (*Record, error) {
 // expect: "" = supersede whatever is active (or create); "none" = must not
 // exist; otherwise the ID that must currently be active. Must run inside Tx.
 func PutNamed(tx Querier, nr NewRecord, expect string) (*Record, error) {
+	return putNamed(tx, nr, expect, false)
+}
+
+// PutState preserves the active state's metadata when preserveMeta is true.
+// New state still uses the supplied metadata; context is never inferred as
+// scope. Imports use PutNamed for exact snapshot replacement instead.
+// Metadata resolution, CAS and insertion must run in the same transaction.
+func PutState(tx Querier, nr NewRecord, expect string, preserveMeta bool) (*Record, error) {
+	if nr.Lane != "state" || nr.Kind != "working-state" {
+		return nil, fmt.Errorf("%w: PutState requires state/working-state", ErrInvalid)
+	}
+	return putNamed(tx, nr, expect, preserveMeta)
+}
+
+func putNamed(tx Querier, nr NewRecord, expect string, preserveMeta bool) (*Record, error) {
 	if nr.Name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalid)
 	}
@@ -995,6 +1010,9 @@ func PutNamed(tx Querier, nr NewRecord, expect string) (*Record, error) {
 	}
 	if cur != nil {
 		nr.Supersedes = cur.ID
+		if preserveMeta {
+			nr.Meta = cur.Meta.Clone()
+		}
 	}
 	return InsertRecord(tx, nr)
 }

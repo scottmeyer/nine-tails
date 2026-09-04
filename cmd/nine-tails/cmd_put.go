@@ -13,18 +13,28 @@ import (
 func newPutCmd(a *app) *cobra.Command {
 	var lane, kind, name, expect, context, format string
 	var meta []string
-	var stdin bool
+	var stdin, clearMeta bool
 	c := &cobra.Command{
 		Use:   "put <agent> --lane definition|state --kind K --name N [--] [TEXT]",
 		Short: "Create an immutable named version and supersede its predecessor",
 		Long: `Create a new active named record. If an active record with the same
 agent/lane/kind/name exists it is superseded (or, with --expect, only if its id
 matches; --expect none requires that none exists). Tool bodies and state
-bodies are validated mechanically. Prints the new record id.`,
+bodies are validated mechanically. Prints the new record id.
+
+For state only, omitted --meta preserves existing metadata (new state is
+unqualified). --meta replaces the complete set; --clear-meta removes it.
+Definitions always use the supplied metadata, including an empty set.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateRecordFormat(format); err != nil {
 				return err
+			}
+			if clearMeta && cmd.Flags().Changed("meta") {
+				return cli.Invalid("--clear-meta and --meta are mutually exclusive")
+			}
+			if clearMeta && lane != "state" {
+				return cli.Invalid("--clear-meta is only valid for state")
 			}
 			if err := a.open(); err != nil {
 				return err
@@ -78,7 +88,12 @@ bodies are validated mechanically. Prints the new record id.`,
 					}
 				}
 				var err error
-				rec, err = store.PutNamed(tx, store.NewRecord{Agent: args[0], Lane: lane, Kind: kind, Name: name, Body: body, Meta: m, OriginContext: context}, expect)
+				nr := store.NewRecord{Agent: args[0], Lane: lane, Kind: kind, Name: name, Body: body, Meta: m, OriginContext: context}
+				if lane == "state" {
+					rec, err = store.PutState(tx, nr, expect, !clearMeta && !cmd.Flags().Changed("meta"))
+				} else {
+					rec, err = store.PutNamed(tx, nr, expect)
+				}
 				return err
 			})
 			if err != nil {
@@ -93,6 +108,7 @@ bodies are validated mechanically. Prints the new record id.`,
 	c.Flags().StringVar(&expect, "expect", "", "compare-and-swap: 'none' or the id that must currently be active")
 	c.Flags().StringVar(&context, "context", "", "originating context id")
 	c.Flags().StringArrayVar(&meta, "meta", nil, "metadata key=value (repeatable)")
+	c.Flags().BoolVar(&clearMeta, "clear-meta", false, "explicitly remove state metadata (state only; mutually exclusive with --meta)")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read the body from stdin")
 	c.Flags().StringVar(&format, "format", "id", "id|json|yaml")
 	return c

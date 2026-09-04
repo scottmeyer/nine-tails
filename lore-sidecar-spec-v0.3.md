@@ -1057,8 +1057,14 @@ lore state put pr-review/working \
 The second operation creates `state_18`, supersedes `state_17`, and fails if
 `state_17` is no longer current. Creating initial state uses `--expect none`.
 The originating context is recorded but its ambient metadata is not copied as
-scope. Explicit `--meta` values scope the state record exactly as they do other
-records.
+scope. For `state put` and generic `put --lane state`, omitted `--meta`
+preserves an existing state's entire metadata set; initial state without
+metadata is unqualified. Explicit `--meta` replaces the complete metadata set,
+not a merge. `--clear-meta` explicitly removes all metadata and is mutually
+exclusive with `--meta` (exit 2); it is valid only for state writes. Metadata
+resolution, compare-and-swap and replacement are atomic. This preservation
+default does not apply to definitions or imports: a bundle's state metadata is
+an exact snapshot, including an empty set, plus normal import provenance.
 
 State must remain small enough to load losslessly. `state put` enforces a
 configurable byte or token cap and rejects an oversized document rather than
@@ -1077,7 +1083,8 @@ learning belongs in guidance rather than state.
 Starter agent guidance should teach one named, scoped home for mutable project
 decisions and retrieval pointers in other roles instead of copied values.
 Keep role bases project-neutral and project-specific pointers in scoped
-guidance; check reuse with a load for an unrelated project. In factual work,
+guidance; check reuse with a load and a small task from an unrelated domain,
+not just neutral names. In factual work,
 proposed additions belong outside ready-to-use instructions.
 Models should consult that current source before relying on a remembered
 decision, keeping confirmed facts, proposals, assumptions and unknowns distinct.

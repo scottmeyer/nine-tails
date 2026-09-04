@@ -115,7 +115,7 @@ id belongs in --context; the two are not interchangeable.`,
 func newStatePutCmd(a *app) *cobra.Command {
 	var expect, context, format string
 	var meta []string
-	var stdin bool
+	var stdin, clearMeta bool
 	c := &cobra.Command{
 		Use:   "put [<agent>/]<name> --expect none|<state-id> [--] [TEXT]",
 		Short: "Replace state with compare-and-swap (--expect none to create)",
@@ -127,13 +127,20 @@ is never compiled.
 --context takes a ctx_... context receipt id: it records the origin and
 supplies the agent when the target is a bare <name>. A context id is not a
 state record id and cannot be used for --expect. By default stdout is the new
-state_... record id; --format json or yaml prints its record envelope.`,
+state_... record id; --format json or yaml prints its record envelope.
+
+Omitting --meta preserves existing state metadata; new state is unqualified.
+--meta replaces the complete metadata set; --clear-meta explicitly removes it.
+--context records provenance, never implicit scope.`,
 		Example: `  nine-tails state put pr-review/working --expect none "status: ready"
   nine-tails state put working --context ctx_72 --expect state_17 --stdin < state.yml`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateRecordFormat(format); err != nil {
 				return err
+			}
+			if clearMeta && cmd.Flags().Changed("meta") {
+				return cli.Invalid("--clear-meta and --meta are mutually exclusive")
 			}
 			if !cmd.Flags().Changed("expect") {
 				return cli.Invalid("--expect is required: 'none' to create, or the current state id (shown in the capsule heading and by `state get`)")
@@ -199,7 +206,7 @@ state_... record id; --format json or yaml prints its record envelope.`,
 					}
 				}
 				var err error
-				rec, err = store.PutNamed(tx, store.NewRecord{Agent: agent, Lane: "state", Kind: "working-state", Name: name, Body: body, Meta: m, OriginContext: context}, expect)
+				rec, err = store.PutState(tx, store.NewRecord{Agent: agent, Lane: "state", Kind: "working-state", Name: name, Body: body, Meta: m, OriginContext: context}, expect, !clearMeta && !cmd.Flags().Changed("meta"))
 				return err
 			})
 			if err != nil {
@@ -213,7 +220,8 @@ state_... record id; --format json or yaml prints its record envelope.`,
 	}
 	c.Flags().StringVar(&expect, "expect", "", "required CAS: 'none' to create, or the active state record id (state_...)")
 	c.Flags().StringVar(&context, "context", "", "originating context receipt id (ctx_..., not a state id); supplies the agent for a bare <name>")
-	c.Flags().StringArrayVar(&meta, "meta", nil, "applicability metadata key=value (repeatable)")
+	c.Flags().StringArrayVar(&meta, "meta", nil, "replace all applicability metadata with key=value pairs (repeatable); omitted preserves existing metadata")
+	c.Flags().BoolVar(&clearMeta, "clear-meta", false, "explicitly remove all state metadata (mutually exclusive with --meta)")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read the YAML from stdin")
 	c.Flags().StringVar(&format, "format", "id", "id|json|yaml")
 	return c

@@ -609,6 +609,16 @@ record ID. Mismatch → exit 7 `nine-tails: expected state_17 but state_18 is
 active`. Generic `put --lane state` runs the same validation but `--expect` is
 optional (omitted = supersede whatever is active).
 
+For both state write commands, omitting `--meta` preserves the active state's
+complete metadata set. Initial state without metadata is unqualified; origin
+context metadata is never inferred as scope. Explicit `--meta` replaces the
+complete set, not a merge. `--clear-meta` removes it and is mutually exclusive
+with `--meta` (exit 2); generic `put` permits it only for state. Resolve the
+predecessor metadata, check CAS and insert in one transaction. This default is
+state-specific: definitions and bundle imports retain exact supplied metadata,
+including an empty set (plus the importer's usual provenance). Historical
+versions are unchanged.
+
 `state get` prints the body verbatim (plus one trailing newline) and writes
 `nine-tails: state_18 (use --expect state_18 to replace)` to stderr;
 `--format id` prints just the ID; `--format json` the envelope.
