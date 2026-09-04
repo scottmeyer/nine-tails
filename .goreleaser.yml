@@ -1,0 +1,107 @@
+version: 2
+
+project_name: nine-tails
+
+builds:
+  - id: nine-tails
+    main: ./cmd/nine-tails
+    binary: nine-tails
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: release
+    ids:
+      - nine-tails
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}'
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs(\([^)]*\))?:'
+      - '^test(\([^)]*\))?:'
+      - '^chore(\([^)]*\))?:'
+      - '^ci(\([^)]*\))?:'
+      - '^Merge '
+
+release:
+  github:
+    owner: scottmeyer
+    name: nine-tails
+  prerelease: auto
+
+# GoReleaser's cross-platform notary pipe signs bare Mach-O binaries with a
+# Developer ID Application certificate, then submits them to Apple's service.
+# Snapshots stay secret-free; the tag workflow separately requires all five
+# Apple values so a stable Homebrew release can never silently be unsigned.
+notarize:
+  macos:
+    - enabled: '{{ and (not .IsSnapshot) (isEnvSet "MACOS_SIGN_P12") }}'
+      ids:
+        - nine-tails
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
+# GoReleaser v2.10+ casks are the supported way to install prebuilt CLI
+# archives. The generated cask selects arm64/x86_64 on macOS or Linux and
+# installs the signed binary plus Cobra completions.
+homebrew_casks:
+  - name: nine-tails
+    ids:
+      - release
+    binaries:
+      - nine-tails
+    repository:
+      owner: scottmeyer
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    commit_author:
+      name: nine-tails release bot
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    commit_msg_template: "nine-tails {{ .Tag }}"
+    homepage: https://github.com/scottmeyer/nine-tails
+    description: Persistent context sidecar for AI coding agents
+    skip_upload: auto
+    generate_completions_from_executable:
+      args:
+        - completion
+      shell_parameter_format: cobra
+      shells:
+        - bash
+        - zsh
+        - fish

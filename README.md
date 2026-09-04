@@ -1,314 +1,279 @@
+<p align="center">
+  <img src="docs/nine-tails-banner.png" alt="nine-tails — persistent context for coding agents" width="960">
+</p>
+
 # nine-tails
 
-A small, harness-independent CLI sidecar for persistent agent context. It
-resolves a named agent into a **context capsule**, records
-corrections and useful experience, carries a small versioned **state**, exposes
-named **tools** backed by executables, and carries **signals** (reminders,
-external events) into future invocations. It does not run an agent loop, pick
-a model, or enforce anything.
+[![CI](https://github.com/scottmeyer/nine-tails/actions/workflows/ci.yml/badge.svg)](https://github.com/scottmeyer/nine-tails/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/scottmeyer/nine-tails)](https://github.com/scottmeyer/nine-tails/releases/latest)
+[![Go version](https://img.shields.io/github/go-mod/go-version/scottmeyer/nine-tails)](go.mod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Working name for the `lore` spec (`lore-sidecar-spec-v0.3.md`). Implementation
-decisions are pinned in `DESIGN.md`.
+Persistent, inspectable context for coding agents—without becoming an agent
+framework.
 
+`nine-tails` is a small CLI sidecar that resolves a named agent into a Markdown
+context capsule. As the agent works, it can record corrections, useful
+experience, working state, executable tools, and future signals. The next
+invocation starts better informed.
+
+It is deliberately harness-independent. It does not run an agent loop, choose
+a model, proxy prompts, or require a daemon or network service.
+
+```text
+base + compiled brief + recent adjustments + state + due signals
+                              │
+                       nine-tails load
+                              ▼
+                    context capsule + receipt
+                              │
+                         agent session
+                              ▼
+              corrections, state, tools, and signals
 ```
-load a named context
-append what should be remembered
-carry a small versioned working state
-inspect and repair through an agent
-call named executable indirections
-carry signals into later invocations
-reflect selectively at meaningful boundaries
-occasionally compile the journal
-```
+
+## Why nine-tails?
+
+Agent instruction files are good at stable project rules, but poor at carrying
+what an agent learned yesterday. Transcripts contain that history, but they are
+large, opaque, and tied to a harness. `nine-tails` keeps the durable parts in a
+small local store with a plain-text interface an agent can inspect and repair.
+
+- **Context capsules:** load only the definition, brief, adjustments, state,
+  tools, and signals relevant to this invocation.
+- **Corrections that take effect immediately:** append a preference or warning
+  now; it appears on the next load without waiting for compilation.
+- **Bounded working state:** update small YAML documents with compare-and-swap
+  protection.
+- **Selective memory:** keep durable facts, reminders, and executable
+  capabilities without saving every turn or raw tool output.
+- **Inspectable history:** records are immutable and exportable; superseded
+  versions remain available for diagnosis and repair.
+- **Portable integration:** use the CLI from any harness, or opt into the
+  included Claude Code and Codex lifecycle adapters.
 
 ## Install
 
+With Homebrew on macOS or Linux:
+
 ```sh
-make install          # go install → $(go env GOPATH)/bin/nine-tails
-# or
-make build            # ./bin/nine-tails
+brew install --cask scottmeyer/tap/nine-tails
 ```
 
-Storage lives in `$NINE_TAILS_HOME` (default `~/.nine-tails`): one SQLite
-file, an `artifacts/` directory for registered scripts, and an optional
-`config.yaml`. There is one store per user; repositories and worktrees are
-metadata, not stores (see below). In this repository `./nt` runs
-`./bin/nine-tails` (`make build` first in a fresh clone or worktree) against
-that ordinary store, so every checkout shares one memory.
-
-## Five-minute tour
+Download an archive for macOS, Linux, or Windows from
+[GitHub Releases](https://github.com/scottmeyer/nine-tails/releases/latest), or
+install from source with Go 1.26 or newer:
 
 ```sh
-# 1. Create an agent: base instructions are the only required part.
+go install github.com/scottmeyer/nine-tails/cmd/nine-tails@latest
+```
+
+From a checkout:
+
+```sh
+make build      # writes ./bin/nine-tails
+make install    # writes $(go env GOPATH)/bin/nine-tails
+```
+
+## Quick start
+
+Start with `pilot`, the built-in usage guide and agent catalog:
+
+```sh
+nine-tails load pilot \
+  --task "Help me add authentication" \
+  --meta repo-id=my-project \
+  --meta harness=my-harness
+```
+
+On a fresh store, that command seeds `pilot` and `reflector` from documents
+embedded in the binary. The returned Markdown contains a receipt such as
+`[nine-tails-context=ctx_2]`; keep that ID for writes made during the episode.
+
+Create a specialized agent with a base definition:
+
+```sh
 nine-tails base pr-review --meta title="PR Review Agent" --stdin <<'EOF'
 ## Purpose
+
 Review proposed changes for demonstrable correctness and regression risks.
 EOF
 
-# 2. Load it. The capsule is context-ready markdown; the receipt id is inside.
-nine-tails load pr-review --task "Review PR 1842" --meta repo-id=my_repo
-#   # PR Review Agent
-#   [nine-tails-context=ctx_2]
-#   ...
+nine-tails load pr-review \
+  --task "Review PR 1842" \
+  --meta repo-id=my-project
+```
 
-# 3. Record a correction against that context. Origin is recorded; ambient
-#    metadata is NOT copied as scope unless you pass --meta explicitly.
-nine-tails prefer --context ctx_2 "Lead with concrete evidence; keep prose concise."
-nine-tails avoid  --context ctx_2 --meta repo-id=my_repo "Editing generated mocks."
+Teach it while it works:
 
-# 4. The next load shows both under "Recent adjustments" immediately.
-nine-tails load pr-review --meta repo-id=my_repo
+```sh
+nine-tails prefer --context ctx_2 \
+  "Lead with concrete evidence; keep prose concise."
 
-# 5. Carry state across invocations (compare-and-swap, size-capped YAML).
+nine-tails avoid --context ctx_2 --meta repo-id=my-project \
+  "Editing generated mocks."
+```
+
+The next `load` includes those adjustments. Pass metadata on a write only when
+the knowledge should be scoped by that metadata; otherwise it remains useful
+wherever the agent runs.
+
+## What should be persisted?
+
+| Need | Command | Result |
+| --- | --- | --- |
+| Operating guidance | `note`, `prefer`, `avoid` | Appears in recent adjustments and can later be compiled |
+| A fact worth retrieving later | `remember` | Stays in the recall lane and is searchable with `inspect --query` |
+| Small current working state | `state put` | Replaces a named YAML state using compare-and-swap |
+| A reminder or external event | `signal` | Appears when due and can be leased by a scheduler |
+| A reusable executable capability | `tool add` | Adds a validated named tool callable through a context |
+| A durable shorter brief | `compile` | Condenses eligible journal records through a configured model command |
+
+Examples:
+
+```sh
+# Compare-and-swap working state.
 nine-tails state put pr-review/working --expect none --stdin <<'EOF'
 status: waiting
 waiting-on: ci
 next-action: recheck the goroutine finding
 EOF
-#   state_5      ← the capsule heading shows "## Current state (working, state_5)"
 
-# 6. Register a script as a named tool and call it.
-nine-tails tool add pr-review complete-pr-diff --script ./complete-pr-diff.sh \
-  --description "Fetch complete changed-file contents for a pull request"
-nine-tails call --context ctx_2 complete-pr-diff --input '{"pr": 1842}'
-
-# 7. Leave a reminder; it appears in capsules once due, and `tick --claim`
-#    leases it for an external scheduler.
-nine-tails signal pr-review --at +2h --subject "Recheck PR 1842 after CI" \
-  --dedupe-key my_repo:pr-1842:recheck-ci --meta pr=1842
-#    Without an agent a signal is for everyone who loads; scope it with --meta.
-nine-tails signal --subject "Pass --meta repo-id=my_repo on load" --meta repo-id=my_repo
+# Schedule work without running a scheduler inside nine-tails.
+nine-tails signal pr-review --at +2h \
+  --subject "Recheck PR 1842 after CI" \
+  --dedupe-key my-project:pr-1842:recheck-ci
 nine-tails tick --claim --lease 5m
 
-# 8. Inspect and repair anything from an ordinary agent session.
-nine-tails inspect pr-review --include base,brief,journal
-nine-tails inspect ctx_2
-nine-tails inspect pr-review --query "generated mocks"
-
-# 9. Compile accumulated corrections into a brief (needs a model; see below).
-nine-tails compile-input pr-review > input.json
-#   ... give input.json to a model, get output.yaml ...
-nine-tails brief put pr-review --expect-generation none --expect-base base_1 --stdin < output.yaml
+# Register a script as a named tool, then call it through a loaded context.
+nine-tails tool add pr-review complete-pr-diff \
+  --script ./complete-pr-diff.sh \
+  --description "Fetch complete changed-file contents for a pull request"
+nine-tails call --context ctx_2 complete-pr-diff --input '{"pr": 1842}'
 ```
 
-Every mutation prints the new id on one line; add `--format json` for the full
-record. Errors begin with a `nine-tails:` summary line on stderr and may add
-indented diagnostic lines. Exit codes are 2 (invalid), 3 (not found), 4
-(store), 5 (tool), and 7 (conflict). Nothing is ever cut for size: a capsule
-reports its estimated size and, past a configurable threshold, advises a
-compile on stderr.
-`hooks run` preserves its launched harness's exit status (or Unix
-`128 + signal`) after a successful launch.
-
-## Using nine-tails from an agent harness
-
-For native prompt injection in Claude Code or Codex, install the small user
-hook adapter once:
+Use `inspect` as the repair surface:
 
 ```sh
-nine-tails hooks install --claude   # $CLAUDE_CONFIG_DIR/settings.json
-nine-tails hooks install --codex    # $CODEX_HOME/hooks.json
-
-# Then explicitly launch one mechanically active agent session:
-nine-tails hooks run pr-review --meta repo-id=my_repo --claude
-nine-tails hooks run pr-review --meta repo-id=my_repo --codex -- --model MODEL
+nine-tails inspect pr-review --include base,brief,journal
+nine-tails inspect ctx_2
+nine-tails inspect pr-review --lane recall --query "generated mocks"
 ```
 
-The default config locations are `~/.claude/settings.json` and
-`~/.codex/hooks.json`; the shown environment variables relocate their whole
-config homes and are useful for isolated setups. Codex requires a separate
-trust review for new or changed non-managed hooks: open `/hooks` after
-installation and approve the three nine-tails entries. See the current
-[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) and
-[Codex hooks reference](https://learn.chatgpt.com/docs/hooks).
+Every mutation prints its new ID on stdout. Add `--format json` for a complete
+record envelope. Diagnostics go to stderr; commands are non-interactive and
+never emit color.
 
-Installation makes the harness invoke a tiny gate globally. It does **not**
-make every Claude/Codex chat a nine-tails run. Unless the current harness is in
-a process tree started by `hooks run` and its session binds that live
-capability, the gate exits 0 without output, decoding hook input, or opening
-the nine-tails store. Installation is idempotent and merge-preserving; remove
-only its recognizable entries with `nine-tails hooks uninstall --claude` or
-`--codex`. Existing settings are replaced atomically: Unix retains the file
-mode, while Windows `ReplaceFileW` retains an existing destination's DACL and
-attributes; a newly created Windows settings file inherits its directory ACL.
+## Agent-harness integration
 
-Within an active run, the first real user prompt atomically claims and loads a
-fresh capsule and uses that exact prompt as its task. Later prompts in the same
-episode are silent. Compaction re-injects the cached capsule without creating
-another receipt; a same-run resume can do the same. `/clear` waits for the next
-real prompt and starts a new receipt parented to the last one. Repeatable
-`hooks run --meta key=value` values are parsed as the usual string multimap and
-become ambient metadata on every fresh episode load, including its filtering,
-ranking, and context receipt; cached compact/resume replay does not create or
-change metadata. The encoded activation metadata is capped at 128 KiB and
-rejected as invalid input before config or store access. Every marker update
-also enforces reserved-envelope and 1 MiB total encoded limits, so a successful
-write cannot make the next hook silently reject its own state. A capsule
-larger than the harness can deliver whole (9,800 bytes for Claude's
-10,000-character hook output, 140 KiB for Codex's 1 MiB marker) is neither
-injected nor recorded; the hook injects a pointer to an in-session load and to
-`compile` instead. The adapter never
-reads transcripts or triggers unconditional reflection, and it runs no daemon
-or network service.
-
-Claude currently reports `SessionStart` sources `startup`, `resume`, `clear`,
-`compact`, and `fork`, plus transition-capable `SessionEnd` reasons `clear` and
-`resume`. Codex reports the first four start sources but only `other` at
-session end, so a live wrapper accepts Codex's cross-session-id `clear` and
-`resume` starts directly. An ordinary nested Codex startup remains inert, but
-hook JSON has no process identity: a nested Codex that inherits the capability
-could claim it after its own cross-id clear/resume while the root is still
-live. Avoid nested Codex sessions inside one active wrapper when that boundary
-matters; wrapper cleanup, random proof, owner liveness, and expiry still limit
-the capability to that explicit process tree and lifetime.
-
-Owner-PID liveness is best-effort rather than a process-birth identity. If the
-wrapper crashes while its explicitly launched descendant survives, PID reuse
-inside the marker's rolling 24-hour window can make that inherited capability
-appear live again; under normal inheritance the random proof stays within that
-process tree.
-
-On Unix, the ephemeral runtime directory and marker are restricted to 0700 and
-0600. On Windows they inherit the ACL on `NINE_TAILS_HOME`, which therefore
-must not be a shared home. The wrapper stays alive on foreground Ctrl-C while
-Claude/Codex handles the interrupted turn, then removes the marker when the
-harness exits. On Windows it launches native `.exe` harnesses directly and
-rejects `.cmd`/`.bat` shims with exit 5 because Windows PowerShell 5.1 cannot
-preserve arbitrary arguments through the batch remarshal; install a native
-Claude/Codex executable for `hooks run`.
-
-The portable state lock is an atomic directory held only for a short critical
-section. It is not stolen automatically: killing a hook process inside that
-section can leave a stale `.lock` directory, causing later events to time out
-inactive until that lock is removed.
-
-The portable manual integration remains useful for other harnesses. Put one
-line in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
+The portable integration is one instruction in `AGENTS.md`, `CLAUDE.md`, or the
+equivalent file for a harness:
 
 ```md
 Start with `nine-tails load pilot --task "<task>" --meta repo-id=<repo> --meta harness=<harness>` and follow its capsule.
 ```
 
-`pilot` is the entry agent. Its capsule is the usage guide (load, keep the
-context id, record corrections with `--context`, call tools, reflect at
-boundaries, inspect to repair) and the catalog of agents in the store. A fresh
-store seeds pilot and reflector from documents embedded in the binary, so one
-binary bootstraps any user or harness; from then on pilot is an ordinary agent
-you correct and compile like any other. The recipe for adopting an existing
-agent file into nine-tails is in the same capsule; the model does the
-adapting, and `nine-tails import --stdin` takes the canonical document from a
-pipe.
-
-## Repositories and worktrees
-
-One store per user. A repository is not a store; it is ambient metadata:
+Claude Code and Codex can also receive capsules through opt-in lifecycle
+adapters:
 
 ```sh
-nine-tails load pr-review --task "Review PR 1842" --meta repo-id=my_repo
+# Install the merge-preserving adapter once.
+nine-tails hooks install --claude
+nine-tails hooks install --codex
+
+# Explicitly activate it for one harness process tree.
+nine-tails hooks run pr-review --meta repo-id=my-project --claude
+nine-tails hooks run pr-review --meta repo-id=my-project --codex -- --model MODEL
+
+# Remove only entries owned by nine-tails.
+nine-tails hooks uninstall --claude
+nine-tails hooks uninstall --codex
 ```
 
-Write the `repo-id` value into the repository's agent instruction file so every
-harness, clone and worktree passes the same one; nine-tails never derives it
-from version control. Corrections stay unqualified unless you scope them
-(`--meta repo-id=my_repo`), so an agent learns across repositories by default
-and per repository on request. Nothing else is needed: no per-repo store, no
-sync step, no repository awareness in the binary. To hand an agent to another
-machine or person, `export --bundle` it and `import` it there.
+Installation alone does not make ordinary sessions use `nine-tails`. The hook
+gate stays silent and does not open the store unless the session inherits a
+live capability created by `hooks run`. Codex asks the user to review newly
+installed hooks in `/hooks` before trusting them.
 
-The same rule covers several instances of one agent, say two builders on
-different tracks. They stay one agent so their learnings roll up; each load
-carries what distinguishes it, and metadata targets it:
+The adapters inject a fresh capsule at the first real prompt, replay the same
+capsule after compaction, and create a new parent-linked receipt after a clear.
+They do not read transcripts or trigger unconditional reflection. Exact
+lifecycle, size-limit, process, and platform behavior is pinned in
+[DESIGN.md](DESIGN.md#15-harness-adapters-spec-172).
+
+## Storage and scope
+
+By default, data lives under `~/.nine-tails`:
+
+```text
+~/.nine-tails/
+├── nine-tails.db
+├── artifacts/
+├── exports/
+├── runtime/
+└── config.yaml       # optional
+```
+
+Set `NINE_TAILS_HOME` to move it. There is one store per user—not one store per
+repository or worktree. A repository is ambient metadata supplied on load:
 
 ```sh
-nine-tails load builder --task "..." --meta repo-id=my_repo --meta track=auth
-nine-tails signal --subject "..."                          # everyone
-nine-tails signal builder --subject "..."                  # every builder
-nine-tails signal builder --meta track=auth --subject "..." # the auth-track builder
+nine-tails load builder \
+  --task "Implement the auth endpoint" \
+  --meta repo-id=my-project \
+  --meta track=auth
 ```
 
-The instance itself is the context receipt, `ctx_N`, which every correction
-records as its origin. Do not invent names like `builder@session`; they split
-the memory you want combined. A harness that knows its session id passes it
-as `--meta session=<id>`; the binary never reads it from the environment.
-Something every builder must keep knowing is guidance (`note builder`), not
-a signal.
+The long-lived agent is `builder`; this particular invocation is its context
+receipt. Two concurrent builders remain one agent so their learnings can roll
+up together, while `repo-id`, `track`, or other invocation metadata can target
+relevant context and signals. Do not encode sessions in names such as
+`builder@session`.
 
-## Content agents the spec expects
+To move an agent to another machine or share it with someone else, use
+`export --bundle` and `import`. No repository-aware synchronization is hidden
+inside the binary.
 
-These are ordinary agents. `reflector` is seeded by the first `load pilot`
-(from `internal/starter/reflector.yaml`) and shown here for reference;
-`brief-compiler` is created with `base` only when you want to customize the
-built-in compiler instructions.
+## Compiling the journal
 
-```sh
-nine-tails base reflector --stdin <<'EOF'
-Review the episode for information worth carrying forward.
-
-Write only when the episode changes current state, future operating guidance,
-durable recall memory, a future signal, or reusable executable capability.
-Prefer zero to three precise updates. Do not summarize the episode merely
-because it occurred. Do not store raw tool output when a concise fact or
-recovery procedure is sufficient.
-
-Write through: nine-tails state put | prefer | avoid | note | remember | signal | tool add.
-EOF
-```
-
-`brief-compiler` is the compiler as an agent: when it has a base,
-`compile-input` uses that base as the compiler instructions instead of the
-built-in text, so the compiler is editable with the same commands as any other
-agent. See `nine-tails compile-input <agent>` for the output contract.
-
-## Compiling with a model
-
-`compile <agent>` pipes the compile-input JSON to a configured command and
-installs whatever comes back on stdout:
+Recent adjustments remain visible immediately. When they grow large,
+`compile` can turn them into a durable brief through any command that reads the
+compile document on stdin and writes the result on stdout:
 
 ```yaml
-# $NINE_TAILS_HOME/config.yaml
+# ~/.nine-tails/config.yaml
 compiler:
   argv: ["claude", "-p", "--output-format", "text"]
   timeout: 300s
 ```
 
-or `nine-tails compile pr-review --compiler "claude -p"`, or
-`NINE_TAILS_COMPILER="claude -p"`. Any command that reads the document on
-stdin and writes the output document on stdout works, including a script that
-runs another harness. The output is validated (every input entry must get
-exactly one disposition) and installed with compare-and-swap; the
-condition-loss lint prints warnings but never blocks.
-
-## Recall memory
-
-`inspect <agent> --lane recall --query "..."` is the built-in lexical recall.
-Richer recall is a *tool* named `recall-memory` so the backend can change
-without touching any agent:
-
-```yaml
-# nine-tails put shared --lane definition --kind tool --name recall-memory --stdin
-version: 1
-description: Search prior experience for relevant recall entries.
-exec:
-  argv: ["artifacts/tool_N/recall.sh"]     # any executable; materialize with
-  stdin: json                              # `inspect <agent> --lane recall --format json`
-input:
-  query: {type: string, required: true}
-  limit: {type: integer}
-output:
-  format: json                             # items carry nine-tails record ids
+```sh
+nine-tails compile pr-review
 ```
 
-## Layout
+For a manual or custom-model workflow, use `compile-input` followed by
+`brief put`. Compiler output is validated for complete dispositions and
+installed with compare-and-swap protection.
 
-```
-cmd/nine-tails/      cobra commands, one file per group; cli_test.go harness
-internal/store/      all SQL: records, metadata, contexts, generations, signals
-internal/capsule/    assembly, ranking, size reporting, rendering
-internal/tool/       tool YAML parse/validate/exec
-internal/compile/    compiler contract, coverage, install, lint
-internal/bundle/     export/import
-internal/harness/    Claude/Codex hook config, lifecycle gate, run capability
-internal/cli/        flags, config, errors
+## Project status and development
+
+`nine-tails` currently implements the v0.3 sidecar specification. The
+behavioral contract is [lore-sidecar-spec-v0.3.md](lore-sidecar-spec-v0.3.md),
+and implementation decisions are binding in [DESIGN.md](DESIGN.md).
+
+```sh
+make test
+make vet
+make build
 ```
 
-`make test` runs everything. Tests never touch `~/.nine-tails`.
+Tests use isolated temporary homes and never touch `~/.nine-tails`.
+
+The release workflow publishes checksummed binaries for supported platforms
+when a semantic `v*.*.*` tag is pushed. macOS executables are Developer ID
+signed and notarized before publication. Maintainer setup and signing details
+live in [`docs/releasing.md`](docs/releasing.md).
+
+## License
+
+MIT © 2026 Scott Meyer. See [LICENSE](LICENSE).
