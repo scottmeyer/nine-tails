@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -51,7 +52,10 @@ Anything omitted for budget is summarized on stderr (md) or in "truncated" (json
 			cp, err := capsule.Load(a.st, capsule.Request{Agent: args[0], Task: task, Parent: ctx, Meta: m, Budget: budget, Policy: pol, Now: a.now()})
 			if err != nil {
 				if capsule.IsBudgetError(err) {
-					return cli.Budget("%v", err)
+					// The capsule layer wraps its private sentinel as "budget: ..."
+					// so errors.Is can classify it. That implementation detail is not
+					// part of the command's byte-exact diagnostic contract.
+					return cli.Budget("%s", strings.TrimPrefix(err.Error(), "budget: "))
 				}
 				return err
 			}

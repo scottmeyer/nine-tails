@@ -41,6 +41,75 @@ func requireExit(t *testing.T, r result, code int, contains string) {
 	}
 }
 
+func TestLoadBudgetFailureHasExactStream(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "Base.")
+
+	got := h.run("load", "a", "--budget", "1")
+	want := result{
+		code: 6,
+		err:  "nine-tails: mandatory content needs 12 tokens, budget is 1\n",
+	}
+	if got != want {
+		t.Fatalf("low-budget load = %#v, want %#v", got, want)
+	}
+}
+
+func TestStatePutStaleCASHasExactStream(t *testing.T) {
+	h := newHarness(t)
+	state1 := h.ok("state", "put", "a/working", "--expect", "none", "status: first").id(t)
+	state2 := h.ok("state", "put", "a/working", "--expect", state1, "status: second").id(t)
+
+	got := h.run("state", "put", "a/working", "--expect", state1, "status: stale")
+	want := result{
+		code: 7,
+		err:  "nine-tails: expected " + state1 + " but " + state2 + " is active\n",
+	}
+	if got != want {
+		t.Fatalf("stale state CAS = %#v, want %#v", got, want)
+	}
+	if current := h.ok("state", "get", "a/working", "--format", "id"); current.out != state2+"\n" || current.err != "" {
+		t.Fatalf("stale state CAS changed active state: %#v", current)
+	}
+}
+
+func TestStatePutRejectsMalformedExpectWithoutMutation(t *testing.T) {
+	h := newHarness(t)
+
+	missing := h.run("state", "put", "a/working", "status: missing")
+	wantMissing := result{
+		code: 2,
+		err:  "nine-tails: --expect is required: 'none' to create, or the current state id (shown in the capsule heading and by `state get`)\n",
+	}
+	if missing != wantMissing {
+		t.Fatalf("missing --expect = %#v, want %#v", missing, wantMissing)
+	}
+
+	for _, expect := range []string{"", "None", "state1", "base_1", "state_1x"} {
+		t.Run(fmt.Sprintf("expect_%q", expect), func(t *testing.T) {
+			got := h.run("state", "put", "a/working", "--expect="+expect, "status: rejected")
+			want := result{
+				code: 2,
+				err:  fmt.Sprintf("nine-tails: --expect must be 'none' or a state id like state_18, got %q\n", expect),
+			}
+			if got != want {
+				t.Fatalf("malformed --expect = %#v, want %#v", got, want)
+			}
+		})
+	}
+
+	entries, err := os.ReadDir(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("invalid state puts touched the store: %v", entries)
+	}
+	if id := h.ok("state", "put", "a/working", "--expect", "none", "status: accepted").id(t); id != "state_1" {
+		t.Fatalf("invalid state puts consumed an id: got %s, want state_1", id)
+	}
+}
+
 func TestInvalidMutationFormatsDoNotWrite(t *testing.T) {
 	h := newHarness(t)
 

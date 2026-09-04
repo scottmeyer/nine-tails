@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
@@ -543,19 +545,43 @@ func TestAC18(t *testing.T) {
 // AC19: corrupt optional records are skipped while mechanical errors stay clear.
 func TestAC19(t *testing.T) {
 	h := newHarness(t)
-	h.ok("base", "resilient", "Base.")
-	h.ok("prefer", "resilient", "Healthy guidance.")
+	base := h.ok("base", "resilient", "Base.").id(t)
+	guidance := h.ok("prefer", "resilient", "Healthy guidance.").id(t)
 	goodScript := writeScript(t, "good.sh", "echo good\n")
 	badScript := writeScript(t, "bad.sh", "echo bad\n")
-	h.ok("tool", "add", "resilient", "good", "--script", goodScript, "--description", "Healthy tool")
-	corrupt := h.ok("tool", "add", "resilient", "corrupt", "--script", badScript, "--description", "Will corrupt").id(t)
+	goodTool := h.ok("tool", "add", "resilient", "good", "--script", goodScript, "--description", "Healthy tool").id(t)
+	corruptTool := h.ok("tool", "add", "resilient", "corrupt", "--script", badScript, "--description", "Will corrupt").id(t)
+	goodAgent := h.ok("agent", "add", "resilient", "healthy-agent", "--description", "Healthy related agent.").id(t)
+	corruptAgent := h.ok("agent", "add", "resilient", "corrupt-agent", "--description", "Will corrupt").id(t)
+	goodSignal := h.ok("signal", "resilient", "--subject", "Healthy signal", "--body", "Healthy signal body.").id(t)
+	orphanedSignal := h.ok("signal", "resilient", "--subject", "Orphaned signal", "--body", "Will be orphaned.").id(t)
 
 	st, err := store.Open(h.home)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var goodBrief, corruptBrief string
+	invalid := string([]byte{0xff, 0xfe})
 	err = st.Tx(func(tx *sql.Tx) error {
-		return store.SetBody(tx, corrupt, "exec: [not: a: tool")
+		_, items, err := store.InstallGeneration(tx, "resilient", "", []store.NewItem{
+			{Key: "healthy-item", Body: "Healthy brief item."},
+			{Key: "corrupt-item", Body: "Will corrupt."},
+		}, nil)
+		if err != nil {
+			return err
+		}
+		goodBrief, corruptBrief = items[0].ID, items[1].ID
+		for id, body := range map[string]string{
+			corruptTool:  "exec: [not: a: tool",
+			corruptAgent: invalid,
+			corruptBrief: invalid,
+		} {
+			if err := store.SetBody(tx, id, body); err != nil {
+				return err
+			}
+		}
+		_, err = tx.Exec(`DELETE FROM records WHERE id = ?`, orphanedSignal)
+		return err
 	})
 	if closeErr := st.Close(); err == nil {
 		err = closeErr
@@ -564,13 +590,108 @@ func TestAC19(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := h.run("load", "resilient")
-	if r.code != 0 || !strings.Contains(r.out, "Healthy guidance.") || !strings.Contains(r.out, "`good`: Healthy tool") ||
-		strings.Contains(r.out, "`corrupt`") || !strings.Contains(r.err, "nine-tails: skipped "+corrupt) {
-		t.Fatalf("corrupt optional tool broke capsule: exit=%d stdout=%q stderr=%q", r.code, r.out, r.err)
+	r := h.run("load", "resilient", "--format", "json")
+	if r.code != 0 || !utf8.ValidString(r.out) {
+		t.Fatalf("corrupt optional records broke structured load: exit=%d stdout=%q stderr=%q", r.code, r.out, r.err)
 	}
+	capsule := r.json(t)
+	instructions := capsule["instructions"].(string)
+	for _, healthy := range []string{"Base.", "Healthy guidance.", "Healthy brief item.", "`good`: Healthy tool", "`healthy-agent`: Healthy related agent."} {
+		if !strings.Contains(instructions, healthy) {
+			t.Errorf("healthy content %q missing from instructions: %q", healthy, instructions)
+		}
+	}
+	if strings.Contains(instructions, "`corrupt`") || strings.Contains(instructions, "`corrupt-agent`") || !utf8.ValidString(instructions) {
+		t.Errorf("corrupt definition leaked into instructions: %q", instructions)
+	}
+	signals, ok := capsule["signals"].([]any)
+	if !ok || len(signals) != 1 || signals[0].(map[string]any)["id"] != goodSignal {
+		t.Errorf("healthy signals were not preserved: %#v", capsule["signals"])
+	}
+
+	wantReasons := map[string]string{
+		corruptBrief:   "brief item body is not valid UTF-8 text",
+		corruptAgent:   "related-agent body is not valid UTF-8 text",
+		orphanedSignal: "signal delivery references a missing record",
+	}
+	wantSkipped := []string{corruptTool, corruptBrief, corruptAgent, orphanedSignal}
+	sort.Strings(wantSkipped)
+	skipped, ok := capsule["skipped"].([]any)
+	if !ok || len(skipped) != len(wantSkipped) {
+		t.Fatalf("skipped = %#v, want IDs %v", capsule["skipped"], wantSkipped)
+	}
+	lastDiagnostic := -1
+	for i, raw := range skipped {
+		row := raw.(map[string]any)
+		id, reason := row["id"].(string), row["reason"].(string)
+		if id != wantSkipped[i] {
+			t.Errorf("skipped[%d] id = %s, want %s", i, id, wantSkipped[i])
+		}
+		if want := wantReasons[id]; want != "" && reason != want {
+			t.Errorf("skipped %s reason = %q, want %q", id, reason, want)
+		}
+		if id == corruptTool && !strings.HasPrefix(reason, "tool body:") {
+			t.Errorf("corrupt tool reason = %q", reason)
+		}
+		diagnostic := "nine-tails: skipped " + id + ": " + reason
+		position := strings.Index(r.err, diagnostic)
+		if position < 0 {
+			t.Errorf("stderr omitted skipped diagnostic for %s: %q", id, r.err)
+		} else if position <= lastDiagnostic {
+			t.Errorf("stderr diagnostics are not in skipped-ID order: %q", r.err)
+		} else {
+			lastDiagnostic = position
+		}
+	}
+	rendered := strs(t, capsule["rendered_record_ids"])
+	for _, id := range []string{base, guidance, goodTool, goodAgent, goodBrief, goodSignal} {
+		if !slicesContain(rendered, id) {
+			t.Errorf("healthy record %s missing from rendered_record_ids: %v", id, rendered)
+		}
+	}
+	for _, id := range wantSkipped {
+		if slicesContain(rendered, id) {
+			t.Errorf("skipped record %s appears in rendered_record_ids: %v", id, rendered)
+		}
+	}
+	receipt := h.ok("inspect", capsule["context_id"].(string)).json(t)
+	if got := acReceiptIDs(t, receipt["rendered"]); !equal(got, rendered) {
+		t.Errorf("receipt IDs %v differ from rendered_record_ids %v", got, rendered)
+	}
+
+	md := h.run("load", "resilient")
+	if md.code != 0 || !utf8.ValidString(md.out) || !strings.Contains(md.out, "Healthy brief item.") ||
+		!strings.Contains(md.out, "Healthy signal body.") || strings.Contains(md.out, "`corrupt-agent`") {
+		t.Fatalf("Markdown load did not preserve only healthy content: exit=%d stdout=%q stderr=%q", md.code, md.out, md.err)
+	}
+	for _, id := range wantSkipped {
+		if !strings.Contains(md.err, "nine-tails: skipped "+id+":") {
+			t.Errorf("Markdown diagnostics omitted %s: %q", id, md.err)
+		}
+	}
+
+	st, err = store.Open(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{corruptAgent, corruptBrief} {
+		rec, getErr := store.GetRecord(st.DB, id)
+		if getErr != nil || rec.Body != invalid || rec.Status != "active" {
+			t.Errorf("load mutated corrupt record %s: rec=%+v err=%v", id, rec, getErr)
+		}
+	}
+	if _, getErr := store.GetDelivery(st.DB, orphanedSignal); getErr != nil {
+		t.Errorf("load mutated orphaned delivery %s: %v", orphanedSignal, getErr)
+	}
+	if exists, existsErr := store.RecordExists(st.DB, orphanedSignal); existsErr != nil || exists {
+		t.Errorf("orphan setup changed: record exists=%v err=%v", exists, existsErr)
+	}
+	if closeErr := st.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+
 	r = h.run("call", "--agent", "resilient", "corrupt")
-	if r.code != 4 || !strings.HasPrefix(r.err, "nine-tails: ") || !strings.Contains(r.err, corrupt) || !strings.Contains(r.err, "corrupt body") {
+	if r.code != 4 || !strings.HasPrefix(r.err, "nine-tails: ") || !strings.Contains(r.err, corruptTool) || !strings.Contains(r.err, "corrupt body") {
 		t.Fatalf("corrupt tool error was unclear: exit=%d stdout=%q stderr=%q", r.code, r.out, r.err)
 	}
 }

@@ -113,6 +113,12 @@ func newStatePutCmd(a *app) *cobra.Command {
 			if err := validateRecordFormat(format); err != nil {
 				return err
 			}
+			if !cmd.Flags().Changed("expect") {
+				return cli.Invalid("--expect is required: 'none' to create, or the current state id (shown in the capsule heading and by `state get`)")
+			}
+			if expect != "none" && (!strings.HasPrefix(expect, "state_") || !store.IsID(expect)) {
+				return cli.Invalid("--expect must be 'none' or a state id like state_18, got %q", expect)
+			}
 			if err := a.open(); err != nil {
 				return err
 			}
@@ -148,9 +154,6 @@ func newStatePutCmd(a *app) *cobra.Command {
 			if err := store.ValidRecordName("state", name); err != nil {
 				return err
 			}
-			if expect == "" {
-				return cli.Invalid("--expect is required: 'none' to create, or the current state id (shown in the capsule heading and by `state get`)")
-			}
 			body, err := cli.ReadBody(args[1:], stdin, a.stdin, false)
 			if err != nil {
 				return err
@@ -178,6 +181,9 @@ func newStatePutCmd(a *app) *cobra.Command {
 				return err
 			})
 			if err != nil {
+				if errors.Is(err, store.ErrConflict) {
+					return cli.Conflict("%s", strings.TrimPrefix(err.Error(), store.ErrConflict.Error()+": "))
+				}
 				return err
 			}
 			return a.printRecord(format, rec)

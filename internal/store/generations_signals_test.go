@@ -325,6 +325,42 @@ func TestSignalLifecycle(t *testing.T) {
 	}
 }
 
+func TestDueSignalsReportsOrphanWithoutDiscardingHealthySignals(t *testing.T) {
+	s := openTest(t)
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	var healthy, orphaned *Signal
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		healthy, _, err = CreateSignal(tx, "a", "healthy", Meta{"subject": {"Healthy"}}, now, "", "")
+		if err != nil {
+			return err
+		}
+		orphaned, _, err = CreateSignal(tx, "a", "orphaned", Meta{"subject": {"Orphaned"}}, now, "", "")
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`DELETE FROM records WHERE id = ?`, orphaned.Record.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	due, err := DueSignals(s.DB, "a", now)
+	var orphanErr *OrphanedSignalRecordsError
+	if !errors.As(err, &orphanErr) || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DueSignals error = %v, want OrphanedSignalRecordsError wrapping ErrNotFound", err)
+	}
+	if len(orphanErr.RecordIDs) != 1 || orphanErr.RecordIDs[0] != orphaned.Record.ID {
+		t.Errorf("orphan IDs = %v, want [%s]", orphanErr.RecordIDs, orphaned.Record.ID)
+	}
+	if len(due) != 1 || due[0].Record.ID != healthy.Record.ID {
+		t.Errorf("healthy due signals = %+v, want only %s", due, healthy.Record.ID)
+	}
+	if _, err := GetDelivery(s.DB, orphaned.Record.ID); err != nil {
+		t.Errorf("DueSignals mutated the orphaned delivery: %v", err)
+	}
+}
+
 func TestListContextsUsesTimestampRecencyThenRowID(t *testing.T) {
 	s := openTest(t)
 	oldClock := Clock

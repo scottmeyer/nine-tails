@@ -205,6 +205,9 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		}
 		return nil, err
 	}
+	if !utf8.ValidString(base.Body) {
+		return nil, fmt.Errorf("base %s has a corrupt body: not valid UTF-8 text", base.ID)
+	}
 
 	ctxID, err := store.NextID(tx, "ctx")
 	if err != nil {
@@ -232,7 +235,7 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		}
 		var v any
 		if err := yaml.Unmarshal([]byte(st.Body), &v); err != nil {
-			c.Skipped = append(c.Skipped, Skipped{ID: st.ID, Reason: "state body is not valid YAML"})
+			c.skip(st.ID, "state body is not valid YAML")
 			continue
 		}
 		stateCands = append(stateCands, candidate{rec: st, score: store.Overlap(st.Meta, meta)})
@@ -271,6 +274,9 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 			if it.Status != "active" || store.Conflicts(it.Meta, meta) {
 				continue
 			}
+			if !c.renderableTextBody(it, "brief item") {
+				continue
+			}
 			text := "- " + bracket(it.Meta, hiddenKeys) + escapeLead(it.Meta, indentItem(it.Body)) + "\n"
 			briefCands = append(briefCands, candidate{rec: it, score: store.Overlap(it.Meta, meta), text: text, cost: tokens.Estimate(text), ordinal: i})
 		}
@@ -295,6 +301,9 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		if store.Conflicts(g.Meta, meta) {
 			continue
 		}
+		if !c.renderableTextBody(g, "recent guidance") {
+			continue
+		}
 		text := "- " + bracket(g.Meta, hiddenKeys) + "(" + g.Kind + ") " + indentItem(g.Body) + "\n"
 		recentCands = append(recentCands, candidate{rec: g, score: store.Overlap(g.Meta, meta), text: text, cost: tokens.Estimate(text), ordinal: len(recentCands)})
 	}
@@ -314,6 +323,9 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		if store.Conflicts(a.Meta, meta) {
 			continue
 		}
+		if !c.renderableTextBody(a, "related-agent") {
+			continue
+		}
 		text := "- `" + a.Name + "`: " + oneLine(a.Body) + "\n"
 		agentCands = append(agentCands, candidate{rec: a, score: store.Overlap(a.Meta, meta), text: text, cost: tokens.Estimate(text)})
 	}
@@ -327,12 +339,21 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	// ---- signals ----
 	due, err := store.DueSignals(tx, req.Agent, req.Now)
 	if err != nil {
-		return nil, err
+		var orphaned *store.OrphanedSignalRecordsError
+		if !errors.As(err, &orphaned) {
+			return nil, err
+		}
+		for _, id := range orphaned.RecordIDs {
+			c.skip(id, "signal delivery references a missing record")
+		}
 	}
 	var sigCands []candidate
 	sigViews := map[string]SignalView{}
 	for _, sg := range due {
 		if store.Conflicts(sg.Record.Meta, meta) {
+			continue
+		}
+		if !c.renderableTextBody(sg.Record, "signal") {
 			continue
 		}
 		subject := oneLine(sg.Record.Meta.First("subject"))
@@ -451,6 +472,12 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	c.truncation("tools", len(toolCands)-len(toolSel))
 	c.truncation("agents", len(agentCands)-len(agentSel))
 	c.truncation("signals", len(sigCands)-len(sigSel))
+	sort.Slice(c.Skipped, func(i, j int) bool {
+		if c.Skipped[i].ID != c.Skipped[j].ID {
+			return c.Skipped[i].ID < c.Skipped[j].ID
+		}
+		return c.Skipped[i].Reason < c.Skipped[j].Reason
+	})
 
 	// ---- receipt ----
 	if err := store.CreateContextWithID(tx, ctxID, req.Agent, req.Parent, req.Task, req.Budget, meta, c.rendered); err != nil {
@@ -468,6 +495,22 @@ func (c *Capsule) truncation(section string, omitted int) {
 	if omitted > 0 {
 		c.Truncated = append(c.Truncated, Truncation{Section: section, Omitted: omitted})
 	}
+}
+
+func (c *Capsule) skip(id, reason string) {
+	c.Skipped = append(c.Skipped, Skipped{ID: id, Reason: reason})
+}
+
+// renderableTextBody applies the storage text invariant again before rendering
+// record families that have no format parser of their own. Writes validate
+// UTF-8, but a damaged or externally edited SQLite row must not leak invalid
+// bytes into a capsule or suppress healthy candidates.
+func (c *Capsule) renderableTextBody(r *store.Record, family string) bool {
+	if utf8.ValidString(r.Body) {
+		return true
+	}
+	c.skip(r.ID, family+" body is not valid UTF-8 text")
+	return false
 }
 
 // fill selects candidates in order while their cumulative cost (plus the
@@ -507,7 +550,7 @@ func toolCandidates(q store.Querier, c *Capsule, agent string, meta store.Meta) 
 		}
 		def, err := tool.Parse(r.Body)
 		if err != nil {
-			c.Skipped = append(c.Skipped, Skipped{ID: r.ID, Reason: "tool body: " + err.Error()})
+			c.skip(r.ID, "tool body: "+err.Error())
 			return
 		}
 		text := "- `" + r.Name + "`: " + oneLine(def.Description) + bracketSuffix(r.Meta, hiddenKeys) + "\n"

@@ -2,11 +2,14 @@ package capsule
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"math"
+	"sort"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -112,6 +115,148 @@ func TestLoadShape(t *testing.T) {
 	}
 	if c.Truncated == nil || len(c.Truncated) != 0 {
 		t.Errorf("unexpected truncation %+v", c.Truncated)
+	}
+}
+
+func TestLoadSkipsCorruptTextRecordsAndOrphanedSignal(t *testing.T) {
+	s := setup(t)
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Healthy base."})
+	goodRecent := insert(t, s, store.NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "Healthy recent guidance."})
+	badRecent := insert(t, s, store.NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "Corrupt recent guidance."})
+	goodAgent := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "related-agent", Name: "healthy", Body: "Healthy related agent."})
+	badAgent := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "related-agent", Name: "corrupt", Body: "Corrupt related agent."})
+
+	var goodItem, badItem *store.Record
+	var goodSignal, badSignal, orphanedSignal *store.Signal
+	invalid := string([]byte{0xff, 0xfe})
+	if err := s.Tx(func(tx *sql.Tx) error {
+		_, items, err := store.InstallGeneration(tx, "a", "", []store.NewItem{
+			{Key: "healthy", Body: "Healthy brief item."},
+			{Key: "corrupt", Body: "Corrupt brief item."},
+		}, nil)
+		if err != nil {
+			return err
+		}
+		goodItem, badItem = items[0], items[1]
+		if goodSignal, _, err = store.CreateSignal(tx, "a", "Healthy signal body.", store.Meta{"subject": {"Healthy signal"}}, now, "", ""); err != nil {
+			return err
+		}
+		if badSignal, _, err = store.CreateSignal(tx, "a", "Corrupt signal body.", store.Meta{"subject": {"Corrupt signal"}}, now, "", ""); err != nil {
+			return err
+		}
+		if orphanedSignal, _, err = store.CreateSignal(tx, "a", "Orphan this signal.", store.Meta{"subject": {"Orphan"}}, now, "", ""); err != nil {
+			return err
+		}
+		for _, id := range []string{badRecent.ID, badAgent.ID, badItem.ID, badSignal.Record.ID} {
+			if err := store.SetBody(tx, id, invalid); err != nil {
+				return err
+			}
+		}
+		_, err = tx.Exec(`DELETE FROM records WHERE id = ?`, orphanedSignal.Record.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Load(s, Request{Agent: "a", Budget: 4000, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, healthy := range []string{"Healthy base.", "Healthy recent guidance.", "Healthy brief item.", "Healthy related agent.", "Healthy signal body."} {
+		if !strings.Contains(c.Markdown, healthy) {
+			t.Errorf("capsule omitted healthy content %q:\n%s", healthy, c.Markdown)
+		}
+	}
+	if !utf8.ValidString(c.Markdown) || !utf8.ValidString(c.Instructions) {
+		t.Fatalf("capsule contains invalid UTF-8: markdown=%q instructions=%q", c.Markdown, c.Instructions)
+	}
+
+	wantReasons := map[string]string{
+		badRecent.ID:             "recent guidance body is not valid UTF-8 text",
+		badAgent.ID:              "related-agent body is not valid UTF-8 text",
+		badItem.ID:               "brief item body is not valid UTF-8 text",
+		badSignal.Record.ID:      "signal body is not valid UTF-8 text",
+		orphanedSignal.Record.ID: "signal delivery references a missing record",
+	}
+	wantSkipped := make([]string, 0, len(wantReasons))
+	for id := range wantReasons {
+		wantSkipped = append(wantSkipped, id)
+	}
+	sort.Strings(wantSkipped)
+	if len(c.Skipped) != len(wantSkipped) {
+		t.Fatalf("skipped = %+v, want IDs %v", c.Skipped, wantSkipped)
+	}
+	for i, skipped := range c.Skipped {
+		if skipped.ID != wantSkipped[i] || skipped.Reason != wantReasons[skipped.ID] {
+			t.Errorf("skipped[%d] = %+v, want id=%s reason=%q", i, skipped, wantSkipped[i], wantReasons[wantSkipped[i]])
+		}
+	}
+
+	rendered := make(map[string]bool, len(c.RenderedIDs))
+	for _, id := range c.RenderedIDs {
+		rendered[id] = true
+	}
+	for _, id := range []string{base.ID, goodRecent.ID, goodItem.ID, goodAgent.ID, goodSignal.Record.ID} {
+		if !rendered[id] {
+			t.Errorf("healthy record %s missing from rendered_record_ids: %v", id, c.RenderedIDs)
+		}
+	}
+	for _, id := range wantSkipped {
+		if rendered[id] {
+			t.Errorf("skipped record %s appears in rendered_record_ids: %v", id, c.RenderedIDs)
+		}
+	}
+	ctx, err := store.GetContext(s.DB, c.ContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range ctx.Rendered {
+		if wantReasons[row.RecordID] != "" {
+			t.Errorf("skipped record %s appears in receipt %+v", row.RecordID, ctx.Rendered)
+		}
+	}
+	if len(c.Agents) != 1 || c.Agents[0] != goodAgent.Name || len(c.Signals) != 1 || c.Signals[0].ID != goodSignal.Record.ID {
+		t.Errorf("structured optional sections kept corrupt records: agents=%v signals=%+v", c.Agents, c.Signals)
+	}
+	if b, err := json.Marshal(c); err != nil || !utf8.Valid(b) {
+		t.Errorf("JSON is not valid UTF-8: bytes=%q err=%v", b, err)
+	}
+	if b, err := yaml.Marshal(c); err != nil || !utf8.Valid(b) {
+		t.Errorf("YAML is not valid UTF-8: bytes=%q err=%v", b, err)
+	}
+
+	for _, id := range []string{badRecent.ID, badAgent.ID, badItem.ID, badSignal.Record.ID} {
+		rec, err := store.GetRecord(s.DB, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.Body != invalid || rec.Status != "active" {
+			t.Errorf("load mutated corrupt record %s: body=%q status=%s", id, rec.Body, rec.Status)
+		}
+	}
+	if _, err := store.GetDelivery(s.DB, orphanedSignal.Record.ID); err != nil {
+		t.Fatalf("load mutated orphaned delivery: %v", err)
+	}
+}
+
+func TestLoadRejectsCorruptBaseBody(t *testing.T) {
+	s := setup(t)
+	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Healthy base."})
+	invalid := string([]byte{0xff})
+	if err := s.Tx(func(tx *sql.Tx) error { return store.SetBody(tx, base.ID, invalid) }); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(s, Request{Agent: "a", Budget: 1000}); err == nil || !strings.Contains(err.Error(), base.ID) || !strings.Contains(err.Error(), "corrupt body") {
+		t.Fatalf("Load error = %v, want fatal corrupt-base error naming %s", err, base.ID)
+	}
+	rec, err := store.GetRecord(s.DB, base.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Body != invalid || rec.Status != "active" {
+		t.Errorf("load mutated corrupt base: body=%q status=%s", rec.Body, rec.Status)
 	}
 }
 

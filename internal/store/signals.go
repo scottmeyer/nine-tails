@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -24,6 +25,19 @@ type Signal struct {
 	Record   *Record  `json:"record" yaml:"record"`
 	Delivery Delivery `json:"delivery" yaml:"delivery"`
 }
+
+// OrphanedSignalRecordsError reports due delivery rows whose record side is
+// missing. DueSignals still returns every healthy signal alongside this error
+// so callers that treat signals as optional can preserve the usable subset.
+type OrphanedSignalRecordsError struct {
+	RecordIDs []string
+}
+
+func (e *OrphanedSignalRecordsError) Error() string {
+	return fmt.Sprintf("%v: signal delivery references missing record(s): %s", ErrNotFound, strings.Join(e.RecordIDs, ", "))
+}
+
+func (e *OrphanedSignalRecordsError) Unwrap() error { return ErrNotFound }
 
 // CreateSignal inserts a signal record and its delivery row. If dedupeKey is
 // non-empty and a nonterminal signal with the same (agent, key) exists, that
@@ -117,7 +131,9 @@ func DeliveryAsOf(d Delivery, now time.Time) Delivery {
 
 // DueSignals returns unacknowledged signals for agent (or all agents when
 // agent is "") whose available_at <= now, oldest-available first. Leased
-// signals are included with their current (effective) state. Read-only.
+// signals are included with their current (effective) state. When a delivery
+// row has lost its record, the healthy subset is returned with an
+// OrphanedSignalRecordsError identifying every missing record ID. Read-only.
 func DueSignals(q Querier, agent string, now time.Time) ([]*Signal, error) {
 	query := `SELECT ` + deliveryCols + ` FROM signal_delivery WHERE state != 'acknowledged' AND available_at <= ?`
 	args := []any{FormatTime(now)}
@@ -145,12 +161,20 @@ func DueSignals(q Querier, agent string, now time.Time) ([]*Signal, error) {
 		return nil, err
 	}
 	out := make([]*Signal, 0, len(ds))
+	var orphaned []string
 	for _, d := range ds {
 		rec, err := GetRecord(q, d.RecordID)
+		if errors.Is(err, ErrNotFound) {
+			orphaned = append(orphaned, d.RecordID)
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, &Signal{Record: rec, Delivery: d})
+	}
+	if len(orphaned) > 0 {
+		return out, &OrphanedSignalRecordsError{RecordIDs: orphaned}
 	}
 	return out, nil
 }
