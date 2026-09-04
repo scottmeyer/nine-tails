@@ -841,9 +841,12 @@ func artifactReplacements(refs []string, newID string) (map[string]string, error
 // warning so the rendered brief is not silently degraded. Guidance and recall
 // records are plain inserts.
 //
-// A tool whose argv[0] is an artifacts/ path gets its artifact copied under
-// the new id from arts (or a warning when absent) and its body rewritten,
-// then validated with tool.Parse. State bodies get the state put validation
+// An import document describes exactly one agent: a record naming another
+// agent is rejected. A tool whose argv references artifacts/ paths gets them
+// copied under the new id from arts and its body rewritten, then validated
+// with tool.Parse; when the document does not carry an artifact the tool is
+// skipped with a warning so a re-import never replaces a working definition
+// with a broken one. State bodies get the state put validation
 // (valid YAML, byte cap). Metadata keys follow store.ParseMeta's rule. Signal
 // records are skipped with a warning. Any validation failure is
 // store.ErrInvalid and nothing is written.
@@ -887,6 +890,9 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 			if agent == "" {
 				return fmt.Errorf("%w: %s: agent is required", store.ErrInvalid, label)
 			}
+			if doc.Agent != "" && agent != doc.Agent {
+				return fmt.Errorf("%w: %s: agent %q does not match the document's agent %q (an import document describes one agent; edit the record's agent to move it)", store.ErrInvalid, label, agent, doc.Agent)
+			}
 			if err := store.ValidAgentName(agent); err != nil {
 				return fmt.Errorf("%s: %w", label, err)
 			}
@@ -908,6 +914,8 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 					kind = "note"
 				case "recall":
 					kind = "memory"
+				case "state":
+					kind = "working-state"
 				default:
 					return fmt.Errorf("%w: %s: kind is required for the %s lane", store.ErrInvalid, label, lane)
 				}
@@ -960,6 +968,16 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 					}
 				}
 				if len(refs) > 0 {
+					var missing []string
+					for _, ref := range refs {
+						if _, ok := arts[ref]; !ok {
+							missing = append(missing, ref)
+						}
+					}
+					if len(missing) > 0 {
+						warn("skipped %s: tool %q references %s, which this document does not carry (export it with --bundle); the active definition is kept", label, name, strings.Join(missing, ", "))
+						continue
+					}
 					id, err := store.NextID(tx, store.Prefix(lane, kind))
 					if err != nil {
 						return err
@@ -974,11 +992,7 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 					}
 					nr.ID = id
 					for _, ref := range refs {
-						if art, ok := arts[ref]; ok {
-							files = append(files, pendingFile{rel: replacements[ref], art: art})
-						} else {
-							warn("%s references a missing artifact", id)
-						}
+						files = append(files, pendingFile{rel: replacements[ref], art: arts[ref]})
 					}
 				}
 				if _, err := tool.Parse(body); err != nil {

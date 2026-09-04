@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -119,11 +120,44 @@ func DeliveryAsOf(d Delivery, now time.Time) Delivery {
 // agent is "") whose available_at <= now, oldest-available first. Leased
 // signals are included with their current (effective) state. Read-only.
 func DueSignals(q Querier, agent string, now time.Time) ([]*Signal, error) {
+	var agents []string
+	if agent != "" {
+		agents = []string{agent}
+	}
+	return dueSignals(q, agents, now)
+}
+
+// DueSignalsVisible is the capsule's signal set for agent (DESIGN §7 rule
+// 7): its own due signals plus shared ones whose available-to names it or is
+// absent, in one order (available_at, then creation). A signal is a signal,
+// not a message: an unaddressed one belongs to shared and everyone sees it.
+func DueSignalsVisible(q Querier, agent string, now time.Time) ([]*Signal, error) {
+	agents := []string{agent}
+	if agent != "shared" {
+		agents = append(agents, "shared")
+	}
+	sigs, err := dueSignals(q, agents, now)
+	if err != nil {
+		return nil, err
+	}
+	out := sigs[:0]
+	for _, s := range sigs {
+		if s.Record.Agent == "shared" && agent != "shared" && s.Record.Meta.Has("available-to") && !s.Record.Meta.Contains("available-to", agent) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+func dueSignals(q Querier, agents []string, now time.Time) ([]*Signal, error) {
 	query := `SELECT ` + deliveryCols + ` FROM signal_delivery WHERE state != 'acknowledged' AND available_at <= ?`
 	args := []any{FormatTime(now)}
-	if agent != "" {
-		query += ` AND agent = ?`
-		args = append(args, agent)
+	if len(agents) > 0 {
+		query += ` AND agent IN (?` + strings.Repeat(`, ?`, len(agents)-1) + `)`
+		for _, a := range agents {
+			args = append(args, a)
+		}
 	}
 	query += ` ORDER BY available_at, rowid`
 	rows, err := q.Query(query, args...)
@@ -232,6 +266,9 @@ func AckSignal(tx Querier, id, token string, now time.Time) error {
 		return fmt.Errorf("%w: signal %s is already acknowledged", ErrConflict, id)
 	}
 	if effectiveState(*d, now) != "leased" {
+		if d.State == "leased" {
+			return fmt.Errorf("%w: lease %s on signal %s expired at %s; claim it again with tick --claim", ErrConflict, d.LeaseToken, id, d.LeasedUntil)
+		}
 		return fmt.Errorf("%w: signal %s is not leased (state %s)", ErrConflict, id, d.State)
 	}
 	if d.LeaseToken != token {

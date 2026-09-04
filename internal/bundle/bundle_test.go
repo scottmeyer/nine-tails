@@ -585,11 +585,16 @@ func TestImportSupersedesSameNamed(t *testing.T) {
 	if len(bases) != 2 || bases[0].Status != "superseded" || bases[1].Status != "active" || bases[1].Supersedes != bases[0].ID {
 		t.Errorf("bases after double import: %+v %+v", bases[0], bases[1])
 	}
-	for _, f := range []store.Filter{{Lane: "state", Name: "working"}, {Lane: "definition", Kind: "tool", Name: "x"}, {Lane: "definition", Kind: "related-agent", Name: "helper"}} {
+	for _, f := range []store.Filter{{Lane: "state", Name: "working"}, {Lane: "definition", Kind: "related-agent", Name: "helper"}} {
 		f.Agent = "a"
 		if n := len(find(t, dst, f)); n != 1 {
 			t.Errorf("%+v: %d active, want 1", f, n)
 		}
+	}
+	// The plain document carries no artifact, so the tool is skipped, not
+	// installed as a definition that cannot run.
+	if n := len(find(t, dst, store.Filter{Agent: "a", Lane: "definition", Kind: "tool", Name: "x", Status: "*"})); n != 0 {
+		t.Errorf("artifact-less tool was imported %d times, want 0", n)
 	}
 }
 
@@ -755,26 +760,28 @@ func TestImportInvalidToolAbortsAtomically(t *testing.T) {
 	}
 }
 
-func TestImportSkipsSignalsAndWarnsOnMissingArtifact(t *testing.T) {
+func TestImportSkipsSignalsAndToolsWithoutArtifacts(t *testing.T) {
 	dst := openStore(t)
 	doc := &Document{Version: 1, Agent: "a", Records: []*store.Record{
 		{ID: "sig_1", Lane: "signal", Kind: "signal", Body: "ping", Meta: store.Meta{"subject": {"Ping"}}},
 		{ID: "tool_2", Lane: "definition", Kind: "tool", Name: "x", Body: "description: x\nexec:\n  argv: [artifacts/tool_2/x.sh]"},
+		{ID: "rec_3", Lane: "recall", Kind: "memory", Body: "kept"},
 	}}
 	var warnings []string
 	res, err := Import(dst, doc, nil, ImportOptions{Warn: func(f string, a ...any) { warnings = append(warnings, strings.TrimSpace(sprintf(f, a...))) }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res) != 1 || res[0].Old != "tool_2" || res[0].New != "tool_1" {
+	// Only the recall record lands; the skipped tool consumes no id.
+	if len(res) != 1 || res[0].Old != "rec_3" || res[0].New != "rec_1" {
 		t.Errorf("results: %+v", res)
 	}
-	if len(warnings) != 2 || !strings.Contains(warnings[0], "skipped sig_1") || warnings[1] != "tool_1 references a missing artifact" {
+	wantTool := `skipped tool_2: tool "x" references artifacts/tool_2/x.sh, which this document does not carry (export it with --bundle); the active definition is kept`
+	if len(warnings) != 2 || !strings.Contains(warnings[0], "skipped sig_1") || warnings[1] != wantTool {
 		t.Errorf("warnings: %q", warnings)
 	}
-	rec, err := store.GetRecord(dst.DB, "tool_1")
-	if err != nil || ArtifactPath(rec.Body) != "artifacts/tool_1/x.sh" {
-		t.Errorf("tool imported with rewritten argv: %v %+v", err, rec)
+	if n := len(find(t, dst, store.Filter{Agent: "a", Lane: "definition", Kind: "tool", Status: "*"})); n != 0 {
+		t.Errorf("artifact-less tool was written %d times, want 0", n)
 	}
 }
 

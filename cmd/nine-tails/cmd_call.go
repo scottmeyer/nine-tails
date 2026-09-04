@@ -23,11 +23,13 @@ func newCallCmd(a *app) *cobra.Command {
 else the shared namespace): the agent's own definition first, then a shared
 one it is allowed to see. Each {{ placeholder }} in exec.argv becomes one
 whole argument from the JSON input object (default {}); nothing is split,
-interpolated or shell-quoted, and -- is never added. The tool's stdout streams
-through and its stderr passes through unchanged (after the nine-tails summary
-when it fails); its exit status is returned verbatim. A tool that cannot start
-or times out is exit 5. The tool sees NINE_TAILS_HOME,
-NINE_TAILS_AGENT and, with --context, NINE_TAILS_CONTEXT.`,
+interpolated or shell-quoted, and -- is never added. The tool's stdout and
+stderr stream through untouched; when it fails, the nine-tails summary line
+follows its output and its exit status is returned verbatim. A tool that
+cannot start or times out is exit 5. SIGINT, SIGTERM or SIGHUP received while
+the tool runs is forwarded to the tool's process group and nine-tails exits
+128+signal. The tool sees NINE_TAILS_HOME, NINE_TAILS_AGENT and, with
+--context, NINE_TAILS_CONTEXT.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentGiven := cmd.Flags().Changed("agent")
@@ -105,25 +107,25 @@ NINE_TAILS_AGENT and, with --context, NINE_TAILS_CONTEXT.`,
 			if context != "" {
 				env["NINE_TAILS_CONTEXT"] = context
 			}
-			// Buffer adapter diagnostics until its exit status is known. On a
-			// failure the root command must print the nine-tails summary first;
-			// on success the bytes still pass through unchanged.
-			var diagnostics bytes.Buffer
-			err = def.Run(tool.Call{Home: a.home, Input: in, Env: env, Stdout: a.stdout, Stderr: &diagnostics})
+			// Both streams belong to the tool and pass through untouched. When
+			// the tool fails, the summary line printed by run follows its output.
+			err = def.Run(tool.Call{Home: a.home, Input: in, Env: env, Stdout: a.stdout, Stderr: a.stderr})
 			var ee *tool.ExitError
+			var interrupted *tool.Interrupted
 			switch {
 			case err == nil:
-				_, _ = a.stderr.Write(diagnostics.Bytes())
 				return nil
+			case errors.As(err, &interrupted):
+				return cli.Errorf(interrupted.ExitCode(), "%s (%s) %v", name, rec.ID, interrupted)
 			case errors.Is(err, tool.ErrStart):
-				return cli.WithDetails(cli.ToolFailed("%s (%s): %v", name, rec.ID, err), diagnostics.Bytes())
+				return cli.ToolFailed("%s (%s): %v", name, rec.ID, err)
 			case errors.As(err, &ee):
 				if ee.Code < 0 {
-					return cli.WithDetails(cli.ToolFailed("%s (%s) was terminated by a signal", name, rec.ID), diagnostics.Bytes())
+					return cli.ToolFailed("%s (%s) was terminated by a signal", name, rec.ID)
 				}
-				return cli.WithDetails(&cli.ExitError{Code: ee.Code, Msg: fmt.Sprintf("%s exited with status %d", name, ee.Code)}, diagnostics.Bytes())
+				return &cli.ExitError{Code: ee.Code, Msg: fmt.Sprintf("%s exited with status %d", name, ee.Code)}
 			}
-			return cli.WithDetails(cli.ToolFailed("%s (%s): %v", name, rec.ID, err), diagnostics.Bytes())
+			return cli.ToolFailed("%s (%s): %v", name, rec.ID, err)
 		},
 	}
 	c.Flags().StringVar(&context, "context", "", "calling context id; supplies the agent and NINE_TAILS_CONTEXT")

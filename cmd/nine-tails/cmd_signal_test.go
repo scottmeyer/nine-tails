@@ -353,8 +353,7 @@ func TestSignalErrors(t *testing.T) {
 		args []string
 		code int
 	}{
-		{[]string{"signal"}, 2},
-		{[]string{"signal", "--subject", "s"}, 2},
+		{[]string{"signal"}, 2},                       // --subject required; the agent defaults to shared
 		{[]string{"signal", "a"}, 2},                  // --subject required
 		{[]string{"signal", "a", "--subject", ""}, 2}, // blank subject
 		{[]string{"signal", "a", "--subject", "line one\nline two"}, 2},

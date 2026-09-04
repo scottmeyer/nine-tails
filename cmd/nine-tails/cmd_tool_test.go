@@ -271,7 +271,7 @@ func TestCallExitCodes(t *testing.T) {
 	if r.code != 3 {
 		t.Errorf("tool exit status should pass through: got %d", r.code)
 	}
-	if r.out != "partial\n" || !strings.HasPrefix(r.err, "nine-tails: fails exited with status 3\n  before\n") {
+	if r.out != "partial\n" || r.err != "before\nnine-tails: fails exited with status 3\n" {
 		t.Errorf("out=%q err=%q", r.out, r.err)
 	}
 	// Cannot start → 5.

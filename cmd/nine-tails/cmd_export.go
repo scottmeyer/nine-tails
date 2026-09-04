@@ -89,11 +89,14 @@ stored exactly as the document carries them; envelope keys may be snake_case
 or kebab-case and a missing lane means recall. Definitions, state and brief
 items supersede a same-named active record of the target agent (a brief item
 still installed by the live generation is skipped with a warning instead);
-guidance and recall records are plain inserts. Tool artifacts are copied
-under the new id and every managed exec.argv path rewritten; tool bodies, state bodies and
-metadata keys are validated as put would, and any failure aborts the whole
-import (exit 2). Signal records are skipped with a warning. Prints one new id
-per line (json: {ids: {old: new}}).`,
+guidance and recall records are plain inserts. The document describes one
+agent: a record naming another agent is exit 2. Tool artifacts are copied
+under the new id and every managed exec.argv path rewritten; a tool whose
+artifact the document does not carry (plain YAML) is skipped with a warning
+and the active definition kept. Tool bodies, state bodies and metadata keys
+are validated as put would, and any failure aborts the whole import (exit 2).
+Signal records are skipped with a warning. Prints one new id per line
+(json: {ids: {old: new}}).`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch format {

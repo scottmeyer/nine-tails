@@ -193,16 +193,21 @@ func TestImportStdinAndTwiceSupersedesBase(t *testing.T) {
 	doc := h.ok("export", "a").out
 
 	h2 := newHarness(t)
+	// Plain YAML cannot carry the tool's artifact, so the tool is skipped with
+	// a warning rather than installed as a definition that cannot run.
 	r := h2.okIn(doc, "import", "--stdin")
-	if n := len(strings.Fields(r.out)); n != 6 {
-		t.Fatalf("want 6 ids, got %q", r.out)
+	if n := len(strings.Fields(r.out)); n != 5 {
+		t.Fatalf("want 5 ids, got %q", r.out)
 	}
-	if !strings.Contains(r.err, "nine-tails: warning: tool_") || !strings.Contains(r.err, "references a missing artifact") {
-		t.Errorf("plain YAML import should warn about the missing artifact: %q", r.err)
+	if !strings.Contains(r.err, "nine-tails: warning: skipped tool_") || !strings.Contains(r.err, "does not carry") {
+		t.Errorf("plain YAML import should warn that the tool was skipped: %q", r.err)
+	}
+	if r := h2.run("inspect", "a", "--kind", "tool"); !strings.Contains(r.out, `"records": []`) {
+		t.Errorf("no tool should have been installed:\n%s", r.out)
 	}
 	r = h2.okIn(doc, "import", "--stdin", "--format", "json")
 	ids := r.json(t)["ids"].(map[string]any)
-	if len(ids) != 6 || ids["base_1"] == nil || !strings.HasPrefix(ids["base_1"].(string), "base_") {
+	if len(ids) != 5 || ids["base_1"] == nil || !strings.HasPrefix(ids["base_1"].(string), "base_") {
 		t.Errorf("json ids map: %v", ids)
 	}
 	r = h2.ok("inspect", "a", "--all", "--lane", "definition", "--kind", "agent-base", "--format", "json")

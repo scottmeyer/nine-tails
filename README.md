@@ -31,8 +31,10 @@ make build            # ./bin/nine-tails
 
 Storage lives in `$NINE_TAILS_HOME` (default `~/.nine-tails`): one SQLite
 file, an `artifacts/` directory for registered scripts, and an optional
-`config.yaml`. In this repository `./nt` is a wrapper that uses `./bin/nine-tails`
-with a repo-local store in `.nine-tails/`.
+`config.yaml`. There is one store per user; repositories and worktrees are
+metadata, not stores (see below). In this repository `./nt` runs
+`./bin/nine-tails` (`make build` first in a fresh clone or worktree) against
+that ordinary store, so every checkout shares one memory.
 
 ## Five-minute tour
 
@@ -74,6 +76,8 @@ nine-tails call --context ctx_2 complete-pr-diff --input '{"pr": 1842}'
 #    leases it for an external scheduler.
 nine-tails signal pr-review --at +2h --subject "Recheck PR 1842 after CI" \
   --dedupe-key my_repo:pr-1842:recheck-ci --meta pr=1842
+#    Without an agent a signal is for everyone who loads; scope it with --meta.
+nine-tails signal --subject "Pass --meta repo-id=my_repo on load" --meta repo-id=my_repo
 nine-tails tick --claim --lease 5m
 
 # 8. Inspect and repair anything from an ordinary agent session.
@@ -99,8 +103,9 @@ Put this in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
 ```md
 When asked to use a nine-tails agent:
 
-1. Run `nine-tails load <name> --task "<task>" --meta k=v ...` with useful
-   ambient metadata. Apply the returned capsule to the task.
+1. Run `nine-tails load <name> --task "<task>" --meta repo-id=<repo> ...`
+   with useful ambient metadata; `repo-id` is this repository's fixed name.
+   Apply the returned capsule to the task.
 2. Keep the `[nine-tails-context=ctx_N]` id. Use
    `nine-tails load <other> --context ctx_N --task ...` when the capsule
    advertises a narrower agent under "Available agents".
@@ -113,6 +118,22 @@ When asked to use a nine-tails agent:
    nothing. Zero writes is a valid outcome.
 6. Use `nine-tails inspect` when asked to explain or repair an agent.
 ```
+
+## Repositories and worktrees
+
+One store per user. A repository is not a store; it is ambient metadata:
+
+```sh
+nine-tails load pr-review --task "Review PR 1842" --meta repo-id=my_repo
+```
+
+Write the `repo-id` value into the repository's agent instruction file so every
+harness, clone and worktree passes the same one; nine-tails never derives it
+from version control. Corrections stay unqualified unless you scope them
+(`--meta repo-id=my_repo`), so an agent learns across repositories by default
+and per repository on request. Nothing else is needed: no per-repo store, no
+sync step, no repository awareness in the binary. To hand an agent to another
+machine or person, `export --bundle` it and `import` it there.
 
 ## Content agents the spec expects
 

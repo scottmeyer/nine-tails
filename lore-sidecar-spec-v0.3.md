@@ -270,8 +270,10 @@ Another named context capsule advertised as available for a narrower task.
 
 ### Signal
 
-An addressed message that may become available immediately or at a future
-time. Signals cover reminders, scheduled work, and external events.
+A signal that may become available immediately or at a future time,
+optionally addressed to one agent. A signal is not a message: an unaddressed
+one is seen by every agent that loads, and metadata scopes it. Signals cover
+reminders, scheduled work, and external events.
 
 ### Compiler
 
@@ -1521,8 +1523,10 @@ good enough rather than perfect.
 
 ### 15.1 Unified signal model
 
-Reminders, scheduled work, and external events are the same primitive: an
-addressed signal with an optional future availability time.
+Reminders, scheduled work, and external events are the same primitive: a
+signal with an optional addressee and an optional future availability time.
+Without an addressee it belongs to the conventional `shared` namespace and
+every agent's capsule carries it; an addressee is needed only for wake-up.
 
 ```bash
 lore signal pr-review \
