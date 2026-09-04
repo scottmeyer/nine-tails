@@ -743,7 +743,7 @@ next-action: revisit the concurrency finding
 
 - `recall-memory`: Search prior review experience.
 - `complete-pr-diff`: Retrieve full changed-file content when a patch is
-  missing or truncated.
+  missing or truncated. (inputs: pr*)
 
 ## Available agents
 
@@ -1280,6 +1280,9 @@ Lint strength depends on the source:
 - Dropping a value merely shared by every origin context is a weak heuristic.
 - If at least one source was already unqualified, no condition-loss warning is
   implied.
+- Adding a scope that no source carried and that the sources' origin contexts
+  do not all share is a strong warning: an invented condition hides the item
+  from every load that passes that key.
 
 The lint does not automatically reject semantic generalization. A correction
 first observed in one repository may genuinely be general. The warning makes

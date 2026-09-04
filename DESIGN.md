@@ -465,7 +465,9 @@ Markdown output (exact shape — tests assert on it):
 
 ## Available tools
 
-- `name`: description [k=v]
+- `name`: description (inputs: a*, b) [k=v]   inputs only when declared;
+                                              required first and marked *,
+                                              each group alphabetical
 
 ## Available agents
 
@@ -660,7 +662,10 @@ Condition-loss lint (computed on demand from `brief_item_sources`; returned by
 
 ```
 for each item with ≥1 source:
-  if any source has an empty meta multimap → no warning
+  for each key=value on the item:
+     if no source carries it and the origin contexts do not all share it
+        → STRONG {item, key, values: [value], sources}   (invented scope)
+  if any source has an empty meta multimap → no further warning
   for each key K present on every source:
      V = intersection of the sources' value sets for K
      if V non-empty and item.meta lacks K → STRONG {item, key, values: V, sources}

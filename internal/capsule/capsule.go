@@ -405,7 +405,7 @@ func toolCandidates(q store.Querier, c *Capsule, agent string, meta store.Meta) 
 			c.skip(r.ID, "tool body: "+err.Error())
 			return
 		}
-		text := "- `" + r.Name + "`: " + oneLine(def.Description) + bracketSuffix(r.Meta, hiddenKeys) + "\n"
+		text := "- `" + r.Name + "`: " + oneLine(def.Description) + inputSuffix(def) + bracketSuffix(r.Meta, hiddenKeys) + "\n"
 		out = append(out, candidate{rec: r, score: store.Overlap(r.Meta, meta), text: text, cost: tokens.Estimate(text)})
 	}
 	for _, r := range own {
@@ -483,6 +483,26 @@ func quoteValue(v string) string {
 		return v
 	}
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`
+}
+
+// inputSuffix lists a tool's declared inputs so an agent can call it from
+// the capsule alone: required ones first, each marked *, then the rest, both
+// groups alphabetical (the body's key order is not preserved).
+func inputSuffix(def *tool.Definition) string {
+	if len(def.Input) == 0 {
+		return ""
+	}
+	var required, optional []string
+	for name, in := range def.Input {
+		if in.Required {
+			required = append(required, name+"*")
+		} else {
+			optional = append(optional, name)
+		}
+	}
+	sort.Strings(required)
+	sort.Strings(optional)
+	return " (inputs: " + strings.Join(append(required, optional...), ", ") + ")"
 }
 
 func bracketSuffix(m store.Meta, hide map[string]bool) string {
