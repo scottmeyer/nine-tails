@@ -54,7 +54,7 @@ small local store with a plain-text interface an agent can inspect and repair.
 
 ## Install
 
-With Homebrew on macOS or Linux:
+After the first signed release, install with Homebrew on macOS or Linux:
 
 ```sh
 brew install --cask scottmeyer/tap/nine-tails
