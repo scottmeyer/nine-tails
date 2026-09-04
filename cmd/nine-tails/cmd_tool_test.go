@@ -358,6 +358,44 @@ func TestCallContextSuppliesAgentAndEnv(t *testing.T) {
 	}
 }
 
+func TestCallRejectsExplicitEmptySelectors(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "Base.")
+	shared := execScript(t, "empty-selector-shared.sh", "echo shared\n")
+	owned := execScript(t, "empty-selector-owned.sh", "echo owned\n")
+	h.okIn("description: shared\nexec:\n  argv: ["+shared+"]\n", "put", "shared", "--lane", "definition", "--kind", "tool", "--name", "shared-probe", "--stdin")
+	h.okIn("description: owned\nexec:\n  argv: ["+owned+"]\n", "put", "a", "--lane", "definition", "--kind", "tool", "--name", "owned-probe", "--stdin")
+	ctx := contextID(t, h.ok("load", "a").out)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		err  string
+	}{
+		{"empty agent cannot fall back to shared", []string{"call", "--agent=", "shared-probe"}, "nine-tails: --agent must not be empty\n"},
+		{"empty context cannot fall back to shared", []string{"call", "--context=", "shared-probe"}, "nine-tails: --context must not be empty\n"},
+		{"empty agent cannot take context scope", []string{"call", "--agent=", "--context", ctx, "owned-probe"}, "nine-tails: --agent must not be empty\n"},
+		{"empty context cannot take agent scope", []string{"call", "--context=", "--agent", "a", "owned-probe"}, "nine-tails: --context must not be empty\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := h.run(tc.args...)
+			want := result{code: 2, err: tc.err}
+			if r != want {
+				t.Fatalf("result = %#v, want %#v", r, want)
+			}
+		})
+	}
+
+	if r := h.ok("call", "--agent", "a", "--context", ctx, "owned-probe"); r.out != "owned\n" || r.err != "" {
+		t.Fatalf("agreeing non-empty selectors changed: %#v", r)
+	}
+	r := h.run("call", "--agent", "shared", "--context", ctx, "owned-probe")
+	wantErr := "nine-tails: " + ctx + " belongs to a, not shared\n"
+	if r != (result{code: 2, err: wantErr}) {
+		t.Fatalf("disagreeing non-empty selectors = %#v, want stderr %q", r, wantErr)
+	}
+}
+
 func TestCallContextAppliesMetadataAndOwnedShadowing(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "a", "Base.")

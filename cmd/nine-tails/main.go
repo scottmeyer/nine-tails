@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -111,12 +112,86 @@ func newRoot(a *app) *cobra.Command {
 	return root
 }
 
+const commandGroupAnnotation = "nine-tails-command-group"
+
+// commandGroup marks a non-runnable command whose positional arguments must
+// name one of its children. Cobra's legacy argument validation accepts unknown
+// children for non-root command groups and renders their help successfully.
+// Keep the command itself non-runnable so its help and completion behavior stay
+// native, then reject those unknown children just before Cobra executes it.
+func commandGroup(c *cobra.Command) *cobra.Command {
+	if c.Annotations == nil {
+		c.Annotations = make(map[string]string)
+	}
+	c.Annotations[commandGroupAnnotation] = "true"
+	return c
+}
+
+// validateCommandGroupArgs closes a Cobra legacyArgs gap without changing the
+// command tree that Cobra uses for help and shell completion. Unknown flags are
+// left to Cobra so its normal flag error takes precedence. Help and --home are
+// the only flags a pure group accepts, and neither may hide an unknown child.
+func validateCommandGroupArgs(root *cobra.Command, argv []string) error {
+	cmd, args, err := root.Find(argv)
+	if err != nil || cmd.Annotations[commandGroupAnnotation] != "true" {
+		return nil
+	}
+
+	var positionals []string
+	afterDash := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !afterDash {
+			switch {
+			case arg == "--":
+				afterDash = true
+				continue
+			case isBooleanFlagSpelling(arg, "help", "h"):
+				continue
+			case arg == "--home":
+				if i+1 == len(args) {
+					return nil
+				}
+				i++
+				continue
+			case strings.HasPrefix(arg, "--home="):
+				continue
+			case looksLikeFlag(arg):
+				return nil
+			}
+		}
+		positionals = append(positionals, arg)
+	}
+
+	for _, arg := range positionals {
+		known := false
+		for _, child := range cmd.Commands() {
+			if arg == child.Name() || child.HasAlias(arg) {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return cobra.NoArgs(cmd, []string{arg})
+		}
+	}
+	return nil
+}
+
+func looksLikeFlag(arg string) bool {
+	return len(arg) >= 3 && strings.HasPrefix(arg, "--") ||
+		len(arg) >= 2 && arg[0] == '-' && arg[1] != '-'
+}
+
 // run executes argv against the app and returns the process exit code.
 func run(a *app, argv []string) int {
 	defer a.close()
 	root := newRoot(a)
 	root.SetArgs(argv)
-	err := root.Execute()
+	err := validateCommandGroupArgs(root, argv)
+	if err == nil {
+		err = root.Execute()
+	}
 	if err == nil {
 		return 0
 	}
@@ -159,6 +234,12 @@ func isUsageError(err error) bool {
 }
 
 func wantsJSON(argv []string) bool {
+	// call deliberately has no --format flag: every stdout byte belongs to the
+	// invoked tool. In particular, an unsupported `call --format json` must not
+	// turn its usage error into a root JSON envelope on tool-owned stdout.
+	if topLevelCommand(argv) == "call" {
+		return false
+	}
 	format := ""
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
@@ -177,6 +258,67 @@ func wantsJSON(argv []string) bool {
 		}
 	}
 	return format == "json"
+}
+
+func topLevelCommand(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		arg := argv[i]
+		switch {
+		case arg == "--":
+			return ""
+		case arg == "--home":
+			// --home is the only root flag that consumes a value.
+			i++
+		case strings.HasPrefix(arg, "--home="):
+		case isRootBooleanFlag(arg):
+		case strings.HasPrefix(arg, "-"):
+			// The arity of an unknown root flag is unknowable; leave its usage
+			// error in the root namespace rather than guessing at a command.
+			return ""
+		default:
+			return arg
+		}
+	}
+	return ""
+}
+
+func isRootBooleanFlag(arg string) bool {
+	return isBooleanFlagSpelling(arg, "help", "h") ||
+		isBooleanFlagSpelling(arg, "version", "v") ||
+		isBooleanShorthandCluster(arg, "hv")
+}
+
+func isBooleanFlagSpelling(arg, long, shorthand string) bool {
+	if arg == "--"+long || arg == "-"+shorthand {
+		return true
+	}
+	if value, ok := strings.CutPrefix(arg, "--"+long+"="); ok {
+		_, err := strconv.ParseBool(value)
+		return err == nil
+	}
+	return isBooleanShorthandCluster(arg, shorthand)
+}
+
+func isBooleanShorthandCluster(arg, allowed string) bool {
+	if len(arg) < 2 || arg[0] != '-' || arg[1] == '-' {
+		return false
+	}
+	flags := arg[1:]
+	if before, value, ok := strings.Cut(flags, "="); ok {
+		if _, err := strconv.ParseBool(value); err != nil {
+			return false
+		}
+		flags = before
+	}
+	if flags == "" {
+		return false
+	}
+	for _, shorthand := range flags {
+		if !strings.ContainsRune(allowed, shorthand) {
+			return false
+		}
+	}
+	return true
 }
 
 func reportStartupError(stdout, stderr io.Writer, argv []string, err error) int {

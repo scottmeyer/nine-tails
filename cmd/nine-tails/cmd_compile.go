@@ -88,7 +88,7 @@ compiler's output as the next generation with compare-and-swap:
   brief put pr-review --expect-generation gen_11 --expect-base base_4 --stdin < out.yaml`,
 	}
 	c.AddCommand(newBriefPutCmd(a))
-	return c
+	return commandGroup(c)
 }
 
 func newBriefPutCmd(a *app) *cobra.Command {

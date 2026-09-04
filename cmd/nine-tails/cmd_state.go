@@ -45,7 +45,7 @@ into capsules, never compiled, and replaced with compare-and-swap:
   state put  <name> --context ctx_N ...        (agent taken from the context)`,
 	}
 	c.AddCommand(newStateGetCmd(a), newStatePutCmd(a))
-	return c
+	return commandGroup(c)
 }
 
 func newStateGetCmd(a *app) *cobra.Command {

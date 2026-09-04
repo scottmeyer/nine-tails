@@ -73,9 +73,133 @@ func TestParseAcceptsAndRoundTrips(t *testing.T) {
 	if !strings.Contains(out, "choices:") || !strings.Contains(out, "retry:") {
 		t.Errorf("round trip dropped structured nested extensions:\n%s", out)
 	}
-	// Absent version and stdin are fine; stdin "" means none.
-	if _, err := Parse("description: d\nexec:\n  argv: [true]\n"); err != nil {
+	// Absent version and stdin receive their defaults.
+	if _, err := Parse("description: d\nexec:\n  argv: [echo]\n"); err != nil {
 		t.Errorf("minimal body rejected: %v", err)
+	}
+}
+
+func TestParseRejectsMechanicalTypeCoercion(t *testing.T) {
+	cases := []struct {
+		name, body, want string
+	}{
+		{"null document", "null\n", "mapping"},
+		{"sequence document", "[]\n", "mapping"},
+		{"scalar document", "tool\n", "mapping"},
+		{"version zero", "version: 0\ndescription: d\nexec: {argv: [echo]}\n", "version"},
+		{"version null", "version: null\ndescription: d\nexec: {argv: [echo]}\n", "version"},
+		{"version quoted", "version: \"1\"\ndescription: d\nexec: {argv: [echo]}\n", "version"},
+		{"description number", "description: 7\nexec: {argv: [echo]}\n", "description must be a string"},
+		{"description null", "description: null\nexec: {argv: [echo]}\n", "description must be a string"},
+		{"exec null", "description: d\nexec: null\n", "exec must be a mapping"},
+		{"exec sequence", "description: d\nexec: []\n", "exec must be a mapping"},
+		{"argv scalar", "description: d\nexec: {argv: echo}\n", "exec.argv"},
+		{"argv null", "description: d\nexec: {argv: null}\n", "exec.argv"},
+		{"argv number", "description: d\nexec: {argv: [echo, 7]}\n", "exec.argv[1] must be a string"},
+		{"argv boolean", "description: d\nexec: {argv: [echo, true]}\n", "exec.argv[1] must be a string"},
+		{"argv null element", "description: d\nexec: {argv: [echo, null]}\n", "exec.argv[1] must be a string"},
+		{"stdin empty", "description: d\nexec: {argv: [echo], stdin: \"\"}\n", "exec.stdin"},
+		{"stdin null", "description: d\nexec: {argv: [echo], stdin: null}\n", "exec.stdin"},
+		{"stdin boolean", "description: d\nexec: {argv: [echo], stdin: false}\n", "exec.stdin"},
+		{"timeout empty", "description: d\nexec: {argv: [echo], timeout: \"\"}\n", "exec.timeout"},
+		{"timeout null", "description: d\nexec: {argv: [echo], timeout: null}\n", "exec.timeout"},
+		{"timeout number", "description: d\nexec: {argv: [echo], timeout: 10}\n", "exec.timeout"},
+		{"input null", "description: d\nexec: {argv: [echo]}\ninput: null\n", "input must be a mapping"},
+		{"input declaration null", "description: d\nexec: {argv: [echo]}\ninput: {x: null}\n", "input.x must be a mapping"},
+		{"required string", "description: d\nexec: {argv: [echo]}\ninput: {x: {required: \"true\"}}\n", "input.x.required must be a boolean"},
+		{"required null", "description: d\nexec: {argv: [echo]}\ninput: {x: {required: null}}\n", "input.x.required must be a boolean"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.body)
+			if err == nil {
+				t.Fatalf("Parse accepted:\n%s", tc.body)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q should mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDecodeRejectsExplicitInvalidFieldsBeforeToolAddDefaults(t *testing.T) {
+	// tool add decodes a partial body before it prepends the managed script.
+	// Explicit invalid values must fail here, before omitempty or defaulting can
+	// accidentally turn them into absent fields during the later marshal.
+	for _, body := range []string{
+		"version: 0\ndescription: d\n",
+		"version: null\ndescription: d\n",
+		"description: d\nexec: {stdin: \"\"}\n",
+		"description: d\nexec: {stdin: null}\n",
+		"description: d\nexec: {timeout: \"\"}\n",
+		"description: d\nexec: {timeout: null}\n",
+		"description: d\nexec: {argv: [7]}\n",
+		"description: d\nexec: {argv: [true]}\n",
+	} {
+		if _, err := Decode(body); err == nil {
+			t.Errorf("Decode accepted explicit invalid field:\n%s", body)
+		}
+	}
+}
+
+func TestAbsentFieldsReceiveDefaults(t *testing.T) {
+	d, err := Parse("description: defaults\nexec:\n  argv: [/bin/echo]\nextension: {kept: true}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Version != 1 {
+		t.Errorf("absent version default = %d, want 1", d.Version)
+	}
+	if d.Exec.Stdin != "none" {
+		t.Errorf("absent exec.stdin default = %q, want none", d.Exec.Stdin)
+	}
+	if d.Exec.Timeout != "" {
+		t.Errorf("absent exec.timeout should retain the runtime-default sentinel, got %q", d.Exec.Timeout)
+	}
+	if ext, ok := d.Extra["extension"].(map[string]any); !ok || ext["kept"] != true {
+		t.Errorf("unknown key lost while applying defaults: %#v", d.Extra)
+	}
+
+	// This is the tool-add --stdin shape: argv is allowed to be absent until
+	// the managed script path is prepended, while defaults and unknown keys
+	// survive the marshal that constructs the stored body.
+	partial, err := Decode("description: partial\nexec:\n  adapter: local\nnotes: preserve-me\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if partial.Exec.Stdin != "" {
+		t.Fatalf("Decode materialized absent exec.stdin as %q", partial.Exec.Stdin)
+	}
+	partial.Exec.Argv = []string{"artifacts/tool_1/run.sh"}
+	stored, err := MarshalBody(partial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored, "stdin:") {
+		t.Fatalf("tool-add round trip materialized absent exec.stdin:\n%s", stored)
+	}
+	roundTrip, err := Parse(stored)
+	if err != nil {
+		t.Fatalf("Parse stored partial definition: %v\n%s", err, stored)
+	}
+	if roundTrip.Version != 1 || roundTrip.Exec.Stdin != "none" || roundTrip.Exec.Extra["adapter"] != "local" || roundTrip.Extra["notes"] != "preserve-me" {
+		t.Errorf("defaults or unknown keys lost:\n%s", stored)
+	}
+}
+
+func TestStrictTypesApplyThroughYAMLMerge(t *testing.T) {
+	valid := "description: merged\ncommon: &common\n  argv: [echo]\nexec:\n  <<: *common\n"
+	d, err := Parse(valid)
+	if err != nil {
+		t.Fatalf("valid merged definition rejected: %v", err)
+	}
+	if len(d.Exec.Argv) != 1 || d.Exec.Argv[0] != "echo" || d.Exec.Stdin != "none" {
+		t.Errorf("merged definition/defaults: %#v", d.Exec)
+	}
+
+	invalid := "description: merged\ncommon: &common\n  argv: [echo, 7]\nexec:\n  <<: *common\n"
+	if _, err := Parse(invalid); err == nil || !strings.Contains(err.Error(), "exec.argv[1]") {
+		t.Errorf("numeric merged argv should be rejected, got %v", err)
 	}
 }
 
@@ -281,8 +405,13 @@ func TestRunStdinModes(t *testing.T) {
 			t.Errorf("%s: got %q want %q", mode, out, want)
 		}
 	}
+	// Only absence selects the default, which is closed stdin.
+	out, errb, err := runDef(t, "description: d\nexec:\n  argv: ["+p+", \"{{ pr }}\"]\ninput:\n  pr: {}\n", in, nil)
+	if err != nil || errb != "" || out != "stdin=;arg=7\n" {
+		t.Errorf("absent stdin mode: out=%q stderr=%q err=%v", out, errb, err)
+	}
 	// Absent text key with stdin text → empty stdin.
-	out, _, err := runDef(t, "description: d\nexec:\n  argv: ["+p+"]\n  stdin: text\n", map[string]any{}, nil)
+	out, _, err = runDef(t, "description: d\nexec:\n  argv: ["+p+"]\n  stdin: text\n", map[string]any{}, nil)
 	if err != nil || out != "stdin=;arg=\n" {
 		t.Errorf("text without text key: %q %v", out, err)
 	}

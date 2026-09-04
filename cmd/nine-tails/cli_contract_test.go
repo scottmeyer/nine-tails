@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -434,5 +436,278 @@ func TestStartupErrorHonorsJSONFormat(t *testing.T) {
 	}
 	if r := h.run("inspect", "nobody", "--format", "yaml", "--format=json"); r.code != 3 || !strings.Contains(r.out, `"code": 3`) {
 		t.Fatalf("final JSON format was not honored: code=%d stdout=%q stderr=%q", r.code, r.out, r.err)
+	}
+}
+
+func TestCallUnsupportedFormatKeepsToolStdoutEmpty(t *testing.T) {
+	h := newHarness(t)
+	tests := []struct {
+		name string
+		args []string
+		err  string
+	}{
+		{name: "format separate", args: []string{"call", "--format", "json", "anything"}, err: "nine-tails: unknown flag: --format\n"},
+		{name: "call first", args: []string{"call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --format\n"},
+		{name: "long help", args: []string{"--help", "call", "anything", "--format=json"}, err: "nine-tails: unknown command \"anything\" for \"nine-tails\"\n"},
+		{name: "short help", args: []string{"-h", "call", "anything", "--format=json"}, err: "nine-tails: unknown command \"anything\" for \"nine-tails\"\n"},
+		{name: "long help explicit false", args: []string{"--help=false", "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --format\n"},
+		{name: "short help explicit false", args: []string{"-h=false", "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --format\n"},
+		{name: "long help explicit true", args: []string{"--help=true", "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --format\n"},
+		{name: "short help explicit true", args: []string{"-h=true", "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --format\n"},
+		{name: "long version", args: []string{"--version", "call", "anything", "--format=json"}, err: "nine-tails: unknown command \"anything\" for \"nine-tails\"\n"},
+		{name: "short version", args: []string{"-v", "call", "anything", "--format=json"}, err: "nine-tails: unknown command \"anything\" for \"nine-tails\"\n"},
+		{name: "long version explicit false", args: []string{"--version=false", "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --version\n"},
+		{name: "short version explicit false", args: []string{"-v=false", "call", "anything", "--format=json"}, err: "nine-tails: unknown shorthand flag: 'v' in -v=false\n  text starting with '-' needs -- before it, or --stdin\n"},
+		{name: "long version explicit true", args: []string{"--version=true", "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --version\n"},
+		{name: "short version explicit true", args: []string{"-v=true", "call", "anything", "--format=json"}, err: "nine-tails: unknown shorthand flag: 'v' in -v=true\n  text starting with '-' needs -- before it, or --stdin\n"},
+		{name: "home separate", args: []string{"--home", h.home, "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --format\n"},
+		{name: "home joined after boolean", args: []string{"--help=false", "--home=" + h.home, "call", "anything", "--format=json"}, err: "nine-tails: unknown flag: --format\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+"/normal", func(t *testing.T) {
+			r := h.run(tt.args...)
+			want := result{code: 2, err: tt.err}
+			if r != want {
+				t.Fatalf("unsupported call format = %#v, want %#v", r, want)
+			}
+		})
+
+		t.Run(tt.name+"/startup", func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := errors.New("startup failed")
+			if code := reportStartupError(&stdout, &stderr, tt.args, err); code != 2 {
+				t.Fatalf("startup exit = %d, want 2", code)
+			}
+			if stdout.String() != "" || stderr.String() != "nine-tails: startup failed\n" {
+				t.Fatalf("call startup streams: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+
+	entries, err := os.ReadDir(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("rejected call invocations touched the store: %v", entries)
+	}
+}
+
+func TestCallOwnershipRecognizesRootBooleanSpellings(t *testing.T) {
+	h := newHarness(t)
+	boolValues := []string{"true", "false", "1", "0", "t", "f", "T", "F", "TRUE", "FALSE", "True", "False"}
+	flags := []string{"--help", "--version", "-h", "-v", "-hv", "-vh", "-hh", "-vv", "-hvvh"}
+	for _, name := range []string{"--help", "--version", "-h", "-v"} {
+		for _, value := range boolValues {
+			flags = append(flags, name+"="+value)
+		}
+	}
+	flags = append(flags, "-hv=false", "-vh=TRUE")
+
+	for _, flag := range flags {
+		t.Run(strings.ReplaceAll(flag, "=", "_"), func(t *testing.T) {
+			args := []string{flag, "--home=" + h.home, "call", "anything", "--format=json"}
+			if got := topLevelCommand(args); got != "call" {
+				t.Fatalf("top-level command = %q, want call", got)
+			}
+			if wantsJSON(args) {
+				t.Fatal("call invocation selected the root JSON error envelope")
+			}
+			r := h.run(args...)
+			if r.code != 2 || r.out != "" {
+				t.Fatalf("call-owned stdout: %#v", r)
+			}
+
+			var stdout, stderr bytes.Buffer
+			reportStartupError(&stdout, &stderr, args, errors.New("startup failed"))
+			if stdout.Len() != 0 {
+				t.Fatalf("call startup error wrote stdout: %q", stdout.String())
+			}
+		})
+	}
+}
+
+func TestPureCommandGroupsRejectUnknownChildrenAndBareShowsHelp(t *testing.T) {
+	h := newHarness(t)
+	groups := map[string]struct {
+		child    string
+		helpHash string
+	}{
+		"state":   {child: "get", helpHash: "acc0cfdd20e05ae0ceb90051ba0c22d38ed9cb78aa3dfc97723d5cd25ca711a2"},
+		"context": {child: "list", helpHash: "2d07e61bd8cb99ef4d504513574d4b84f3ae3d70245533783f35592f572b7b3e"},
+		"tool":    {child: "add", helpHash: "e7da017ff2f59b4490cbdb911f4380611ee2b70322f38636e5335b00e4d6ea81"},
+		"agent":   {child: "add", helpHash: "dcc6fe5421d3756a8668c2004d056d623864d61d45a215b3cf2fb4ce9831127a"},
+		"brief":   {child: "put", helpHash: "70d7cdaa03ebcd76ea85da64bf1a8c382380dc0b48ff275c53f5f42e0fc14328"},
+	}
+	for group, baseline := range groups {
+		t.Run(group, func(t *testing.T) {
+			want := result{
+				code: 2,
+				err:  "nine-tails: unknown command \"nope\" for \"nine-tails " + group + "\"\n",
+			}
+			for _, args := range [][]string{
+				{group, "nope"},
+				{group, "nope", "--help"},
+				{group, "--help", "nope"},
+				{group, "nope", "-h"},
+				{group, "-h", "nope"},
+				{group, "--", "nope"},
+				{group, "--help=true", "nope"},
+				{group, "--help=false", "nope"},
+				{group, "-h=true", "nope"},
+				{group, "-h=false", "nope"},
+				{group, "--home", h.home, "nope"},
+				{group, "--home=" + h.home, "nope"},
+				{"--home", h.home, group, "nope"},
+				{"--home=" + h.home, group, "nope"},
+				{"--help=true", group, "nope"},
+				{"-h=true", group, "nope"},
+				{group, "--", baseline.child, "nope"},
+				{group, "--help", baseline.child, "nope"},
+			} {
+				if r := h.run(args...); r != want {
+					t.Fatalf("%v = %#v, want %#v", args, r, want)
+				}
+			}
+
+			bare := h.run(group)
+			explicit := h.run(group, "--help")
+			short := h.run(group, "-h")
+			if bare != explicit || bare != short || bare.code != 0 || bare.out == "" || bare.err != "" {
+				t.Fatalf("bare group = %#v; explicit help = %#v; short help = %#v", bare, explicit, short)
+			}
+			wantUsage := "Usage:\n  nine-tails " + group + " [command]\n"
+			if !strings.Contains(bare.out, wantUsage) {
+				t.Fatalf("group help changed from its non-runnable shape:\n%s", bare.out)
+			}
+			if got := fmt.Sprintf("%x", sha256.Sum256([]byte(bare.out))); got != baseline.helpHash {
+				t.Fatalf("group help bytes changed from f22f6b4: sha256=%s, want %s\n%s", got, baseline.helpHash, bare.out)
+			}
+
+			// A space-form help flag precedes a known child in Cobra's baseline
+			// command search, so it still renders the group's help. Explicit true
+			// is parsed as part of the flag and reaches the child's help instead.
+			for _, args := range [][]string{
+				{group, "--help", baseline.child},
+				{group, "-h", baseline.child},
+				{group, "--home", h.home, "--help", baseline.child},
+				{"--home", h.home, group, "--help", baseline.child},
+			} {
+				if r := h.run(args...); r != bare {
+					t.Fatalf("%v = %#v, want baseline group help", args, r)
+				}
+			}
+			childHelp := h.run(group, baseline.child, "--help")
+			for _, args := range [][]string{
+				{group, "--help=true", baseline.child},
+				{group, "-h=true", baseline.child},
+			} {
+				if r := h.run(args...); r != childHelp {
+					t.Fatalf("%v = %#v, want child help %#v", args, r, childHelp)
+				}
+			}
+		})
+	}
+
+	for _, group := range []string{"state", "context", "tool", "agent", "brief"} {
+		for _, args := range [][]string{
+			{group, "--bogus", "nope"},
+			{group, "nope", "--bogus"},
+		} {
+			r := h.run(args...)
+			if r.code != 2 || r.out != "" || r.err != "nine-tails: unknown flag: --bogus\n" {
+				t.Fatalf("%v unknown flag precedence = %#v", args, r)
+			}
+		}
+		if r := h.run(group, "nope", "--home"); r.code != 2 || r.out != "" || !strings.Contains(r.err, "flag needs an argument: --home") {
+			t.Fatalf("%s missing flag value precedence = %#v", group, r)
+		}
+		if r := h.run(group, "nope", "--help=bogus"); r.code != 2 || r.out != "" || !strings.Contains(r.err, `invalid argument "bogus"`) || !strings.Contains(r.err, `--help" flag`) {
+			t.Fatalf("%s invalid flag value precedence = %#v", group, r)
+		}
+	}
+
+	entries, err := os.ReadDir(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("invalid and help-only group invocations touched the store: %v", entries)
+	}
+	if id := h.ok("base", "a", "Base.").id(t); id != "base_1" {
+		t.Fatalf("group invocations consumed an id: got %s, want base_1", id)
+	}
+}
+
+func TestPureCommandGroupCompletionMatchesBaseline(t *testing.T) {
+	h := newHarness(t)
+	const completionErr = "Completion ended with directive: ShellCompDirectiveNoFileComp\n"
+	groups := map[string]string{
+		"state": "get\tPrint the current state document\n" +
+			"put\tReplace state with compare-and-swap (--expect none to create)\n:4\n",
+		"context": "gc\tDelete old unpinned receipts that no active record references as origin\n" +
+			"list\tList receipts, newest first\n" +
+			"pin\tpin a receipt so garbage collection keeps it\n" +
+			"unpin\tunpin a receipt so garbage collection may delete it\n:4\n",
+		"tool":  "add\tCopy a script into the artifact store and register it as a named tool\n:4\n",
+		"agent": "add\tRegister a related agent (supersedes any active one of the same name)\n:4\n",
+		"brief": "put\tValidate compiler output and install it as the next generation\n:4\n",
+	}
+	partials := map[string]struct {
+		prefix string
+		out    string
+	}{
+		"state":   {prefix: "g", out: "get\tPrint the current state document\n:4\n"},
+		"context": {prefix: "p", out: "pin\tpin a receipt so garbage collection keeps it\n:4\n"},
+		"tool":    {prefix: "a", out: "add\tCopy a script into the artifact store and register it as a named tool\n:4\n"},
+		"agent":   {prefix: "a", out: "add\tRegister a related agent (supersedes any active one of the same name)\n:4\n"},
+		"brief":   {prefix: "p", out: "put\tValidate compiler output and install it as the next generation\n:4\n"},
+	}
+
+	for group, children := range groups {
+		t.Run(group, func(t *testing.T) {
+			flags := result{
+				code: 0,
+				out:  "--home\toverride NINE_TAILS_HOME\n--help\thelp for " + group + "\n:4\n",
+				err:  completionErr,
+			}
+			if r := h.run("__complete", group, "--"); r != flags {
+				t.Fatalf("flag completion = %#v, want %#v", r, flags)
+			}
+			if r := h.run("__complete", group, "--h"); r != flags {
+				t.Fatalf("partial flag completion = %#v", r)
+			}
+			if r := h.run("__complete", group, ""); r != (result{code: 0, out: children, err: completionErr}) {
+				t.Fatalf("child completion = %#v", r)
+			}
+			partial := partials[group]
+			if r := h.run("__complete", group, partial.prefix); r != (result{code: 0, out: partial.out, err: completionErr}) {
+				t.Fatalf("partial child completion = %#v", r)
+			}
+		})
+	}
+}
+
+func TestToolAddEmptyDescriptionStillConflictsWithStdin(t *testing.T) {
+	h := newHarness(t)
+	script := writeScript(t, "empty-description.sh", "exit 0\n")
+	body := "description: supplied on stdin\nexec:\n  argv: []\n"
+	r := h.runIn(body, "tool", "add", "a", "empty-description", "--script", script, "--description=", "--stdin")
+	want := result{
+		code: 2,
+		err:  "nine-tails: give --description or --stdin, not both\n",
+	}
+	if r != want {
+		t.Fatalf("empty --description with --stdin = %#v, want %#v", r, want)
+	}
+	entries, err := os.ReadDir(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("rejected tool add touched the store: %v", entries)
+	}
+	if id := h.ok("tool", "add", "a", "valid", "--script", script, "--description", "valid").id(t); id != "tool_1" {
+		t.Fatalf("rejected tool add consumed an id: got %s, want tool_1", id)
 	}
 }

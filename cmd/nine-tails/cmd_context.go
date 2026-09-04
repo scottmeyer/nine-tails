@@ -145,5 +145,5 @@ metadata, budget, parent, and the exact record ids emitted. Read one with
 	gc.Flags().StringVar(&gcFormat, "format", "text", "text (one id per line)|json")
 
 	c.AddCommand(list, pin("pin", true), pin("unpin", false), gc)
-	return c
+	return commandGroup(c)
 }

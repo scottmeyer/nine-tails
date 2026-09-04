@@ -30,6 +30,14 @@ or times out is exit 5. The tool sees NINE_TAILS_HOME,
 NINE_TAILS_AGENT and, with --context, NINE_TAILS_CONTEXT.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			agentGiven := cmd.Flags().Changed("agent")
+			contextGiven := cmd.Flags().Changed("context")
+			if agentGiven && agent == "" {
+				return cli.Invalid("--agent must not be empty")
+			}
+			if contextGiven && context == "" {
+				return cli.Invalid("--context must not be empty")
+			}
 			name := args[0]
 			inputGiven := cmd.Flags().Changed("input")
 			if stdin && inputGiven {

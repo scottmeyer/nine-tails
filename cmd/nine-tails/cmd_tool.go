@@ -29,7 +29,7 @@ Re-adding a name supersedes the old definition; earlier artifacts are kept.
 Call it with ` + "`nine-tails call`" + `.`,
 	}
 	c.AddCommand(newToolAddCmd(a))
-	return c
+	return commandGroup(c)
 }
 
 func newToolAddCmd(a *app) *cobra.Command {
@@ -48,7 +48,7 @@ func newToolAddCmd(a *app) *cobra.Command {
 			if script == "" {
 				return cli.Invalid("--script PATH is required")
 			}
-			if stdin && description != "" {
+			if stdin && cmd.Flags().Changed("description") {
 				return cli.Invalid("give --description or --stdin, not both")
 			}
 			if !stdin && description == "" {
@@ -225,7 +225,7 @@ func newAgentCmd(a *app) *cobra.Command {
 This is exactly put <agent> --lane definition --kind related-agent --name <name>.`,
 	}
 	c.AddCommand(newAgentAddCmd(a))
-	return c
+	return commandGroup(c)
 }
 
 func newAgentAddCmd(a *app) *cobra.Command {

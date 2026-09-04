@@ -25,7 +25,7 @@ import (
 // Exec is the executable part of a tool body.
 type Exec struct {
 	Argv    []string       `yaml:"argv" json:"argv"`
-	Stdin   string         `yaml:"stdin,omitempty" json:"stdin,omitempty"`     // none | json | text
+	Stdin   string         `yaml:"stdin,omitempty" json:"stdin,omitempty"`     // none | json | text, default none
 	Timeout string         `yaml:"timeout,omitempty" json:"timeout,omitempty"` // Go duration, default 60s
 	Extra   map[string]any `yaml:",inline" json:"-"`
 }
@@ -59,22 +59,133 @@ func Placeholder(elem string) string {
 	return ""
 }
 
-// Decode parses exactly one YAML or JSON tool document without applying the
-// mechanical tool validation. tool add uses it before prepending its managed
-// artifact path; ordinary callers should use Parse.
+// Decode parses exactly one YAML or JSON tool document. It validates the
+// types and values of mechanical fields that are present, but permits fields
+// such as description and exec.argv to be absent so tool add can prepend its
+// managed artifact path before applying the complete validation in Parse.
+// The version default is materialized for tool add; an absent stdin stays
+// absent so Decode followed by MarshalBody preserves what the author wrote.
 func Decode(body string) (*Definition, error) {
-	var d Definition
 	dec := yaml.NewDecoder(strings.NewReader(body))
-	if err := dec.Decode(&d); err != nil {
+	var doc yaml.Node
+	if err := dec.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("not valid YAML: %w", err)
 	}
-	var extra any
+	var extra yaml.Node
 	if err := dec.Decode(&extra); err == nil {
 		return nil, errors.New("tool body must contain exactly one YAML or JSON document")
 	} else if !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("not valid YAML: %w", err)
 	}
+
+	// Decode once into generic values before the convenience struct. yaml.v3
+	// deliberately converts scalars when decoding into typed Go fields (for
+	// example, an integer argv element into a string). Mechanical tool fields
+	// must retain the types the author actually wrote, so reject such coercions.
+	// Generic decoding also resolves YAML aliases and merge keys, making these
+	// checks apply to the effective definition.
+	var raw any
+	if err := doc.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("not valid YAML: %w", err)
+	}
+	root, ok := raw.(map[string]any)
+	if !ok {
+		return nil, errors.New("tool body must be a YAML or JSON mapping")
+	}
+	if err := validatePresentFields(root); err != nil {
+		return nil, err
+	}
+
+	var d Definition
+	if err := doc.Decode(&d); err != nil {
+		return nil, fmt.Errorf("not valid YAML: %w", err)
+	}
+	if _, present := root["version"]; !present {
+		d.Version = 1
+	}
 	return &d, nil
+}
+
+// validatePresentFields rejects type coercion for every field that affects
+// execution. Required fields are checked later by Parse because tool add is
+// allowed to supply argv after Decode.
+func validatePresentFields(root map[string]any) error {
+	if raw, present := root["version"]; present {
+		version, ok := raw.(int)
+		if !ok || version != 1 {
+			return fmt.Errorf("version must be integer 1 when present (got %v)", raw)
+		}
+	}
+	if raw, present := root["description"]; present {
+		if _, ok := raw.(string); !ok {
+			return errors.New("description must be a string")
+		}
+	}
+
+	rawExec, present := root["exec"]
+	if present {
+		execMap, ok := rawExec.(map[string]any)
+		if !ok {
+			return errors.New("exec must be a mapping")
+		}
+		if raw, argvPresent := execMap["argv"]; argvPresent {
+			argv, ok := raw.([]any)
+			if !ok {
+				return errors.New("exec.argv must be a list of strings")
+			}
+			for i, elem := range argv {
+				if _, ok := elem.(string); !ok {
+					return fmt.Errorf("exec.argv[%d] must be a string", i)
+				}
+			}
+		}
+		if raw, stdinPresent := execMap["stdin"]; stdinPresent {
+			stdin, ok := raw.(string)
+			if !ok {
+				return errors.New("exec.stdin must be a string: none, json or text")
+			}
+			switch stdin {
+			case "none", "json", "text":
+			default:
+				return fmt.Errorf("exec.stdin must be none, json or text (got %q)", stdin)
+			}
+		}
+		if raw, timeoutPresent := execMap["timeout"]; timeoutPresent {
+			timeout, ok := raw.(string)
+			if !ok {
+				return errors.New("exec.timeout must be a positive duration string")
+			}
+			duration, err := time.ParseDuration(timeout)
+			if err != nil {
+				return fmt.Errorf("exec.timeout: %v", err)
+			}
+			if duration <= 0 {
+				return fmt.Errorf("exec.timeout must be a positive duration (got %q); omit it for the 60s default", timeout)
+			}
+		}
+	}
+
+	// Input declarations determine whether execution may omit a value, so the
+	// declaration shape and required flag are mechanical too. Other declaration
+	// fields (such as type) remain informational and are not restricted here.
+	if rawInput, present := root["input"]; present {
+		input, ok := rawInput.(map[string]any)
+		if !ok {
+			return errors.New("input must be a mapping")
+		}
+		for name, rawDecl := range input {
+			decl, ok := rawDecl.(map[string]any)
+			if !ok {
+				return fmt.Errorf("input.%s must be a mapping", name)
+			}
+			if required, present := decl["required"]; present {
+				if _, ok := required.(bool); !ok {
+					return fmt.Errorf("input.%s.required must be a boolean", name)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Parse parses and validates a tool body.
@@ -86,8 +197,8 @@ func Parse(body string) (*Definition, error) {
 	if strings.TrimSpace(d.Description) == "" {
 		return nil, errors.New("description is required")
 	}
-	if d.Version != 0 && d.Version != 1 {
-		return nil, fmt.Errorf("version must be absent or 1 (got %d)", d.Version)
+	if d.Version != 1 {
+		return nil, fmt.Errorf("version must be 1 (got %d)", d.Version)
 	}
 	if len(d.Exec.Argv) == 0 {
 		return nil, errors.New("exec.argv must be a non-empty list")
@@ -100,8 +211,13 @@ func Parse(body string) (*Definition, error) {
 			return nil, fmt.Errorf("exec.argv: %w", err)
 		}
 	}
+	// Decode has already rejected an explicitly empty or null stdin. At this
+	// point an empty value therefore means the field was genuinely absent.
+	if d.Exec.Stdin == "" {
+		d.Exec.Stdin = "none"
+	}
 	switch d.Exec.Stdin {
-	case "", "none", "json", "text":
+	case "none", "json", "text":
 	default:
 		return nil, fmt.Errorf("exec.stdin must be none, json or text (got %q)", d.Exec.Stdin)
 	}
@@ -242,6 +358,12 @@ type Call struct {
 // (as opposed to running and exiting nonzero), or timed out.
 var ErrStart = errors.New("could not run tool")
 
+// toolWaitDelay bounds the extra time Cmd.Wait may spend after cancellation
+// on a descendant that inherited one of the command's I/O descriptors. Normal
+// descendants are killed with the command where the platform supports it; the
+// delay is a backstop for descendants that escape that mechanism.
+const toolWaitDelay = 100 * time.Millisecond
+
 // ExitError carries a tool's nonzero exit status.
 type ExitError struct{ Code int }
 
@@ -289,6 +411,8 @@ func (d *Definition) Run(c Call) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	configureProcessTreeCancellation(cmd)
+	cmd.WaitDelay = toolWaitDelay
 	cmd.Env = os.Environ()
 	for k, v := range c.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -309,6 +433,15 @@ func (d *Definition) Run(c Call) error {
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("%w: timed out after %s", ErrStart, timeout)
+	}
+	// WaitDelay is an I/O backstop, not a failure of an executable that has
+	// already exited successfully. It most commonly fires when a background
+	// descendant inherited stdout or stderr. Preserve the direct executable's
+	// successful result and clean up its process group where the platform lets
+	// us, so that descendant does not continue running after the call returns.
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+		_ = terminateProcessTree(cmd)
+		return nil
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
