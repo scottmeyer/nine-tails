@@ -6,6 +6,9 @@ worktree) against the ordinary store, `~/.nine-tails`. Every clone and worktree
 shares that store; this repository is identified by `repo-id=nine-tails` on
 `load`, never by a directory (DESIGN.md §1.1).
 
+- New to this store or harness: `./nt load pilot --task "..." --meta
+  repo-id=nine-tails --meta harness=<harness>` first; its capsule is the usage
+  guide and the catalog of agents.
 - Before implementing anything here, load the relevant agent and use its
   capsule as your instructions:
   `./nt load builder --task "..." --meta repo-id=nine-tails`,

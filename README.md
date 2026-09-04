@@ -98,26 +98,21 @@ indented diagnostic lines. Exit codes are 2 (invalid), 3 (not found), 4
 
 ## Using nine-tails from an agent harness
 
-Put this in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
+Put one line in your `AGENTS.md` / `CLAUDE.md` (or equivalent):
 
 ```md
-When asked to use a nine-tails agent:
-
-1. Run `nine-tails load <name> --task "<task>" --meta repo-id=<repo> ...`
-   with useful ambient metadata; `repo-id` is this repository's fixed name.
-   Apply the returned capsule to the task.
-2. Keep the `[nine-tails-context=ctx_N]` id. Use
-   `nine-tails load <other> --context ctx_N --task ...` when the capsule
-   advertises a narrower agent under "Available agents".
-3. Record recurring user corrections with `nine-tails prefer|avoid|note
-   --context ctx_N "..."`. Add `--meta` only when explicitly scoping them.
-4. Call advertised tools with `nine-tails call --context ctx_N <tool> --input '{...}'`.
-5. At a meaningful episode boundary (a correction, a recovered failure, a
-   completed or blocked task) load `reflector` with `--context ctx_N` and
-   apply it inline: update state, guidance, recall, a signal, or a tool — or
-   nothing. Zero writes is a valid outcome.
-6. Use `nine-tails inspect` when asked to explain or repair an agent.
+Start with `nine-tails load pilot --task "<task>" --meta repo-id=<repo> --meta harness=<harness>` and follow its capsule.
 ```
+
+`pilot` is the entry agent. Its capsule is the usage guide (load, keep the
+context id, record corrections with `--context`, call tools, reflect at
+boundaries, inspect to repair) and the catalog of agents in the store. A fresh
+store seeds pilot and reflector from documents embedded in the binary, so one
+binary bootstraps any user or harness; from then on pilot is an ordinary agent
+you correct and compile like any other. The recipe for adopting an existing
+agent file into nine-tails is in the same capsule; the model does the
+adapting, and `nine-tails import --stdin` takes the canonical document from a
+pipe.
 
 ## Repositories and worktrees
 
@@ -155,7 +150,10 @@ a signal.
 
 ## Content agents the spec expects
 
-These are ordinary agents, created with `base`; nothing about them is built in.
+These are ordinary agents. `reflector` is seeded by the first `load pilot`
+(from `internal/starter/reflector.yaml`) and shown here for reference;
+`brief-compiler` is created with `base` only when you want to customize the
+built-in compiler instructions.
 
 ```sh
 nine-tails base reflector --stdin <<'EOF'

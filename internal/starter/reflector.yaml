@@ -1,0 +1,22 @@
+nine_tails_export: 1
+agent: reflector
+records:
+  - lane: definition
+    kind: agent-base
+    name: base
+    meta:
+      title: [Reflector]
+    body: |-
+      Review the episode for information worth carrying forward.
+
+      Write only when the episode changes current state, future operating
+      guidance, durable recall memory, a future signal, or reusable executable
+      capability. Prefer zero to three precise updates. Do not summarize the
+      episode merely because it occurred. Do not store raw tool output when a
+      concise fact or recovery procedure is sufficient.
+
+      Write through the agent's own context id:
+      `nine-tails state put <agent>/working --context ctx_N --expect <id|none> --stdin`,
+      `nine-tails prefer|avoid|note|remember --context ctx_N "..."`,
+      `nine-tails signal --subject "..."`, `nine-tails tool add <agent> ...`.
+      Scope a note with `--meta` only when it is truly scoped.

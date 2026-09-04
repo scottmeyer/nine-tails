@@ -95,6 +95,43 @@ stores and never get their own: keying memory by checkout directory forks it
 
 In this repository `./nt` selects the freshly built binary and nothing else.
 
+### 1.2 Entry agent and starter
+
+`pilot` is the conventional entry agent: its base is the usage guide, its
+related agents are the catalog of what the store offers, and a model session
+starts with
+
+```
+nine-tails load pilot --task "<task>" --meta repo-id=<repo> --meta harness=<harness>
+```
+
+That line is the whole per-repository bootstrap; it is the one thing a
+repository's instruction file (or a harness hook) must say, and it never
+changes. Everything else a session needs to know is in the capsule it gets
+back, so the guide is versioned with the behavior it describes and corrected
+like any other agent (`note pilot --context ctx_N`, `base pilot`).
+
+The starter is two ordinary export documents embedded in the binary,
+`internal/starter/pilot.yaml` and `internal/starter/reflector.yaml`. `load
+pilot` on a store that lacks an agent named there imports that document and
+says so on stderr; an agent that already exists, whoever made it, is never
+touched, and nothing else ever seeds. `pilot` is not a reserved name: it is
+edited, exported and imported like any agent. `brief-compiler` is not seeded
+because the built-in compiler instructions already exist.
+
+The harness is a facet of pilot, not a name: `--meta harness=<harness>` on
+the load and on the notes that are harness-specific. One pilot learns to use
+nine-tails; each harness's quirks stay scoped to it.
+
+Foreign agent definitions (a subagent file, an AGENTS.md, a catalog entry)
+are adopted by the model following the recipe in pilot's base: `base` for
+the instructions, `tool add` for real executables only, `agent add pilot`
+to advertise, then load and read back. There is no markdown importer:
+which part is base, guidance or tool is a semantic judgment (spec §5.2), and
+the mechanical part is already `base`, `agent add` and `import --stdin`. The
+starter files are the template for agent packs: one document per agent,
+imported with `import`.
+
 `config.yaml` (all optional, defaults shown; the spec calls these configurable):
 
 ```yaml
@@ -235,6 +272,7 @@ internal/tokens/                deterministic estimate
 internal/tool/                  YAML tool body parse/validate/exec
 internal/compile/               compile-input, output validate, coverage, install, lint
 internal/bundle/                export/import
+internal/starter/               embedded starter documents (pilot, reflector); seeded by `load pilot`
 internal/cli/                   flags, config, body reading, output helpers, errors
 ```
 
