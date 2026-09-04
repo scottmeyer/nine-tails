@@ -64,7 +64,24 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Test
+        if: runner.os != 'Windows'
         run: go test -count=1 ./...
+
+      - name: Test portable packages on Windows
+        if: runner.os == 'Windows'
+        run: >-
+          go test -count=1
+          ./internal/capsule
+          ./internal/cli
+          ./internal/compile
+          ./internal/harness
+          ./internal/starter
+          ./internal/store
+          ./internal/tokens
+
+      - name: Test Windows harness launching
+        if: runner.os == 'Windows'
+        run: go test -count=1 -run '^TestWindowsHarnessCommand' ./cmd/nine-tails
 
       - name: Build
         run: go build ./cmd/nine-tails
