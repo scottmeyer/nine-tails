@@ -1,0 +1,675 @@
+# nine-tails — implementation design (binding for v0)
+
+This document pins the decisions that `lore-sidecar-spec-v0.3.md` leaves open.
+The spec is normative for behavior; this file is normative for *how we build it*.
+When the two disagree, the spec wins and this file gets fixed.
+
+Working name: **nine-tails**. Binary: `nine-tails`. Module:
+`github.com/scottmeyer/nine-tails`. Language: Go 1.26, no cgo.
+
+Dependencies (keep it to these): `modernc.org/sqlite`, `github.com/spf13/cobra`,
+`gopkg.in/yaml.v3`, stdlib.
+
+## 0. Non-negotiables
+
+- Simplicity over completeness. A feature an agent can't explain from its text
+  representation is too complicated.
+- Data on stdout, diagnostics on stderr, never interactive, never colored.
+- Every mutation is an immutable record; only mechanical fields change in place.
+- Exit codes exactly as spec §16.4: 0 ok, 2 invalid input, 3 not found,
+  4 store failure, 5 tool/adapter failure, 6 budget cannot fit, 7 CAS/lease conflict.
+- Errors: first stderr line is `nine-tails: <summary>`; detail lines may follow,
+  indented two spaces. With `--format json` the same error is also written to
+  stdout as `{"error": "...", "code": N}` so structured callers can parse it.
+- Every key nine-tails emits in JSON or YAML is `snake_case` (`created_at`,
+  `origin_context`, `context_id`, `available_at`). Model-authored inputs
+  (compiler output, import documents) are accepted in snake_case or kebab-case.
+
+## 1. Home directory and config
+
+`NINE_TAILS_HOME` if set, else `~/.nine-tails` (deliberately not the platform
+data dir: an agent must be able to find it). Layout:
+
+```
+$NINE_TAILS_HOME/
+├── nine-tails.db      # SQLite, WAL, busy_timeout 5000ms, BEGIN IMMEDIATE writes
+├── artifacts/<record-id>/<basename>
+├── exports/
+└── config.yaml        # optional
+```
+
+Every command creates the home and database on first use.
+
+`config.yaml` (all optional, defaults shown; the spec calls these configurable):
+
+```yaml
+default_budget: 2000        # tokens, for `load`
+brief_floor: 0.40           # fraction of post-mandatory budget reserved for brief
+recent_cap: 0.30            # phase-1 cap for recent guidance
+tools_cap: 0.15             # hard cap for tools + related agents
+signals_cap: 0.15           # hard cap for signal excerpts
+signal_excerpt_chars: 300
+state_max_bytes: 8192
+context_retention_days: 30
+compiler:
+  argv: []                  # e.g. ["claude", "-p"]; see §10
+  timeout: 300s
+```
+
+Flags override config; config overrides defaults. `nine-tails config` prints
+the effective values as JSON so an agent can see them.
+
+Configuration is validated before the store is opened. Budgets, byte caps,
+retention days, excerpt lengths, and compiler timeouts must be positive;
+allocation fractions must be finite values in `[0,1]` whose sum is at most
+`1`. Invalid configuration is exit 2. Capsule assembly also enforces the
+caller-supplied budget as a hard global maximum even when called directly as a
+Go package with a custom policy.
+
+`NINE_TAILS_NOW` (RFC 3339), when set, is "now" for every timestamp and
+comparison. Tests use it; humans never need it.
+
+## 2. Identifiers and names
+
+One global integer counter (table `seq(n)`, starts at 0 so the first ID is
+`<prefix>_1`), allocated inside the write transaction. IDs are `<prefix>_<n>`:
+
+| Thing | Prefix |
+| --- | --- |
+| record, definition/agent-base | `base` |
+| record, kind brief-item | `item` |
+| record, lane state | `state` |
+| record, definition/tool | `tool` |
+| record, definition/related-agent | `rel` |
+| record, lane signal | `sig` |
+| any other record | `rec` |
+| context receipt | `ctx` |
+| brief generation | `gen` |
+| signal lease token | `lease` |
+
+The counter is global so numbers never collide. IDs are opaque; the prefix is
+a readability aid. Anything matching `^[a-z]+_[0-9]+$` is always an ID, never
+a name.
+
+**Names** (agent, tool, state, related-agent, brief-item key) match
+`^[a-z0-9][a-z0-9.-]*$` — no `_`, no `/`, no whitespace. Reserved names:
+`shared` (namespace), `base` (the base definition), `ack`, `none`. Exit 2
+otherwise. Title-casing an agent name uppercases the first byte of each
+`-`/`.`-separated word.
+
+**Recency** is `created_at` (UTC, second precision, `Z`), ties broken by
+`rowid`. "Newest first" = `ORDER BY created_at DESC, rowid DESC`. Every list
+output uses creation order unless stated. All stored timestamps are normalized
+to UTC with `Z` before storage so lexical comparison is chronological.
+
+## 3. Schema
+
+Exactly the spec §8.3 tables plus:
+
+```sql
+CREATE TABLE seq (n INTEGER NOT NULL);           -- single row
+CREATE TABLE signal_delivery (                    -- spec §15.3
+    record_id       TEXT PRIMARY KEY,
+    agent           TEXT NOT NULL,
+    available_at    TEXT NOT NULL,
+    dedupe_key      TEXT,
+    state           TEXT NOT NULL,                -- pending | leased | acknowledged
+    lease_token     TEXT,
+    leased_until    TEXT,
+    acknowledged_at TEXT
+);
+CREATE UNIQUE INDEX signal_dedupe ON signal_delivery(agent, dedupe_key)
+    WHERE dedupe_key IS NOT NULL AND state != 'acknowledged';
+PRAGMA user_version = 1;
+```
+
+`records.name`: required for lane=definition, lane=state, and kind=brief-item;
+null for every other guidance/recall/signal record. Signals put `subject` in
+`meta`.
+
+Metadata is `metadata(record_id, key, value)`. Keys and values are trimmed;
+exact duplicate (key, value) pairs collapse to one, preserving first-insertion
+order. Keys may not contain whitespace, `=`, `[`, `]`. Values are arbitrary.
+
+**Bodies** must be valid UTF-8 text and are stored verbatim except that exactly
+one trailing `\n` is removed if present. A body empty after that is exit 2
+(`signal` body may be empty; its arbitrary external data is still text).
+Body outputs in yaml format append exactly one trailing newline.
+
+## 4. Record envelope (JSON/YAML)
+
+```yaml
+id: rec_41
+agent: pr-review
+lane: guidance
+kind: prefer
+name: null
+body: Lead with evidence.
+created_at: "2026-09-04T16:30:00Z"
+origin_context: ctx_72
+status: active
+supersedes: null
+meta:
+  repo-id: [my_repo]      # always list-valued (multimap)
+```
+
+Same shape everywhere: `inspect`, `export`, compile input. A signal envelope
+embedded in inspect output adds `delivery: {state, available_at, dedupe_key,
+lease_token, leased_until, acknowledged_at}`.
+
+## 5. Package layout and ownership
+
+```
+cmd/nine-tails/main.go          root; wiring; exit-code mapping; `agents`, `config`
+cmd/nine-tails/cmd_append.go    append, note, avoid, prefer, remember, base
+cmd/nine-tails/cmd_load.go      load
+cmd/nine-tails/cmd_inspect.go   inspect
+cmd/nine-tails/cmd_put.go       put
+cmd/nine-tails/cmd_state.go     state get|put
+cmd/nine-tails/cmd_context.go   context list|pin|unpin|gc
+cmd/nine-tails/cmd_tool.go      tool add, agent add
+cmd/nine-tails/cmd_call.go      call
+cmd/nine-tails/cmd_signal.go    signal, signal ack, tick
+cmd/nine-tails/cmd_compile.go   compile-input, brief put, compile
+cmd/nine-tails/cmd_export.go    export, import
+internal/store/                 all SQL: records, metadata, contexts, generations,
+                                signals, state CAS, RecentGuidance (the ONLY
+                                implementation of §7 rule 4)
+internal/capsule/               assembly, ranking, budget, markdown + json render
+internal/tokens/                deterministic estimate
+internal/tool/                  YAML tool body parse/validate/exec
+internal/compile/               compile-input, output validate, coverage, install, lint
+internal/bundle/                export/import
+internal/cli/                   flags, config, body reading, output helpers, errors
+```
+
+Error mapping: `store.ErrNotFound → 3`, `store.ErrConflict → 7`,
+`store.ErrInvalid → 2`, `cli.ExitError` carries its code, anything else → 4.
+Concrete assignments: `--expect` naming a missing/superseded ID → 7; unknown
+`--context` → 3; `signal ack` unknown id → 3, wrong token / not leased /
+expired → 7; tool cannot start or times out → 5, otherwise the tool's exit code
+verbatim; compiler cannot start / nonzero / timeout → 5; compiler output
+unparsable or failing validation → 2; malformed `--at`/`--meta`/`--budget<=0`/
+unknown flag or command → 2; a stored `user_version` higher than ours → 4.
+
+An agent **exists** iff any record (any status) carries its name. `load`,
+`inspect`, `export`, `compile-input`, `compile`, `state get` on a nonexistent
+agent → 3. `append`/`put`/`base`/`signal`/`tool add`/`agent add` create it
+implicitly.
+
+## 6. Command surface (v0)
+
+```
+nine-tails load <agent> [--task T] [--context ctx] [--meta k=v]... [--budget N] [--format md|json|yaml]
+nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--context ctx] (TEXT | --stdin)
+nine-tails note|avoid|prefer|remember [<agent>] [--meta]... [--context ctx] (TEXT | --stdin)
+nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
+nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
+nine-tails state get <agent>/<name> [--format yaml|json|id]
+nine-tails state put [<agent>/]<name> --expect ID|none [--context ctx] [--meta]... (TEXT | --stdin)
+nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N] [--query Q] [--all]
+                                [--coverage C] [--lint condition-loss] [--format json|yaml]
+nine-tails tool add <agent> <name> --script PATH (--description D | --stdin) [--meta]...
+nine-tails agent add <agent> <name> --description D [--meta]...
+nine-tails call [--context ctx | --agent A] <tool> [--input JSON | --stdin]
+nine-tails signal <agent> --subject S [--body B | --stdin] [--at RFC3339|+5m] [--dedupe-key K] [--meta]... [--context ctx]
+nine-tails signal ack <sig-id> --lease <token>
+nine-tails tick [--claim] [--lease 5m] [--agent A]
+nine-tails context list [--agent A] [--limit N] | pin <ctx-id> | unpin <ctx-id> | gc [--older-than 30d] [--dry-run]
+nine-tails compile-input <agent> [--budget N] [--format json|yaml]
+nine-tails brief put <agent> --expect-generation gen_11|none --expect-base base_4 --stdin [--dry-run]
+nine-tails compile <agent> [--budget N] [--compiler "claude -p"]
+nine-tails export <agent> [--include base,brief,journal,state,tools,agents] [--bundle FILE.tar] [--all]
+nine-tails import (FILE.yaml | FILE.tar | --stdin)
+nine-tails agents [--format text|json]
+nine-tails config
+```
+
+**Mutation output.** Every mutating command prints exactly one line on stdout:
+the primary new ID (`rec_41`, `state_18`, `sig_9`, `gen_12`, `tool_7`).
+With `--format json` it prints the new record's envelope, plus command-specific
+extras: `signal` adds `"deduplicated": true|false` (a dedupe hit also writes
+`nine-tails: deduplicated against sig_44` to stderr); `brief put` prints
+`{generation, items: [ids], warnings: [...]}`; `import` prints one new ID per
+line (JSON: `{ids: {old: new}}`); `signal ack`, `pin`, `unpin` print the
+affected ID; `context gc` prints one deleted ID per line (JSON: `{deleted}`).
+
+**`--context` implies the agent.** On `append`, `note|avoid|prefer|remember`
+and `state put`, `<agent>` is optional when `--context` is given and defaults
+to the context's agent. Rule: with `--context`, if two or more positionals are
+given the first is the agent (and must match the context's agent, else exit 2
+`nine-tails: ctx_72 belongs to pr-review, not evidence-reviewer`); if one is
+given it is the TEXT; with `--stdin` there are no positionals. `signal` always
+takes an explicit agent (signals are legitimately addressed elsewhere).
+
+**TEXT vs --stdin**: exactly one. TEXT beginning with `-` needs `--` before it
+(cobra convention); the usage line shows it.
+
+**Lanes per command**: `append` accepts `--lane guidance|recall` only (default
+`recall`; `--kind` defaults to `note` for guidance, `memory` for recall) and
+rejects `--kind brief-item`; `put` accepts `--lane definition|state` only and
+runs state validation (§8) for state and tool validation (§9) for
+definition/tool. No v0 command produces `status=disabled`.
+
+`--meta k=v` may repeat; splits at the first `=`; missing `=` or empty key → 2.
+
+`--at` accepts RFC 3339 (any offset; stored as UTC) or `+<integer><unit>` with
+unit `s|m|h|d`.
+
+`agents` prints one name per line by default; `--format json` gives
+`[{name, has_base, active_records}]`.
+
+## 7. Load / capsule assembly (spec §10)
+
+Whole load runs in one `BEGIN IMMEDIATE` transaction: allocate the context ID
+first (so the header cost is exact), read, render, write the receipt, commit.
+
+Resolved metadata = parent context's metadata ∪ explicit `--meta`.
+
+Candidates:
+
+1. **Base**: active `definition/agent-base/base`. Missing → exit 3.
+2. **State**: active lane=state records that pass the conflict rule, sorted by
+   score desc then name asc. Never truncated. A state body that is not valid
+   YAML is skipped (see *skipped* below).
+3. **Brief items**: item records of the active generation with status active
+   that pass the conflict rule. Sort: score desc, then generation ordinal asc.
+   Render order is the sort order.
+4. **Recent guidance**: `store.RecentGuidance(agent)` — active lane=guidance
+   records, excluding kind=brief-item, whose `brief_inputs` row in the *active
+   generation* is absent or `deferred`. A `represented` or `superseded-by` row
+   suppresses an entry only while that generation remains active. If a later
+   generation drops the corresponding item and does not account for the source
+   entry, the still-active source entry renders as recent again. Sort: score
+   desc, then newest first. Coverage inspection still uses each entry's newest
+   accounting row across all generations.
+5. **Tools**: active definition/tool records owned by the agent, plus `shared`
+   tools whose `available-to` meta contains the agent or that have no
+   `available-to`. Agent-owned shadows shared by name. Sort: score desc, name
+   asc. A tool body that fails `tool.Parse` is skipped.
+6. **Related agents**: active definition/related-agent records owned by the
+   agent. Sort: score desc, name asc.
+7. **Signals**: `signal_delivery` rows for the agent, state != acknowledged,
+   `available_at <= now`, joined to records, passing the conflict rule. Sort:
+   score desc, then available_at asc, rowid asc. Load never mutates delivery.
+
+`shared` is an ordinary agent name for storage and inspect. The only
+cross-agent visibility is shared tools (rule 5); `call` applies the same
+filter. `available-to` on any other record is ordinary metadata.
+
+Conflict rule (2–7): for each key present on BOTH the record and the resolved
+metadata, if the value sets are disjoint, exclude the record.
+Score = count of distinct (key, value) pairs shared with resolved metadata.
+
+**Skipped**: an optional record (state, tool, related-agent, brief item) whose
+body cannot be rendered is omitted, excluded from the receipt, reported on
+stderr as `nine-tails: skipped <id>: <reason>`, and listed in JSON under
+`skipped: [{id, reason}]`. Exit stays 0.
+
+Budget (tokens):
+
+```
+cost(x) = tokens(exact rendered bytes of x)      tokens(s) = ceil(len(s)/3.5)
+mandatory = cost(header + base section + all state sections)
+if mandatory > budget → exit 6: "mandatory content needs N tokens, budget is B"
+R = budget - mandatory
+brief_floor  = floor(brief_floor  * R)   phase-1 allocation, may be exceeded in phase 2
+recent_cap   = floor(recent_cap   * R)   phase-1 allocation, may be exceeded in phase 2
+tools_cap    = floor(tools_cap    * R)   hard; tools then agents, sequentially
+signals_cap  = floor(signals_cap  * R)   hard
+```
+
+Fill: within each section, candidates are tried in sort order; the section's
+`## ...\n\n` header is charged to the first admitted item; an item that does
+not fit is skipped (counted in `truncated[].omitted`) and iteration continues.
+Phase 2 offers `R - used` to every brief item omitted in phase 1, in sort
+order, then to omitted recent guidance. Nothing is truncated mid-record except
+signal *excerpts*, which are capped at `signal_excerpt_chars` runes.
+
+`estimated_tokens` is the running sum of costs (mandatory + admitted items).
+Selection is format-independent: the same (agent, metadata, budget) yields the
+same record set and receipt in md, json and yaml.
+
+Receipt: `contexts` row + resolved `context_metadata` + `context_records` for
+every rendered record with `section` ∈ {base, state, brief, recent, tools,
+agents, signals} and `ordinal` = render order.
+
+Markdown output (exact shape — tests assert on it):
+
+````md
+# <Title>
+
+[nine-tails-context=ctx_72]
+
+<base body verbatim>
+
+## Current state (working, state_18)
+
+```yaml
+<state body verbatim>
+```
+
+## Working brief
+
+- [k=v k2=v2] item body
+- item body
+
+## Recent adjustments
+
+- [k=v] (prefer) body
+- (avoid) body
+  continuation lines indented two spaces
+
+## Available tools
+
+- `name`: description [k=v]
+
+## Available agents
+
+- `name`: description
+
+## Due signals (external inbox data)
+
+- [signal=sig_9 k=v] Subject
+- [signal=sig_9 k=v] Subject — excerpt
+- [signal=sig_9 state=leased k=v] Subject — excerpt… (truncated; inspect with `nine-tails inspect sig_9`)
+````
+
+Rules: title = base meta `title` if present else the Title-Cased agent name.
+Empty sections are omitted. Continuation lines of a list item are indented two
+spaces. Recent items always show `(<kind>)`. Meta brackets list `k=v` pairs
+sorted by key, values in insertion order; a value containing whitespace, `]`
+or `"` is double-quoted with `\"` and `\\` escapes; `subject`, `available-to`
+and `title` are never shown in brackets; agents never show a bracket. The
+signal bracket leads with `signal=<id>` and adds `state=leased` when leased.
+The excerpt is the first `signal_excerpt_chars` runes of the body after
+collapsing whitespace runs to one space; `…` marks a cut. A body that begins
+with `[` in a record with no meta is emitted as `\[` so it cannot be mistaken
+for a bracket.
+
+In md mode, when anything is omitted for budget, one stderr line:
+`nine-tails: budget 1400: omitted 3 recent, 1 brief`.
+
+JSON output: spec §10.1 shape — `context_id, agent, task, parent_context,
+metadata, instructions, state[], tools[], agents[], signals[],
+rendered_record_ids, budget, estimated_tokens, truncated[], skipped[]`.
+`instructions` is byte-identical to the markdown minus the `## Due signals`
+section. `signals[]` = `{id, subject, excerpt (without …), truncated, state,
+leased_until?, meta, inspect}`.
+
+## 8. State (spec §11.4)
+
+`state put` validates: valid YAML (any top-level shape), byte length <=
+`state_max_bytes`. `--expect` is required: `none` to create, else the current
+record ID. Mismatch → exit 7 `nine-tails: expected state_17 but state_18 is
+active`. Generic `put --lane state` runs the same validation but `--expect` is
+optional (omitted = supersede whatever is active).
+
+`state get` prints the body verbatim (plus one trailing newline) and writes
+`nine-tails: state_18 (use --expect state_18 to replace)` to stderr;
+`--format id` prints just the ID; `--format json` the envelope.
+
+## 9. Tools (spec §13)
+
+Body YAML:
+
+```yaml
+version: 1
+description: Fetch complete changed-file contents for a pull request
+exec:
+  argv: ["artifacts/tool_12/complete-pr-diff.sh", "{{ pr }}"]
+  stdin: none | json | text      # default none
+  timeout: 30s                   # default 60s
+input:
+  pr: {type: string, required: true}   # type is informational; only required is enforced
+output:
+  format: json                   # informational
+```
+
+Validation (at `put`, `tool add`, `import`): `exec.argv` non-empty list of
+non-empty strings; `exec.stdin` ∈ {none, json, text}; `exec.timeout` a Go
+duration if present; `version` absent or 1; placeholders match
+`^\{\{\s*([a-z0-9_.-]+)\s*\}\}$` and must each be an entire argv element (any
+position, including argv[0]); every placeholder must be declared in `input`.
+Unknown keys preserved. `description` is required.
+
+`tool add <agent> <name> --script PATH --description D`: copies PATH to
+`artifacts/<new-id>/<basename>`, chmod +x, body = `{version: 1, description,
+exec: {argv: ["artifacts/<id>/<basename>"], stdin: json}}`. With `--stdin`
+instead of `--description`, the YAML body is read from stdin, the artifact
+path is prepended to its `exec.argv` (which may be absent or contain only
+placeholders), `version` is filled with 1 if absent, `exec.stdin` is left as
+written, and only then is the final body validated. Unreadable PATH → 2. The
+artifact directory and the allocated id are rolled back if anything fails.
+`tool add` is `put --lane definition --kind tool` without `--expect`
+(last-writer-wins). Every literal argv element beginning with `artifacts/`
+(any position, e.g. `[/bin/sh, artifacts/tool_2/x.sh]`) resolves relative to
+`NINE_TAILS_HOME` at call time; substituted input values are never resolved.
+`exec.timeout` must be a positive duration.
+
+`agent add <agent> <name> --description D` = `put --lane definition --kind
+related-agent --name <name> "<D>"`.
+
+`call`: the agent is `--agent`, else the `--context`'s agent, else `shared`;
+when both flags are given they must agree (else exit 2, same rule as
+`state put`). Resolve agent-owned first, then `shared` honoring
+`available-to`. `--input` must be exactly one JSON object (default `{}`;
+trailing data → 2), decoded with `UseNumber`; `--stdin` reads it instead.
+Validate `required` only. `call` has no `--format`: its stdout belongs to the
+tool. A tool body that no longer parses → 4 with a repair hint. Substitute each placeholder
+element with the value: strings verbatim, numbers as their JSON literal text,
+booleans `true`/`false`, objects/arrays as compact JSON; an element whose
+placeholder input is absent (and not required) is removed from argv. Never add
+`--`. stdin: `json` = the whole input object as JSON (unknown keys forwarded);
+`text` = the string value of input key `text` (empty if absent); `none` =
+closed. Run with `exec.Command`, env inherits plus `NINE_TAILS_HOME`,
+`NINE_TAILS_AGENT`, and `NINE_TAILS_CONTEXT` when given. stdout → stdout,
+stderr → stderr, exit code passed through; cannot start / timeout → 5.
+
+## 10. Compilation (spec §12)
+
+`compile-input <agent>` (default json):
+
+```yaml
+agent: pr-review
+budget: 1200
+instructions: |            # built-in default compiler instructions (§12.7) + output contract
+  ...
+expect_generation: gen_11  # or "none"
+expect_base: base_4
+base: {id: base_4, body: "..."}
+active_generation:         # null when none
+  id: gen_11
+  items: [{id: item_81, key: concise-evidence, body: "...", meta: {...}}]
+input_entries: [rec_41, rec_42]         # exactly the ids in entries[]
+entries:                                 # RecentGuidance(agent), oldest first
+  - id: rec_41
+    kind: prefer
+    body: ...
+    meta: {...}
+    origin_context: ctx_72
+    origin_context_metadata: {repo-id: [my_repo], pr: ["1842"]}
+    origin_context_rendered: [base_4, item_81]   # so the compiler can judge coverage
+```
+
+Compiler output (YAML or JSON, auto-detected; keys snake or kebab):
+
+```yaml
+input_entries: [rec_41, rec_42]   # echoed unchanged
+items:
+  - key: concise-evidence
+    body: ...
+    meta: {phase: [review-comment]}   # scalar values also accepted
+entries:
+  - id: rec_41
+    disposition: represented | deferred | superseded-by
+    items: [concise-evidence]         # required iff represented
+    successor: rec_50                 # required iff superseded-by
+    refinement: true                  # optional hint
+    equivalent_records: [item_81]     # optional: prior records judged equivalent
+```
+
+Validation (all → exit 2, each problem as a detail line): the set of
+`entries[].id` equals `input_entries` exactly (no missing, extra or duplicate)
+and every one is still an active lane=guidance record of the agent; every
+referenced item key exists; `items` present iff `represented`; `successor`
+present iff `superseded-by` and names an active lane=guidance record of the
+agent; every `equivalent_records` id exists (any status); item keys are valid
+names, unique, with non-empty bodies. An empty `items` list is allowed.
+Entries not in `input_entries` (appended during the compile) are untouched.
+
+Coverage, computed by nine-tails:
+
+```
+if refinement == true                       → refinement
+elif equivalent_records non-empty:
+    if origin_context is null               → unknown
+    elif any equivalent ∈ context_records(origin) → covered-rendered
+    else                                    → covered-unrendered
+elif origin_context is null                 → unknown
+else                                        → novel
+```
+
+Install (`brief put`), in one transaction: check `--expect-generation` is the
+active generation (or `none` and there is none) and `--expect-base` is the
+active base → else exit 7 naming the active one; set the prior generation's
+item records to `superseded`; insert item records (lane=guidance,
+kind=brief-item, name=key; a key matching a prior-generation item sets
+`supersedes` to it); create the generation `staged`; write membership, inputs,
+sources, equivalents; activate; supersede the prior generation. Re-emitting a
+prior item key mechanically carries that item's earlier source relationships
+and represented accounting into the new generation (unless the compiler
+accounts for the same entry again). Dropping all of an entry's representing
+item keys does not carry its accounting, so the active source becomes recent
+guidance again. `superseded-by` accounting is carried across generations.
+Source entries stay active. `--dry-run` validates, computes coverage and lint,
+prints what would be installed, writes nothing.
+
+Condition-loss lint (computed on demand from `brief_item_sources`; returned by
+`brief put` and `inspect --lint condition-loss`):
+
+```
+for each item with ≥1 source:
+  if any source has an empty meta multimap → no warning
+  for each key K present on every source:
+     V = intersection of the sources' value sets for K
+     if V non-empty and item.meta lacks K → STRONG {item, key, values: V, sources}
+  if every source has an origin context:
+     for each key K present on every origin context's metadata and on no source:
+        V = intersection of those value sets; if V non-empty and item lacks K → WEAK
+```
+
+Items with zero sources produce no warnings. The lint never blocks install.
+
+`compile <agent>`: compile-input → run the compiler (`--compiler` flag, else
+`NINE_TAILS_COMPILER` env, else `config.compiler.argv`; none → exit 2 with the
+config snippet) with the compile-input JSON on stdin and expect the output
+document on stdout → `brief put`. The compiler inherits the environment plus
+`NINE_TAILS_HOME` and `NINE_TAILS_AGENT`. `compile` additionally checks that
+the echoed `input_entries` equals its own document's list. Warnings go to
+stderr. `instructions` comes from the `brief-compiler` agent's active base
+when that agent exists, else the built-in text in
+`internal/compile/instructions.go`; either way `compile-input` shows it.
+
+Further pins: `--budget` for `compile-input`/`compile` defaults to
+`brief_floor × default_budget` (800); an explicit `--budget 0` → 2. Metadata
+keys in compiler output are validated by the §3 key rule, not the name regex.
+A duplicate inside `input_entries` is a validation problem. `brief put` on a
+nonexistent agent → 3. `brief put --stdin` is mandatory. `--dry-run` prints
+the plan (`dry_run: true`, provisional ids, inputs with coverage) and rolls
+back, so no id is consumed. Non-dry-run JSON is exactly
+`{generation, items, warnings}`.
+
+## 11. Signals (spec §15)
+
+`signal <agent> ...` creates one record (lane=signal, kind=signal, body, meta
+with `subject=<S>` plus user meta) and one `signal_delivery` row
+(`available_at` = `--at` or now, state pending). If `(agent, dedupe-key)`
+exists nonterminal, print the existing ID, write `nine-tails: deduplicated
+against sig_44` to stderr, exit 0.
+
+`tick`: rows with state pending, or leased with `leased_until <= now`, and
+`available_at <= now`; live leases are not listed; ordered by available_at
+asc, rowid asc; expired leases shown as `state: pending` with empty lease
+fields. Without `--claim`: read-only. With `--claim`: in one transaction set
+state=leased, lease_token=`lease_<n>`, leased_until=now+lease (default 5m).
+Output: JSON array of `{id, agent, subject, body, meta, available_at, state,
+lease_token, leased_until}`; `[]` when empty.
+
+`signal --format json` prints the envelope plus `delivery` (so a caller sees
+`available_at`) and `deduplicated`. `signal ack <id> --lease <token>`: leased,
+unexpired, matching token → acknowledged; prints the id (`--format json`: the
+envelope). Unknown id → 3; otherwise → 7. `load` includes live-leased signals
+(with `state=leased` in the bracket) because awareness is not delivery.
+
+## 12. Inspect (spec §18)
+
+`inspect <agent>`: JSON `{agent, base, state[], brief{generation, items[],
+inputs[]}, journal[], tools[], agents[], signals[]}`; `--include` restricts
+sections and may add `contexts` (off by default; each is a receipt, newest
+first, at most 20). `journal[]` = active guidance + recall records excluding
+brief items. Any of `--query`, `--lane`, `--kind`, `--name` switches to the
+flat shape `{agent, records: [envelopes]}` and `--include` is ignored;
+`--query` is a case-insensitive substring over body, name and meta values.
+`--all` includes superseded/disabled in either shape. In the full shape it
+keeps `base` and `brief` as the active singleton values and adds the
+self-contained arrays `base_history` and `brief_history`; it also includes
+acknowledged signals and visible shared-tool history in their existing arrays.
+`--coverage C` gives
+`{agent, coverage: [{entry, disposition, coverage, items, equivalent_records}]}`
+using each entry's latest brief_inputs row. `--lint condition-loss` gives
+`{agent, lint: [{item, key, strength, values, sources, message}]}`.
+
+`inspect <id>`: the record envelope with `rendered_in: [ctx ids]` (and
+`delivery` for signals); `ctx_N` gives the receipt; `gen_N` gives
+`{generation, items, inputs}`. A well-formed ID that does not exist → 3.
+
+## 13. Export / import (spec §8.5)
+
+Export (yaml):
+
+```yaml
+nine_tails_export: 1
+agent: pr-review
+records: [<envelope>...]          # active only unless --all; oldest first
+omitted_artifacts: [tool_12]      # tools referencing artifacts/ when no --bundle
+```
+
+`--include` defaults to `base,brief,journal,state,tools,agents`. `--bundle
+FILE.tar` writes `manifest.yaml` plus `artifacts/<id>/<file>`.
+
+Import: one transaction, any validation failure → 2 and nothing written. Every
+record gets a new id; `supersedes` and `origin_context` are cleared; `meta`
+gains `imported-from=<old-id>`; lane defaults to `recall` when missing; a
+definition or state whose name is active in the target agent is superseded;
+artifacts are copied under the new id and argv paths rewritten. Imported brief
+items are ordinary kind=brief-item guidance records outside any generation and
+therefore never render (rule 4 excludes the kind) until a compile installs
+them — export reports this. Contexts, generations and delivery rows are never
+exported. A document body is already the stored envelope body, so import does
+not apply §3 newline normalization a second time; this keeps export/import
+lossless. Structured, non-scalar metadata values are rejected rather than
+stringified.
+
+## 14. Context GC (spec §9.2)
+
+`context gc` deletes contexts where `pinned = 0`, `created_at` older than the
+retention, and no active record has `origin_context_id` = that context.
+Children are unaffected. Never touches records.
+
+## 15. Testing
+
+- `internal/*`: Go unit tests on `t.TempDir()`.
+- `cmd/nine-tails/cli_test.go`: in-process harness with a temp home and a fixed
+  clock; `cmd/nine-tails/ac_test.go` holds `TestAC01`…`TestAC20`, one per spec
+  §21 criterion, each a black-box CLI scenario. AC19 injects a corrupt tool
+  body via `internal/store`. AC20 runs N goroutines each opening its own store
+  and installing a generation; exactly one is active afterward.
+- `make test`, `make build` (→ `./bin/nine-tails`), `make install`.
+
+## 16. Deliberately not built in v0
+
+Recurring schedules, automatic compile thresholds, tool-call telemetry,
+embeddings, a daemon, a TUI, colored output, per-agent permissions, any notion
+of approval. The reflector and `brief-compiler` agents are content, not code:
+they are created with `base` (see README) and are part of dogfooding.

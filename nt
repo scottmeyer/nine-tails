@@ -1,0 +1,5 @@
+#!/bin/sh
+# Project-local nine-tails: uses the freshly built binary and a store inside
+# this repo (.nine-tails/, gitignored). This is the dogfooding entry point.
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+exec env NINE_TAILS_HOME="$ROOT/.nine-tails" "$ROOT/bin/nine-tails" "$@"

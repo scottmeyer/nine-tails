@@ -1,0 +1,5 @@
+bin/
+.nine-tails/
+*.db
+*.db-wal
+*.db-shm
