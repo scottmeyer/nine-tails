@@ -112,7 +112,7 @@ func TestCompileFlow(t *testing.T) {
 	ctx := contextID(t, r.out)
 	e1 := h.ok("prefer", "pr-review", "--context", ctx, "Lead with evidence.").id(t)
 	e2 := h.ok("prefer", "pr-review", "Keep comments short.").id(t)
-	e3 := h.ok("prefer", "pr-review", "--meta", "repo-id=r1", "Lead with evidence and cite line numbers.").id(t)
+	e3 := h.ok("prefer", "pr-review", "--meta", "repo-id=r1", "--meta", "phase=review", "Lead with evidence and cite line numbers.").id(t)
 
 	// ---- compile-input shape ----
 	r = h.ok("compile-input", "pr-review")

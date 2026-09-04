@@ -361,6 +361,51 @@ entries:
 	}
 }
 
+// Scope the compiler invented is flagged too: an item key=value that no
+// source carried and the origin contexts do not all share is a strong warning.
+func TestLintInventedScope(t *testing.T) {
+	h := newHarness(t)
+	base := h.ok("base", "linted", "Base.").id(t)
+	source := h.ok("prefer", "linted", "Keep it plain.").id(t)
+	doc := fmt.Sprintf(`input_entries: [%s]
+items:
+  - key: scope-invented
+    body: This item made up a phase.
+    meta: {phase: before-edit}
+entries:
+  - {id: %s, disposition: represented, items: [scope-invented]}
+`, source, source)
+	result := h.okIn(doc, "brief", "put", "linted", "--expect-generation", "none", "--expect-base", base, "--stdin", "--format", "json").json(t)
+	warnings := result["warnings"].([]any)
+	if len(warnings) != 1 {
+		t.Fatalf("install warnings = %#v", warnings)
+	}
+	warning := warnings[0].(map[string]any)
+	if warning["key"] != "phase" || warning["strength"] != "strong" || !equal(strs(t, warning["values"]), []string{"before-edit"}) ||
+		!strings.Contains(warning["message"].(string), "adds phase=before-edit, which no source carried") {
+		t.Fatalf("invented-scope warning = %#v", warning)
+	}
+	// Scope a source carried is not invented, and neither is scope every
+	// origin context shared.
+	ctx := h.ok("load", "linted", "--task", "t", "--meta", "repo-id=r1", "--format", "json").json(t)["context_id"].(string)
+	scoped := h.ok("avoid", "linted", "--context", ctx, "--meta", "lang=go", "Go-only.").id(t)
+	doc = fmt.Sprintf(`input_entries: [%s]
+items:
+  - key: scope-invented
+    body: Plain.
+  - key: scope-kept
+    body: Go-only.
+    meta: {lang: go, repo-id: r1}
+entries:
+  - {id: %s, disposition: represented, items: [scope-kept]}
+`, scoped, scoped)
+	gen := result["generation"].(string)
+	result = h.okIn(doc, "brief", "put", "linted", "--expect-generation", gen, "--expect-base", base, "--stdin", "--format", "json").json(t)
+	if w := result["warnings"].([]any); len(w) != 0 {
+		t.Fatalf("carried scope flagged: %#v", w)
+	}
+}
+
 // AC13: a YAML tool backed by a copied script preserves substituted argv boundaries.
 func TestAC13(t *testing.T) {
 	h := newHarness(t)

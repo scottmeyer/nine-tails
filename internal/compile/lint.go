@@ -35,12 +35,14 @@ func LintConditionLoss(q store.Querier, agent string) ([]Warning, error) {
 }
 
 // LintGeneration runs the condition-loss lint on one generation. For each
-// item with at least one source: if any source has an empty meta multimap,
-// no warning. Otherwise, for each key K present on every source whose value
-// sets intersect, K missing from the item is a STRONG warning. If every
-// source has an origin context, for each key K present on every origin
-// context's metadata (and on no source) whose value sets intersect, K missing
-// from the item is a WEAK warning.
+// item with at least one source: a key=value on the item that no source
+// carries and that the sources' origin contexts do not all share is a
+// STRONG warning (invented scope). Then, if any source has an empty meta
+// multimap, no further warning. Otherwise, for each key K present on every
+// source whose value sets intersect, K missing from the item is a STRONG
+// warning. If every source has an origin context, for each key K present on
+// every origin context's metadata (and on no source) whose value sets
+// intersect, K missing from the item is a WEAK warning.
 func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 	items, err := store.GenerationItems(q, genID)
 	if err != nil {
@@ -70,18 +72,6 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 				unqualified = true
 			}
 		}
-		if unqualified {
-			continue
-		}
-		for _, k := range commonKeys(metas) {
-			if it.Meta.Has(k) {
-				continue
-			}
-			if vals := intersectValues(metas, k); len(vals) > 0 {
-				out = append(out, Warning{Item: it.ID, Key: k, Strength: "strong", Values: vals, Sources: srcIDs,
-					Message: fmt.Sprintf("item %s drops %s=%s, which every source entry carried explicitly", it.ID, k, vals[0])})
-			}
-		}
 		ctxMetas := make([]store.Meta, 0, len(srcs))
 		for _, s := range srcs {
 			if s.OriginContext == "" {
@@ -96,6 +86,35 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 			ctxMetas = append(ctxMetas, c.Meta)
 		}
 		if len(ctxMetas) != len(srcs) {
+			ctxMetas = nil
+		}
+		itemKeys := make([]string, 0, len(it.Meta))
+		for k := range it.Meta {
+			itemKeys = append(itemKeys, k)
+		}
+		sort.Strings(itemKeys)
+		for _, k := range itemKeys {
+			for _, v := range it.Meta[k] {
+				if anyContains(metas, k, v) || (ctxMetas != nil && allContain(ctxMetas, k, v)) {
+					continue
+				}
+				out = append(out, Warning{Item: it.ID, Key: k, Strength: "strong", Values: []string{v}, Sources: srcIDs,
+					Message: fmt.Sprintf("item %s adds %s=%s, which no source carried", it.ID, k, v)})
+			}
+		}
+		if unqualified {
+			continue
+		}
+		for _, k := range commonKeys(metas) {
+			if it.Meta.Has(k) {
+				continue
+			}
+			if vals := intersectValues(metas, k); len(vals) > 0 {
+				out = append(out, Warning{Item: it.ID, Key: k, Strength: "strong", Values: vals, Sources: srcIDs,
+					Message: fmt.Sprintf("item %s drops %s=%s, which every source entry carried explicitly", it.ID, k, vals[0])})
+			}
+		}
+		if ctxMetas == nil {
 			continue
 		}
 		onSources := map[string]bool{}
@@ -115,6 +134,24 @@ func LintGeneration(q store.Querier, genID string) ([]Warning, error) {
 		}
 	}
 	return out, nil
+}
+
+func anyContains(metas []store.Meta, key, value string) bool {
+	for _, m := range metas {
+		if m.Contains(key, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func allContain(metas []store.Meta, key, value string) bool {
+	for _, m := range metas {
+		if !m.Contains(key, value) {
+			return false
+		}
+	}
+	return true
 }
 
 func commonKeys(metas []store.Meta) []string {
