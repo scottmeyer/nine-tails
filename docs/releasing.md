@@ -24,9 +24,18 @@ branch. The `homebrew-` prefix is significant: Homebrew maps the short tap
 name `scottmeyer/tap` to that repository. GoReleaser writes
 `Casks/nine-tails.rb` there; do not maintain a second copy in this repository.
 
-Create a fine-grained personal access token scoped only to
-`scottmeyer/homebrew-tap`, with repository **Contents: Read and write**, and
-store it on `scottmeyer/nine-tails` as:
+Create a fine-grained personal access token with exactly these settings:
+
+- Resource owner: `scottmeyer`
+- Repository access: **Only select repositories**, with `homebrew-tap` selected
+- Repository permissions: **Contents: Read and write**
+- **Metadata: Read-only**, which GitHub includes automatically
+- All other account, organization, and repository permissions: **No access**
+
+Set the token to expire after one year (up to GitHub's 366-day maximum) and
+schedule its replacement before that date. Rotate it at least annually by
+creating a replacement with the same settings and updating this GitHub Actions
+secret on `scottmeyer/nine-tails`:
 
 - `HOMEBREW_TAP_GITHUB_TOKEN`
 

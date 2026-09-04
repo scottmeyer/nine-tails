@@ -54,15 +54,26 @@ small local store with a plain-text interface an agent can inspect and repair.
 
 ## Install
 
-After the first signed release, install with Homebrew on macOS or Linux:
+Install the latest release with Homebrew on macOS or Linux:
 
 ```sh
 brew install --cask scottmeyer/tap/nine-tails
+nine-tails --version
 ```
 
-Download an archive for macOS, Linux, or Windows from
-[GitHub Releases](https://github.com/scottmeyer/nine-tails/releases/latest), or
-install from source with Go 1.26 or newer:
+Prebuilt archives are available from
+[GitHub Releases](https://github.com/scottmeyer/nine-tails/releases/latest):
+
+| Platform | Architectures | Archive |
+| --- | --- | --- |
+| macOS | `arm64`, `x86_64` | `.tar.gz` |
+| Linux | `arm64`, `x86_64` | `.tar.gz` |
+| Windows | `arm64`, `x86_64` | `.zip` |
+
+Each release includes SHA-256 checksums. macOS binaries are Developer ID signed
+and notarized by Apple before publication.
+
+To install from source, use Go 1.26 or newer:
 
 ```sh
 go install github.com/scottmeyer/nine-tails/cmd/nine-tails@latest
@@ -269,10 +280,8 @@ make build
 
 Tests use isolated temporary homes and never touch `~/.nine-tails`.
 
-The release workflow publishes checksummed binaries for supported platforms
-when a semantic `v*.*.*` tag is pushed. macOS executables are Developer ID
-signed and notarized before publication. Maintainer setup and signing details
-live in [`docs/releasing.md`](docs/releasing.md).
+Maintainers should follow the [release guide](docs/releasing.md) for tagging,
+signing, notarization, Homebrew publishing, and release verification.
 
 ## License
 
