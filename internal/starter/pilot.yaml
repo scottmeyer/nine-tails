@@ -10,10 +10,14 @@ records:
       ## Purpose
 
       nine-tails is durable memory across sessions, repositories, and execution
-      environments: named agents whose instructions, compiled learning, state,
-      tools, and signals arrive in a capsule and improve as you work. This
+      environments: named agents whose instructions, learned preferences,
+      relevant experience, state, tools, and signals arrive in a capsule. This
       pilot is the usage guide and agent catalog. It is an ordinary agent, so
       correct it through its own paired receipt like any other.
+
+      Use pilot for discovery when no role is selected. A direct named load,
+      `nine-tails load --agent <name> --task "<concise non-sensitive purpose>"`,
+      already carries the common learning protocol; no guide load is required.
 
       ## The loop
 
@@ -28,24 +32,24 @@ records:
          `ctx_M`.
       3. Inspect an advertised tool, then call it with
          `nine-tails call --context ctx_M <tool> --input '{...}'`.
-      4. At a meaningful boundary (a correction, a recovered failure, a task
-         done or blocked) load reflector with `--context ctx_M` and apply it
-         inline: change state, guidance, recall, a signal, a reviewed reusable
-         executable tool, or nothing.
+      4. Save explicit durable corrections during work with
+         `nine-tails prefer|avoid|note --context ctx_M "..."`; link replacements
+         with `--supersedes <source-id>`.
+         At a meaningful pause, reflect briefly inline. Save a supported
+         reusable lesson, useful experience with `remember`, current state,
+         or nothing. Zero writes is valid; keep play and conversation natural.
+         For difficult reconciliation, optionally load `reflector` with
+         `--context ctx_M`; ordinary learning does not require it.
       5. Asked to explain or repair an agent: `nine-tails inspect <agent>`, with
          `--query`, `--coverage` or `--lint condition-loss`; repair by appending
          or replacing, retire an obsolete active record with `disable <id>`,
          and never edit history.
-      6. Before you finish, close your receipt: `nine-tails inspect ctx_M` lists
-         what it rendered by ordinal with an excerpt; then
-         `nine-tails close ctx_M 3=+++ 5=- ...`. Marks: + +++ +++++ it applied
-         (nudged, shaped, decisive); - --- ----- it hindered (detour, misled,
-         caused a mistake); X it is wrong, after writing the correction with
-         `--context ctx_M`; anything unlisted is ?, it never came up.
+      6. Optional bookkeeping: `nine-tails close ctx_M` closes the receipt;
+         unlisted records default to `?`. No scoring exercise is required.
+         If explicit feedback would help, `close --help` describes marks.
          Marks report usefulness, not verified correctness or compliance.
-         Check measurable claims before reporting success. For a mixed record,
-         record a wrong clause's correction even if another clause helped;
-         a positive mark must not conceal it.
+         Write an actual correction when guidance is wrong; a positive mark
+         must not conceal a wrong clause in a mixed record.
 
       ## Conventions
 
@@ -53,9 +57,8 @@ records:
         on the load and on scoped notes, never new agent names, so learnings
         roll up to the role.
       - Keep bases project-neutral. Put project-specific style and state-retrieval
-        pointers in scoped guidance, not the base. Before calling a role reusable,
-        read its capsule under an unrelated repo-id and try a small task from
-        that domain. Neutral names alone do not establish reusable behavior.
+        pointers in scoped guidance, not the base. Check applicability before
+        carrying a previous project's decisions into a new project.
       - Keep reusable behavior in role guidance. Keep changing project decisions
         in one named, scoped state owned by the relevant agent; give other roles
         a retrieval pointer instead of copied values. Before relying on a
@@ -79,9 +82,13 @@ records:
       - `--task` is stored on a context receipt. Keep the complete task in the
         harness conversation and use a concise, non-sensitive purpose in a
         manual load.
-      - Metadata is applicability scope, never provenance: a load that passes
-         the same key with another value drops the record. Where a record came
-         from is its origin context. Fix a wrong scope with
+      - The task also retrieves up to three relevant recall excerpts as data,
+        separate from instructions. Use `load --query "<terms>"` to override
+        retrieval or `--query ""` to disable it. Inspect the supplied record ID
+        for full evidence; recall is never automatically promoted to guidance.
+      - Metadata on records is applicability scope: a load that passes the
+        same key with a disjoint value set drops the record. Visible context
+        metadata is provenance, not automatically copied write scope. Fix scope with
         `nine-tails note|prefer|avoid|remember --context ctx_M --supersedes <id> [--meta k=v]`,
         which replaces the record, keeps its body, and preserves episode
         provenance. Use `nine-tails disable <id>` only to retire an active
@@ -92,10 +99,12 @@ records:
         (add `--meta k=v` for facets), and put the complete task on the lines
         after. The child runs the load, follows its capsule, and reports the
         receipt id it gets. Nothing else is needed on any harness.
-      - When Recent adjustments grows long, or load says so on stderr, compile:
+      - New guidance applies on the next relevant load without compilation.
+        When Recent adjustments grows long, optional condensation is available:
         `nine-tails compile <agent> --compiler "<compiler-command>"`, using a
         command that reads the document on stdin and writes the new brief on
-        stdout.
+        stdout. Original lessons remain authoritative; compilation is a cache,
+        not a checkpoint required to remember anything.
 
       ## Adopting an existing agent file
 
@@ -126,4 +135,4 @@ records:
     kind: related-agent
     name: reflector
     meta: {}
-    body: Reflect on a parent episode and decide whether state, guidance, recall, a signal, or a reviewed reusable tool should change; zero writes is a valid outcome.
+    body: Optional help with difficult reconciliation of a parent episode; ordinary reflection stays inline and zero writes is valid.

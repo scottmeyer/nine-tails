@@ -24,7 +24,7 @@ func TestLoadAdvisesCompileInsteadOfCutting(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = h.ok("load", "a")
-	if !strings.HasPrefix(r.err, "nine-tails: capsule is ") || !strings.HasSuffix(r.err, " estimated tokens with 12 uncompiled adjustments; compile with `nine-tails compile a`\n") {
+	if !strings.HasPrefix(r.err, "nine-tails: capsule is ") || !strings.HasSuffix(r.err, " estimated tokens with 12 uncompiled adjustments; optional condensation: `nine-tails compile a`\n") {
 		t.Fatalf("advice line: %q", r.err)
 	}
 	if strings.Count(r.out, "Adjustment ") != 12 {

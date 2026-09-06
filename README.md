@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/nine-tails-banner.png" alt="nine-tails — persistent context for coding agents" width="960">
+  <img src="docs/nine-tails-banner.png" alt="nine-tails — persistent context for agents" width="960">
 </p>
 
 # nine-tails
@@ -9,19 +9,23 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/scottmeyer/nine-tails)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Persistent, inspectable context for coding agents—without becoming an agent
-framework.
+Persistent, inspectable identities and experience for agents.
 
 `nine-tails` is a small CLI sidecar that resolves a named agent into a Markdown
 context capsule. As the agent works, it can record corrections, useful
 experience, working state, executable tools, and future signals. The next
 invocation starts better informed.
 
+An agent can be a coder, game designer, architect, writer, artist, or companion.
+Its base describes the role; using and teaching it builds the durable guidance
+and experience supplied on later loads. The harness provides the conversation,
+execution, model choice, and subagents.
+
 It is deliberately harness-independent. It does not run an agent loop, choose
 a model, proxy prompts, or require a daemon or network service.
 
 ```text
-base + compiled brief + recent adjustments + state + due signals
+base + guidance + relevant recall + state + tools + due signals
                               │
                        nine-tails load
                               ▼
@@ -29,7 +33,7 @@ base + compiled brief + recent adjustments + state + due signals
                               │
                          agent session
                               ▼
-              corrections, state, tools, and signals
+              corrections, experience, state, and capabilities
 ```
 
 ## Why nine-tails?
@@ -39,8 +43,8 @@ what an agent learned yesterday. Transcripts contain that history, but they are
 large, opaque, and tied to a harness. `nine-tails` keeps the durable parts in a
 small local store with a plain-text interface an agent can inspect and repair.
 
-- **Context capsules:** load only the definition, brief, adjustments, state,
-  tools, and signals relevant to this invocation.
+- **Context capsules:** load the role, applicable guidance, state, tools, and
+  signals, plus a bounded set of task-relevant recall excerpts.
 - **Corrections that take effect immediately:** append a preference or warning
   now; it appears on the next load without waiting for compilation.
 - **Bounded working state:** update small YAML documents with compare-and-swap
@@ -50,7 +54,7 @@ small local store with a plain-text interface an agent can inspect and repair.
 - **Inspectable history:** records are immutable and exportable; superseded or
   disabled versions remain available for diagnosis and repair.
 - **Portable integration:** use the CLI from any harness, or opt into the
-  included Claude Code and Codex lifecycle adapters.
+  [stdio MCP transport](docs/mcp.md) or included lifecycle adapters.
 
 ## Install
 
@@ -104,6 +108,10 @@ embedded in the binary. The returned Markdown contains a marker such as
 keep the exact value and pair it with the agent that returned it. IDs printed by
 mutations, such as `base_...` or `rec_...`, are not context IDs.
 
+When you already know the agent, load it directly with `load --agent <name>`
+or `load <name>`. Every capsule includes the learning, tool, state, and
+delegation protocol; a prior pilot load is unnecessary.
+
 Create a specialized agent with a base definition:
 
 ```sh
@@ -114,13 +122,15 @@ nine-tails base pr-review --expect none \
 Review proposed changes for demonstrable correctness and regression risks.
 EOF
 
-nine-tails load pr-review \
+nine-tails load --agent pr-review \
   --task "Review PR 1842" \
-  --context <pilot-context-id>
+  --meta repo-id=my-project \
+  --meta harness=my-harness
 ```
 
-That second load returns a different receipt. Use the `pr-review` receipt—not
-the earlier `pilot` receipt—for calls and corrections made while reviewing.
+Use the returned `pr-review` receipt for calls and corrections made while
+reviewing. A delegated child load can add `--context <parent-context-id>` to
+inherit metadata and link its work to the parent.
 
 Teach it while it works:
 
@@ -145,27 +155,47 @@ text does the same: obsolete compiled advice disappears on the next load,
 without waiting for a compiler. Recompile when useful to compact the surviving
 notes, not to make the correction take effect.
 
+Capture explicit durable corrections during work. At a meaningful pause,
+briefly consider whether anything should carry forward. Supported reusable
+lessons become guidance; useful experience or uncertainty can be saved with
+`remember`. Zero writes is valid, including a playful companion session.
+Reflection can happen inline. The optional `reflector` helps with difficult
+reconciliation. `nine-tails close <context-id>` is optional bookkeeping and
+needs no scoring exercise; unlisted records default to `?`.
+
+The optional [workshop catalog](agents/workshop/README.md) supplies a coordinator,
+an `architect`, framework roles, and a game team: `game.designer`,
+`game.engineer`, and `game.playtester`. Follow its installation instructions
+to add absent roles while preserving personalized agents already in your
+store. [The workshop cycle](docs/workshop-cycle.md) describes collaboration and
+the Soccer Chess work used to identify friction in ordinary agent handoffs.
+
 ## What should be persisted?
 
 | Need | Command | Result |
 | --- | --- | --- |
 | Operating guidance | `note`, `prefer`, `avoid` | Appears in recent adjustments and can later be compiled |
-| A fact worth retrieving later | `remember` | Stays in the recall lane and is searchable with `inspect --query` |
+| Useful experience or a fact | `remember` | Relevant excerpts surface on load as data; full records remain searchable with `inspect --query` |
 | Small current working state | `state put` | Replaces a named YAML state using compare-and-swap |
 | A reminder or external event | `signal` | Appears when due and can be leased by a scheduler |
 | A reusable executable capability | `tool add` | Adds a validated named tool callable through a context |
-| A durable shorter brief | `compile` | Condenses eligible journal records through a configured model command |
+| Optional shorter guidance | `compile` | Condenses eligible guidance through a configured model command; original lessons remain authoritative |
 | Retire an obsolete record | `disable` | Stops loading, compiling, or calling it without deleting history |
 
 Examples:
 
 ```sh
 # Compare-and-swap working state.
-nine-tails state put pr-review/working --expect none --stdin <<'EOF'
+nine-tails state put pr-review/working --context <pr-review-context-id> \
+  --expect none --meta repo-id=my-project --stdin <<'EOF'
 status: waiting
 waiting-on: ci
 next-action: recheck the goroutine finding
 EOF
+
+# Read current state and its CAS id before updating it.
+nine-tails state get pr-review/working
+# Then state put with --expect <current-state-id>; omitted --meta preserves scope.
 
 # Schedule work without running a scheduler inside nine-tails.
 nine-tails signal pr-review --at +2h \
@@ -178,6 +208,7 @@ nine-tails tool add pr-review complete-pr-diff \
   --script ./complete-pr-diff.sh \
   --description "Fetch complete changed-file contents for a pull request" \
   --context <pr-review-context-id>
+nine-tails inspect pr-review --include tools
 nine-tails call --context <pr-review-context-id> complete-pr-diff \
   --input '{"pr": 1842}'
 ```
@@ -189,6 +220,14 @@ nine-tails inspect pr-review --include base,brief,journal
 nine-tails inspect <pr-review-context-id>
 nine-tails inspect pr-review --lane recall --query "generated mocks"
 ```
+
+`load` uses the concise `--task` to retrieve up to three matching recall
+excerpts, capped at 360 characters each. The lexical search respects metadata
+conflicts and labels results as data, with record IDs, truncation notices, and
+inspection paths. Guidance is never shortened or evicted to make room.
+Override retrieval with `--query "generated mocks"`, or disable it for a load
+with `--query ""`. This matches words rather than inferring synonyms; use
+`inspect` or a different query when you need other evidence.
 
 Data goes to stdout and diagnostics to stderr. Core data commands are
 non-interactive; `hooks run` is the explicit interactive supervisor. Commands
@@ -222,6 +261,13 @@ child's task, using a concise non-sensitive purpose, and put the complete task
 on the following lines. The child runs it and returns its new receipt. This
 works with any harness that can invoke a CLI; no special subagent type is
 required.
+
+The optional [MCP adapter](docs/mcp.md) gives a connected host a stable native
+tool menu for loading, learning, inspection, state, and tool execution.
+`nt_tools` discovers the current agent's executable capabilities, and
+`nt_call` invokes them with an explicit receipt. Concurrent agents keep their
+own receipt identities. Configuring a host to launch `nine-tails mcp` is optional;
+the CLI supports the same work.
 
 Claude Code and Codex can also receive capsules through opt-in lifecycle
 adapters:
@@ -289,10 +335,10 @@ To move an agent to another machine or share it with someone else, use
 `export --bundle` and `import`. No repository-aware synchronization is hidden
 inside the binary.
 
-## Compiling the journal
+## Optional condensation
 
 Recent adjustments remain visible immediately. When they grow large,
-`compile` can turn them into a durable brief through any command that reads the
+`compile` can condense them into a cached brief through any command that reads the
 compile document on stdin and writes the result on stdout:
 
 ```yaml
@@ -310,6 +356,13 @@ For a manual or custom-model workflow, use `compile-input` followed by
 `brief put`. Compiler output is validated for complete dispositions and
 installed with compare-and-swap protection.
 
+Original lessons remain authoritative. Compiler input includes the original
+source bodies behind existing summaries. If a compiled representation is
+inapplicable or cannot render on a load, the eligible source guidance returns
+in full. Compilation is never a checkpoint required to activate learning.
+
+## State and handoffs
+
 State updates preserve existing metadata when `--meta` is omitted. Set scope
 explicitly on creation; `--context` does not copy it. On update, `--meta`
 replaces the complete set and `--clear-meta` explicitly removes it. Bundle
@@ -321,8 +374,9 @@ state version; an explicit agent must match that receipt's owner.
 
 Keep changing project decisions in one named, scoped state; give other roles
 scoped retrieval pointers instead of copying values into their bases. Keep
-bases project-neutral and verify reuse with a small task from an unrelated
-domain, not just an unrelated project load or neutral names.
+bases project-neutral and check applicability before carrying a previous
+project's decisions into a new one. Capsules display resolved metadata and
+state CAS recipes so a handoff need not start with help lookups.
 New starter guidance teaches this convention; upgrading the binary does not
 overwrite your existing pilot or reflector.
 

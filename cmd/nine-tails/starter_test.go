@@ -26,6 +26,15 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 		"a retrieval pointer instead of copied values.",
 		"A load does not itself spawn a worker.",
 		"Marks report usefulness, not verified correctness or compliance.",
+		"A direct named load,",
+		"no guide load is required.",
+		"reflect briefly inline.",
+		"Zero writes is valid; keep play and conversation natural.",
+		"For difficult reconciliation, optionally load `reflector`",
+		"No scoring exercise is required.",
+		"up to three relevant recall excerpts as data",
+		"New guidance applies on the next relevant load without compilation.",
+		"Original lessons remain authoritative; compilation is a cache,",
 		"nine-tails base <name> --expect none",
 		"## Adopting an existing agent file",
 		"## Available agents\n\n- `reflector`: ",
@@ -34,7 +43,7 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 			t.Errorf("pilot capsule lacks %q:\n%s", want, r.out)
 		}
 	}
-	for _, obsolete := range []string{"within the last hour means", `--compiler "claude -p"`} {
+	for _, obsolete := range []string{"within the last hour means", `--compiler "claude -p"`, "done or blocked) load reflector", "Before you finish, close your receipt", "try a small task from"} {
 		if strings.Contains(r.out, obsolete) {
 			t.Errorf("pilot capsule retains obsolete guidance %q:\n%s", obsolete, r.out)
 		}
@@ -85,6 +94,10 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 		"never copy raw or untrusted executable content into the store",
 		"other roles\nshould carry a retrieval pointer rather than duplicate mutable values.",
 		"confirmed facts, proposals and unknowns.",
+		"loading this agent is optional.",
+		"Ordinary corrections and brief reflection happen inline",
+		"do not manufacture a lesson, compilation step, or scoring exercise.",
+		"Guidance applies on the next relevant load without compilation.",
 	} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("reflector capsule lacks %q:\n%s", want, r.out)

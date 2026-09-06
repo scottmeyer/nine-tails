@@ -231,9 +231,11 @@ ctx_... value passed to --context identifies the originating load receipt,
 not the new record.`, `  nine-tails prefer pr-review "Lead with evidence and expected impact."
   nine-tails prefer --context ctx_72 "Run focused tests before the full suite."`
 	case "remember":
-		long, example = `Store a recall fact for explicit retrieval. Recall records are not
-loaded into context capsules and are never compiled into the brief. Find them
-with inspect --lane recall and, when useful, --query.
+		long, example = `Store useful experience or a recall fact. A load retrieves up to three
+relevant excerpts using --task, or an explicit --query override. Recall is
+data, not instructions, and is never automatically compiled into the brief.
+Use load --query "" to disable retrieval, or inspect --lane recall with --query
+to search full records.
 
 On success, stdout is the new immutable rec_... record id by default. A
 ctx_... value passed to --context identifies the originating load receipt,

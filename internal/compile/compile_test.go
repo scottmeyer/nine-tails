@@ -718,7 +718,7 @@ func TestBuildInput(t *testing.T) {
 	}
 	// each active item lists the entries it represents, with their own
 	// metadata, so a compiler can re-derive scope instead of inheriting it
-	if srcs := in.ActiveGeneration.Items[0].Sources; len(srcs) != 1 || srcs[0].ID != e1.ID || !reflect.DeepEqual(srcs[0].Meta, e1.Meta) {
+	if srcs := in.ActiveGeneration.Items[0].Sources; len(srcs) != 1 || srcs[0].ID != e1.ID || srcs[0].Body != e1.Body || srcs[0].Kind != e1.Kind || !reflect.DeepEqual(srcs[0].Meta, e1.Meta) {
 		t.Errorf("item sources: %+v", srcs)
 	}
 }

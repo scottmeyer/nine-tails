@@ -364,8 +364,8 @@ func newHooksDispatchCmd(a *app) *cobra.Command {
 	return c
 }
 
-// dispatchStop asks, once per stop cycle, for the open receipt to be closed
-// before the session ends. A closed receipt, a receipt that never loaded, or
+// dispatchStop reminds once per stop cycle about known updates and optional
+// closure. A closed receipt, a receipt that never loaded, or
 // a Stop that follows this hook's own continuation is silent.
 func (a *app) dispatchStop(adapter harnessadapter.Adapter, event harnessadapter.Event, decision harnessadapter.Decision) error {
 	if event.StopHookActive || decision.Context == "" {
@@ -392,17 +392,12 @@ func (a *app) dispatchStop(adapter harnessadapter.Adapter, event harnessadapter.
 	return adapter.EncodeContinue(a.stdout, closeNudge(exe, ctx.ID))
 }
 
-// closeNudge is the Stop hook's continuation prompt: harness-neutral, one
-// receipt, the marks legend, and permission to stop without closing.
+// closeNudge is a brief reminder, not a reflection or scoring assignment.
+// The gate and model conversation remain owned by the activated harness.
 func closeNudge(exe, ctxID string) string {
-	return "nine-tails: if your work under [nine-tails-context=" + ctxID + "] is finished, close the receipt before you stop. " +
-		"First record any correction you received: `" + exe + " prefer|avoid|note --context " + ctxID + " \"...\"`. " +
-		"Then `" + exe + " inspect " + ctxID + "` lists what the capsule rendered by ordinal with an excerpt, and " +
-		"`" + exe + " close " + ctxID + " 3=+++ 5=- ...` marks each line that mattered: + +++ +++++ it applied (nudged, shaped, decisive); " +
-		"- --- ----- it hindered (detour, misled, caused a mistake); X it is wrong as a statement, after writing its correction with --context; " +
-		"leave out every line that never came up. Marks report usefulness, not verified correctness or compliance. " +
-		"Check measurable claims before reporting success; correct a wrong clause even if another clause helped. " +
-		"If the work is not finished, stop without closing."
+	return "nine-tails: before ending work under [nine-tails-context=" + ctxID + "], save any already-known durable correction or changed state using its receipt. " +
+		"Zero writes is valid; do not manufacture a reflection task. " +
+		"Optional bookkeeping: `" + exe + " close " + ctxID + "`. You may stop without closing."
 }
 
 // tooLargePointer replaces a capsule the harness could not deliver whole. No
@@ -414,5 +409,5 @@ func tooLargePointer(agent string, meta store.Meta, e *capsule.TooLargeError) st
 			flags.WriteString(" --meta " + k + "=" + v)
 		}
 	}
-	return fmt.Sprintf("nine-tails: the %s capsule is %d bytes, over this harness's %d-byte hook limit, so it was not injected and no receipt was recorded. Load it in the session: nine-tails load %s --task \"<task>\"%s. If its \"Recent adjustments\" section is long, compile first: nine-tails compile %s.", agent, e.Bytes, e.Max, agent, flags.String(), agent)
+	return fmt.Sprintf("nine-tails: the %s capsule is %d bytes, over this harness's %d-byte hook limit, so it was not injected and no receipt was recorded. Load it in the session: nine-tails load %s --task \"<task>\"%s. If its \"Recent adjustments\" section is long, optional condensation is available: nine-tails compile %s.", agent, e.Bytes, e.Max, agent, flags.String(), agent)
 }

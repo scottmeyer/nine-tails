@@ -55,10 +55,12 @@ type ItemView struct {
 	Tally   *store.Tally `json:"tally" yaml:"tally"` // what practice says (DESIGN §18)
 }
 
-// SourceView is one guidance entry an active item represents: its id and the
-// metadata that entry carried explicitly.
+// SourceView retains the original evidence for a represented entry, so
+// repeated condensation does not have to reconstruct it from a summary.
 type SourceView struct {
 	ID   string     `json:"id" yaml:"id"`
+	Kind string     `json:"kind" yaml:"kind"`
+	Body string     `json:"body" yaml:"body"`
 	Meta store.Meta `json:"meta" yaml:"meta"`
 }
 
@@ -154,7 +156,7 @@ func BuildInput(q store.Querier, agent string) (*Input, error) {
 				if err != nil {
 					return nil, err
 				}
-				sources = append(sources, SourceView{ID: id, Meta: src.Meta})
+				sources = append(sources, SourceView{ID: id, Kind: src.Kind, Body: src.Body, Meta: src.Meta})
 			}
 			tally, err := store.TallyRecord(q, it.ID)
 			if err != nil {

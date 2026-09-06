@@ -1017,11 +1017,12 @@ func putNamed(tx Querier, nr NewRecord, expect string, preserveMeta bool) (*Reco
 	return InsertRecord(tx, nr)
 }
 
-// RecentGuidance is the ONLY implementation of DESIGN §7 rule 4: active
+// RecentGuidance is the compiler's global input selection: active
 // lane=guidance records for the agent, excluding brief items, that are absent
 // from the active generation's accounting or deferred by it. Accounting in an
 // old generation must not hide source guidance after a replacement generation
-// drops the corresponding item. Returned oldest first.
+// drops the corresponding item. Returned oldest first. Capsule assembly uses
+// contextual coverage instead, restoring sources whose summaries cannot render.
 func RecentGuidance(q Querier, agent string) ([]*Record, error) {
 	recs, err := ListRecords(q, Filter{Agent: agent, Lane: "guidance"})
 	if err != nil {

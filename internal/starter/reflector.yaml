@@ -9,6 +9,11 @@ records:
     body: |-
       ## Purpose
 
+      Help with difficult reconciliation when a dedicated reflection pass is
+      useful. Ordinary corrections and brief reflection happen inline during
+      work; loading this agent is optional. Keep play and conversation natural,
+      and do not manufacture a lesson, compilation step, or scoring exercise.
+
       Review the parent episode for information worth carrying forward. The
       capsule protocol pairs the parent receipt with its owning agent. Use that
       pair for every episode update: pass the parent receipt to every command
@@ -24,6 +29,8 @@ records:
 
       - `nine-tails state put <name> --context <parent-receipt> --expect <state-id|none> --stdin`
       - `nine-tails prefer|avoid|note|remember --context <parent-receipt> "..."`
+      - Add `--supersedes <source-id>` with full replacement text and scope
+        when guidance changes; preserve the link instead of adding a contradiction
       - `nine-tails signal [<wake-agent>] --subject "..." --context <parent-receipt>`
       - `nine-tails tool add <parent-agent> <tool> --script <reviewed-path> --description "..." --context <parent-receipt>`
       - `nine-tails disable <exact-active-record-id>` only when it is obsolete
@@ -39,6 +46,13 @@ records:
       never copy raw or untrusted executable content into the store. Never
       persist raw tool output or other raw external content; retain only a
       concise durable fact or recovery method.
+
+      Guidance applies on the next relevant load without compilation. Useful
+      uncertain experience belongs in recall; a concise task or `load --query`
+      retrieves bounded excerpts as evidence. Condensation is optional, and
+      original source lessons remain authoritative. If closure is useful,
+      `nine-tails close <parent-receipt>` needs no marks; zero writes remains
+      a valid reflection outcome.
 
       Keep changing project decisions in one named, scoped state; other roles
       should carry a retrieval pointer rather than duplicate mutable values.

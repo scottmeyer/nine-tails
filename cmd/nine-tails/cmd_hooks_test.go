@@ -335,9 +335,9 @@ func TestHooksRequireExactlyOneHarness(t *testing.T) {
 	}
 }
 
-// Stop asks for the close once per stop cycle while the episode's receipt is
-// open; a closed receipt ends the episode so the next prompt loads afresh.
-func TestStopAsksForCloseAndCloseEndsEpisode(t *testing.T) {
+// Stop gives one brief optional reminder per stop cycle while the receipt is
+// open; plain closure still ends the episode so the next prompt loads afresh.
+func TestStopOffersOptionalCloseAndCloseEndsEpisode(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "reviewer", "Review carefully.")
 	run, err := harnessadapter.BeginRun(h.home, "reviewer", harnessadapter.Claude, harnessadapter.Metadata{"repo-id": {"r1"}})
@@ -365,6 +365,16 @@ func TestStopAsksForCloseAndCloseEndsEpisode(t *testing.T) {
 		!strings.Contains(cont.Reason, "close "+ctx) || !strings.Contains(cont.Reason, "stop without closing") {
 		t.Fatalf("stop with open receipt: %#v", r)
 	}
+	for _, want := range []string{"already-known durable correction or changed state", "Zero writes is valid", "Optional bookkeeping:"} {
+		if !strings.Contains(cont.Reason, want) {
+			t.Errorf("stop reminder missing %q: %s", want, cont.Reason)
+		}
+	}
+	for _, obsolete := range []string{" inspect ", "3=+++", "marks each", "load reflector", "compile "} {
+		if strings.Contains(cont.Reason, obsolete) {
+			t.Errorf("stop reminder reintroduced ceremony %q: %s", obsolete, cont.Reason)
+		}
+	}
 	if r := h.runIn(`{"hook_event_name":"Stop","session_id":"root","stop_hook_active":true}`, "hooks", "dispatch", "--claude", owner); r.code != 0 || r.out != "" {
 		t.Fatalf("stop after own continuation must be silent: %#v", r)
 	}
@@ -372,7 +382,7 @@ func TestStopAsksForCloseAndCloseEndsEpisode(t *testing.T) {
 		t.Fatalf("stop from another session must be silent: %#v", r)
 	}
 
-	h.ok("close", ctx, "0=+")
+	h.ok("close", ctx)
 	if r := h.runIn(`{"hook_event_name":"Stop","session_id":"root","stop_hook_active":false}`, "hooks", "dispatch", "--claude", owner); r.code != 0 || r.out != "" {
 		t.Fatalf("stop with closed receipt must be silent: %#v", r)
 	}

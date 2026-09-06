@@ -1,0 +1,35 @@
+# Agent tools over MCP
+
+`nine-tails mcp` is an optional local stdio adapter. A host launches the process and consumes newline-delimited JSON-RPC. It adds no network listener, model loop, scheduler, or separate knowledge store. Protocol negotiation supports MCP 2025-11-25; clients requesting another revision receive that supported revision and may disconnect.
+
+Configure any compatible MCP client with:
+
+```json
+{"mcpServers":{"nine-tails":{"command":"/absolute/path/to/nine-tails","args":["mcp"]}}}
+```
+
+Use the absolute built binary path, or an executable available to the host. The default store is `~/.nine-tails`; an explicit `--home` selects another store. No global client configuration is changed by installation. A running host must connect the server before these operations appear in its native tool menu.
+
+The tool menu stays stable:
+
+| Tool | Purpose |
+| --- | --- |
+| `nt_load` | Load an agent, record its receipt, and return current guidance plus relevant experience. |
+| `nt_learn` | Save a preference, warning, guidance, or recall; optionally supersede older knowledge. |
+| `nt_inspect` | Retrieve full records, search history, or inspect an agent. |
+| `nt_tools` | Discover current agent-owned and shared executable capabilities using a receipt. |
+| `nt_call` | Invoke a discovered capability through its receipt scope. |
+| `nt_state` | Read named state or update it with compare-and-swap. |
+| `nt_close` | Finish a receipt without a scoring exercise. |
+
+For example, `nt_load({"agent":"game.playtester","task":"Check Soccer Chess passing lanes","meta":{"repo-id":"soccer-chess","harness":"my-host"}})` returns a capsule with a `context_id`. Use that exact id on subsequent calls. `nt_tools({"context":"ctx_..."})` returns tool descriptions, declared input fields and call templates. Discovery does not dynamically add each underlying tool to the host's native menu: execution goes through `nt_call`.
+
+On state updates, omitted `meta` preserves scope and an explicit empty `meta: {}` clears it. Nonempty metadata replaces the complete set, with the same key grammar as the CLI. JSON numbers in tool inputs retain their exact decimal representation. Successful script stdout, including whitespace and empty output, is preserved in the result; script stderr remains on the MCP process stderr.
+
+Each invocation carries its own receipt. Loading a second agent does not change the first agent's calls or mutate connection-wide persona state. Current definitions and metadata filtering are shared with CLI behavior. Responses include `isError` for operation failures; invalid protocol requests and unknown tool arguments use JSON-RPC errors. Initialization and discovery of the fixed MCP menu do not open the knowledge store.
+
+Scripts run from the MCP server's launch directory. Launch the server in the project where its scripts should operate, or use a separate server process per working directory. A receipt carries applicability, not a filesystem working directory or authorization grant. Tools keep their declared execution timeouts. This first adapter processes requests sequentially and treats cancellation notifications as advisory; it does not implement HTTP transport, progressive output, or server-initiated model calls.
+
+The authoritative learning operations remain the CLI/store functions. The adapter never infers permissions, copies transcripts into memory, or changes the user's host configuration.
+
+Protocol references: [Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle), [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), [tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).

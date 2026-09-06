@@ -134,6 +134,7 @@ inspected, disabled, or used for compare-and-swap; they are not context ids.`,
 		newExportCmd(a),
 		newImportCmd(a),
 		newHooksCmd(a),
+		newMCPCmd(a),
 	}
 	root.AddGroup(
 		&cobra.Group{ID: "everyday", Title: "Everyday Commands:"},

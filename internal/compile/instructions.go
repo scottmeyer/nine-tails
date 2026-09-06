@@ -8,6 +8,9 @@ const DefaultInstructions = `You are the brief compiler for one nine-tails agent
 reading carries the agent's base instructions, the items of its active brief
 generation (if any) and the recent guidance entries that are not yet
 represented in the brief. Produce the next generation of brief items.
+Compilation is an optional condensation cache, not a learning checkpoint.
+Read the original source bodies attached to existing items; earlier summaries
+are not substitutes for that evidence.
 
 Rules:
 - Preserve concrete user corrections.

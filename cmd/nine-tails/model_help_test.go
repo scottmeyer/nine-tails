@@ -129,7 +129,9 @@ func TestModelFacingCommandHelp(t *testing.T) {
 			name: "remember",
 			args: []string{"remember", "--help"},
 			wants: []string{
-				"Recall records are not\nloaded into context capsules and are never compiled into the brief",
+				"A load retrieves up to three\nrelevant excerpts using --task",
+				"data, not instructions, and is never automatically compiled into the brief",
+				`Use load --query "" to disable retrieval`,
 				"--supersedes rec_...",
 				"nine-tails inspect pr-review --lane recall --query \"patch bodies\" --format json",
 			},
