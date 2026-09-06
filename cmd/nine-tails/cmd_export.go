@@ -22,7 +22,8 @@ func newExportCmd(a *app) *cobra.Command {
 		Long: `Write {nine_tails_export: 1, agent, records: [envelopes oldest first],
 omitted_artifacts: [tool ids]} for an agent. Sections: base, brief, journal
 (guidance and recall), state (owned state and state-link definitions), tools
-(agent-owned), agents (related agents); referenced foreign values never travel;
+(agent-owned), agents (related agents and guidance-link definitions); referenced
+foreign values never travel;
 --include picks a subset. Contexts, generations and signals never travel.
 
 Plain YAML cannot carry scripts: tools with an artifacts/ path anywhere in
@@ -94,7 +95,7 @@ guidance and recall records are plain inserts. The document describes one
 agent: a record naming another agent is exit 2. Tool artifacts are copied
 under the new id and every managed exec.argv path rewritten; a tool whose
 artifact the document does not carry (plain YAML) is skipped with a warning
-and the active definition kept. Tool bodies, state bodies, state-link targets and metadata keys
+and the active definition kept. Tool bodies, state bodies, state-link targets, guidance-link sources and metadata keys
 are validated as put would, and any failure aborts the whole import (exit 2).
 Signal records are skipped with a warning. Prints one new id per line
 (json: {ids: {old: new}}).`,

@@ -634,6 +634,10 @@ assigns a new record ID with normal import provenance, and preserves its literal
 target even if the subscribing agent is renamed. A missing destination target
 is reported on load, not silently supplied from the exporting store.
 
+The `agents` export section includes related-agent and guidance-link definitions.
+Guidance-link imports validate the literal source owner but never copy source
+guidance, source records, or source-owned context.
+
 YAML export cannot carry script or other artifact bytes. Portable export of an
 agent with artifacts uses a directory or tar archive containing a manifest and
 relative artifact paths:
@@ -927,6 +931,7 @@ Structured callers may request JSON:
     }
   ],
   "state_links": [],
+  "guidance_links": [],
   "tools": ["recall-memory", "complete-pr-diff"],
   "agents": ["evidence-reviewer", "comment-editor"],
   "recall": [
@@ -965,6 +970,9 @@ discipline, not a security boundary.
 `state_links[]` lists `{id, name, target, state_id, meta}` for successful
 subscriptions. Referenced bodies do not enter `instructions`; owned state's
 existing placement there remains labeled data by the protocol.
+`guidance_links[]` lists `{id, ref, name, source, guidance_id, guidance_ref,
+meta, source_meta}` for successful one-hop subscriptions. Its source guidance
+is labeled instruction material and is separately represented by receipt rows.
 
 ### 10.2 Assembly
 
@@ -980,7 +988,12 @@ The initial resolver should be deliberately simple:
    Compiler `superseded-by` accounting suppresses only when the successor
    chain reaches an eligible renderable source, directly or through its brief;
    a cycle or inapplicable successor cannot hide the source.
-4. Load advertised tool and related-agent descriptions.
+4. Load active direct source guidance through eligible explicit guidance links
+   (§11.4.2), after local guidance and before tools. Source base, state,
+   recall, tools, related agents, catalog, brief text, and links are never
+   rendered or traversed; source lifecycle accounting is consulted only to
+   retain its current guidance semantics.
+   Then load advertised tool and related-agent descriptions.
    Resolve eligible explicit state links one hop to current named state (§11.4.1),
    placing those bodies in a separate data section after agents and before recall.
 5. Load due, unacknowledged signals addressed to that agent as a separate data
@@ -1393,6 +1406,42 @@ which version they received.
 State is not a historical log. Before replacing state, an agent may append a
 recall entry when the transition itself will matter later. Durable behavioral
 learning belongs in guidance rather than state.
+
+#### 11.4.2 Scoped shared-guidance subscriptions
+
+`lore agent follow [<subscriber>/]<alias> <source-agent> --expect
+none|<link-id>` creates a subscriber-owned `definition/guidance-link`. Its
+complete body is one literal source agent name. Generic definition `put` and
+import MUST enforce the same grammar and reject a self-link. The dedicated
+command requires CAS, accepts local record references for `--expect`, and a
+bare alias requires `--context` to select its subscriber. Metadata is the
+complete link scope; context is provenance only. Disabling a link never
+modifies the source.
+
+On each load, resolve only active direct source `guidance` records. Never render
+or derive source base/identity, brief/compiler text, state, recall, tools,
+related agents, catalog, or another guidance link. Honor source lifecycle
+accounting: an obsolete record stays suppressed only if its current eligible
+successor can render through the same link, while represented sources remain
+raw because foreign brief items never cross. A source correction,
+replacement, or disable therefore applies on the next load through ordinary
+active-record selection. Apply the scoped subscription as a conjunction: for
+each metadata key constrained by link, source, or load, all present value sets
+MUST have a nonempty intersection. A missing key remains a wildcard. This
+prevents `{a,b}` link scope and `{b,c}` source scope from crossing a load
+scoped `{a,c}`.
+
+Render local brief/recent guidance before **Shared guidance**. Each shared
+entry MUST label its source owner, source record, source scope, and every
+successful subscriber link. Deduplicate identical source record IDs while
+retaining each link in `guidance_links[]` and receipt section `guidance-links`;
+the source record appears once in `shared-guidance`. Shared text is part of
+Instructions and full Markdown and counts toward size limits and estimated
+tokens, but not `uncompiled_adjustments`, because the subscriber cannot compile
+foreign guidance. A source agent with records but no active guidance is a valid
+inert subscription. A truly missing source is a bounded actionable skipped
+diagnostic; scope conflicts are silently omitted. Export/import carries only
+the link definition in the `agents` section, never copied source guidance.
 
 Starter agent guidance should teach one named, scoped home for mutable project
 decisions and explicit state links in selected roles instead of copied values.

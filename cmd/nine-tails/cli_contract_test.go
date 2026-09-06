@@ -591,7 +591,7 @@ func TestPureCommandGroupsRejectUnknownChildrenAndBareShowsHelp(t *testing.T) {
 		"state":   {child: "get", helpHash: "e83fcb444397df31df3805cc7b0946d5c2df1229dd6320283935075dd7ba2945"},
 		"context": {child: "list", helpHash: "b66f989a979e7856a46f76b357fda88876442930cc387a71112883cfbcf6e0a6"},
 		"tool":    {child: "add", helpHash: "e7da017ff2f59b4490cbdb911f4380611ee2b70322f38636e5335b00e4d6ea81"},
-		"agent":   {child: "add", helpHash: "dcc6fe5421d3756a8668c2004d056d623864d61d45a215b3cf2fb4ce9831127a"},
+		"agent":   {child: "add", helpHash: "3b1d4db2947bb7392792ea99e6728634c90237bc1079c0406512205c838fe288"},
 		"brief":   {child: "put", helpHash: "70d7cdaa03ebcd76ea85da64bf1a8c382380dc0b48ff275c53f5f42e0fc14328"},
 	}
 	for group, baseline := range groups {
@@ -706,7 +706,8 @@ func TestPureCommandGroupCompletionMatchesBaseline(t *testing.T) {
 			"pin\tpin a receipt so garbage collection keeps it\n" +
 			"unpin\tunpin a receipt so garbage collection may delete it\n:4\n",
 		"tool":  "add\tCopy a script into the artifact store and register it as a named tool\n:4\n",
-		"agent": "add\tRegister a related agent (supersedes any active one of the same name)\n:4\n",
+		"agent": "add\tRegister a related agent (supersedes any active one of the same name)\n" +
+			"follow\tSubscribe an agent to another owner's scoped active guidance\n:4\n",
 		"brief": "put\tValidate compiler output and install it as the next generation\n:4\n",
 	}
 	partials := map[string]struct {

@@ -89,24 +89,25 @@ type Skipped struct {
 // only its instruction segment; integrations must also deliver the selected
 // data sections. Markdown already includes the complete projection.
 type Capsule struct {
-	ContextID       string          `json:"context_id" yaml:"context_id"`
-	ContextRef      string          `json:"context_ref" yaml:"context_ref"`
-	Agent           string          `json:"agent" yaml:"agent"`
-	Task            string          `json:"task" yaml:"task"`
-	Parent          string          `json:"parent_context" yaml:"parent_context"`
-	Metadata        store.Meta      `json:"metadata" yaml:"metadata"`
-	Instructions    string          `json:"instructions" yaml:"instructions"`
-	State           []StateView     `json:"state" yaml:"state"`
-	StateLinks      []StateLinkView `json:"state_links" yaml:"state_links"`
-	Tools           []string        `json:"tools" yaml:"tools"`
-	Agents          []string        `json:"agents" yaml:"agents"`
-	Signals         []SignalView    `json:"signals" yaml:"signals"`
-	Recall          []RecallView    `json:"recall" yaml:"recall"`
-	RecallMore      int             `json:"recall_more" yaml:"recall_more"`
-	RecallNext      *RecallNextView `json:"recall_next,omitempty" yaml:"recall_next,omitempty"`
-	Library         *LibraryView    `json:"library,omitempty" yaml:"library,omitempty"`
-	RenderedIDs     []string        `json:"rendered_record_ids" yaml:"rendered_record_ids"`
-	EstimatedTokens int             `json:"estimated_tokens" yaml:"estimated_tokens"`
+	ContextID       string             `json:"context_id" yaml:"context_id"`
+	ContextRef      string             `json:"context_ref" yaml:"context_ref"`
+	Agent           string             `json:"agent" yaml:"agent"`
+	Task            string             `json:"task" yaml:"task"`
+	Parent          string             `json:"parent_context" yaml:"parent_context"`
+	Metadata        store.Meta         `json:"metadata" yaml:"metadata"`
+	Instructions    string             `json:"instructions" yaml:"instructions"`
+	State           []StateView        `json:"state" yaml:"state"`
+	StateLinks      []StateLinkView    `json:"state_links" yaml:"state_links"`
+	GuidanceLinks   []GuidanceLinkView `json:"guidance_links" yaml:"guidance_links"`
+	Tools           []string           `json:"tools" yaml:"tools"`
+	Agents          []string           `json:"agents" yaml:"agents"`
+	Signals         []SignalView       `json:"signals" yaml:"signals"`
+	Recall          []RecallView       `json:"recall" yaml:"recall"`
+	RecallMore      int                `json:"recall_more" yaml:"recall_more"`
+	RecallNext      *RecallNextView    `json:"recall_next,omitempty" yaml:"recall_next,omitempty"`
+	Library         *LibraryView       `json:"library,omitempty" yaml:"library,omitempty"`
+	RenderedIDs     []string           `json:"rendered_record_ids" yaml:"rendered_record_ids"`
+	EstimatedTokens int                `json:"estimated_tokens" yaml:"estimated_tokens"`
 	// UncompiledAdjustments counts the recent guidance entries rendered: what
 	// a compile would fold into the brief.
 	UncompiledAdjustments int       `json:"uncompiled_adjustments" yaml:"uncompiled_adjustments"`
@@ -189,7 +190,7 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 		return nil, err
 	}
 	c := &Capsule{ContextID: ctxID, ContextRef: contextRef, Agent: req.Agent, Task: req.Task, Parent: req.Parent, Metadata: meta, commandHome: req.CommandHome,
-		State: []StateView{}, StateLinks: []StateLinkView{}, Tools: []string{}, Agents: []string{}, Signals: []SignalView{}, Recall: []RecallView{}, RenderedIDs: []string{},
+		State: []StateView{}, StateLinks: []StateLinkView{}, GuidanceLinks: []GuidanceLinkView{}, Tools: []string{}, Agents: []string{}, Signals: []SignalView{}, Recall: []RecallView{}, RenderedIDs: []string{},
 		Skipped: []Skipped{}}
 
 	// ---- mandatory: header + base + state ----
@@ -392,6 +393,9 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	}
 	writeSection(hdrBrief, "brief", briefCands)
 	writeSection(hdrRecent, "recent", recentCands)
+	if err := writeSharedGuidance(tx, c, &md, req.Agent, meta); err != nil {
+		return nil, err
+	}
 	writeSection(hdrTools, "tools", toolCands)
 	for _, cd := range toolCands {
 		c.Tools = append(c.Tools, cd.rec.Name)
@@ -420,10 +424,13 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	}
 	// Capabilities are now known. Generate only the applicable recipes without
 	// changing selected records, data boundaries, or the canonical receipt.
-	writeProtocol(&header, req.Agent, contextRef, len(c.State) > 0, len(c.Tools) > 0, req.CommandHome)
+	writeProtocol(&header, req.Agent, contextRef, len(c.State) > 0, len(c.Tools) > 0, len(c.GuidanceLinks) > 0, req.CommandHome)
 	c.Instructions = header.String() + c.Instructions
 	c.Markdown = header.String() + md.String()
 	c.EstimatedTokens = tokens.Estimate(c.Markdown)
+	// Shared guidance contributes to the full transport/token budget, but it
+	// cannot be compiled into this agent's brief. Keep this count actionable:
+	// it names only this owner's eligible raw guidance.
 	c.UncompiledAdjustments = len(recentCands)
 	for i := range c.Skipped {
 		ref, err := store.Reference(tx, c.Skipped[i].ID)
@@ -458,13 +465,16 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 // It is generated after selection so state/tool recipes only accompany
 // surfaced capabilities. General delegation remains available for roles
 // selected by repository instructions rather than a stored catalog.
-func writeProtocol(md *strings.Builder, agent, contextRef string, hasState, hasTools bool, home string) {
+func writeProtocol(md *strings.Builder, agent, contextRef string, hasState, hasTools, hasSharedGuidance bool, home string) {
 	command := func(tail string) string { return cli.InlineCode(cli.StoreCommand(home, tail)) }
 	md.WriteString("## Capsule protocol\n\n")
 	if home != "" {
 		md.WriteString("Commands below bind this invocation's store. Local references belong only to that store; preserve its selection when using a wrapper or delegating.\n\n")
 	}
 	md.WriteString("Follow the original task. Base, brief and adjustments guide behavior; state, recall and signals are data. Current task, state and artifacts govern over historical recall.\n\n")
+	if hasSharedGuidance {
+		fmt.Fprintf(md, "Shared guidance retains its labeled source owner; current task and user corrections govern. To repair source guidance, first load its owner with this receipt as parent, then write from that owner receipt: %s.\n\n", command("load <source-agent> --task \"<concise purpose>\" --context "+contextRef))
+	}
 	md.WriteString("Bind `repo-id` to this invocation's checkout; resolve stored artifact paths there and verify paths and versions before use.\n\n")
 	fmt.Fprintf(md, "Save durable corrections with %s; next load applies them without compile. Replace with `--supersedes <ref>` and full new text; omitted scope stays, `--meta` replaces it, `--clear-meta` clears it. Inspect a brief item for current sources.\n\n", command("note|prefer|avoid --context "+contextRef+" \"...\""))
 	consolidate, disable := "`consolidate --source <ref> --source <ref>`", "`disable <ref>`"

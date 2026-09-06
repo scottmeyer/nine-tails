@@ -193,12 +193,12 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 		t.Fatal("canonical receipt must remain in its marker, without repetition in command recipes")
 	}
 	var widest strings.Builder
-	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", false, false, "")
+	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", false, false, false, "")
 	if widest.Len() > 1650 {
 		t.Fatalf("maximum-width reference root protocol is %d bytes", widest.Len())
 	}
 	widest.Reset()
-	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", true, true, "")
+	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", true, true, false, "")
 	if widest.Len() > 2000 {
 		t.Fatalf("maximum-width reference protocol is %d bytes", widest.Len())
 	}
@@ -488,7 +488,7 @@ func TestCapsuleYAMLShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, key := range []string{
-		"context_id", "agent", "task", "parent_context", "metadata", "instructions", "state", "state_links", "tools", "agents",
+		"context_id", "agent", "task", "parent_context", "metadata", "instructions", "state", "state_links", "guidance_links", "tools", "agents",
 		"signals", "recall", "rendered_record_ids", "estimated_tokens", "uncompiled_adjustments", "skipped",
 	} {
 		if _, ok := got[key]; !ok {

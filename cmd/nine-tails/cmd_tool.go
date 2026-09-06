@@ -234,13 +234,16 @@ func strictDescendant(root, target string) bool {
 func newAgentCmd(a *app) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "agent",
-		Short: "Advertise related agents in an agent's capsule",
+		Short: "Manage related-agent advertisements and shared-guidance subscriptions",
 		Long: `A related agent is a name and a one-line description rendered under
 "## Available agents" so the loading model knows it may load that agent:
   agent add <agent> <name> --description "..."
-This is exactly put <agent> --lane definition --kind related-agent --name <name>.`,
+This is exactly put <agent> --lane definition --kind related-agent --name <name>.
+
+agent follow creates a scoped one-hop subscription to another owner's active
+guidance; it never imports that owner's capsule or copies its records.`,
 	}
-	c.AddCommand(newAgentAddCmd(a))
+	c.AddCommand(newAgentAddCmd(a), newAgentFollowCmd(a))
 	return commandGroup(c)
 }
 

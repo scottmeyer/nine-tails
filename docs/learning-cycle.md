@@ -15,6 +15,7 @@ not need a second model service or a successful compilation to learn.
 | An old defect report or instruction is obsolete | Inspect it, then `disable <ref> --context <receipt> --reason "..."` | Inspectable history and reason; no future automatic surfacing |
 | An experience might help but is not a general rule | `remember --context <receipt> "..."` | Task-relevant evidence, with its date and provenance |
 | A project decision or result changes | `state put` with the current expected ID | Current named state; linked roles receive it on their next load |
+| Several roles should use the same standing guidance | `agent follow <role>/<alias> <owner> --expect none --meta repo-id=<project>` | The owner's current applicable guidance, with its source and correction history |
 | Nothing durable changed | Keep working | No write |
 
 Explicit user instruction is evidence of what the user wants. A model's guess
@@ -51,6 +52,28 @@ home so a copied command cannot silently use another store's local reference.
 That absolute command path belongs to the current invocation and is regenerated
 on load; keep durable artifact references repository-relative. Preserve the
 store selection when translating a recipe to a project wrapper.
+
+## Sharing guidance without copying a persona
+
+Choose one owner for shared user preferences. A role can opt in with a named,
+scoped subscription:
+
+```sh
+./nt agent follow game.engineer/project workshop --expect none --meta repo-id=soccer-chess
+```
+
+On the next game.engineer load, applicable workshop guidance appears with its
+source. Correct it at workshop once; subsequent subscribers receive the current
+version. The subscription includes neither workshop's identity nor its tools,
+recall, state, or subscriptions. Keep changing project facts in named state and
+use state links for those. Scope both the subscription and the guidance; supply
+the invocation's stable repository identity on load.
+
+Use `inspect <role> --include agents` to find subscriptions. Updating one needs
+its current record as `--expect`; disabling it stops future delivery without
+changing the source. Before retiring a copied local instruction, verify that
+the shared source preserves its whole meaning and that the subscription covers
+every context where it should apply. Keep role-specific exceptions local.
 
 ## Consolidation is semantic work
 

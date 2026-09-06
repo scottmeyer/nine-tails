@@ -666,6 +666,15 @@ func InsertRecord(tx Querier, nr NewRecord) (*Record, error) {
 			return nil, err
 		}
 	}
+	if nr.Lane == "definition" && nr.Kind == "guidance-link" {
+		source, err := GuidanceLinkTarget(nr.Body)
+		if err != nil {
+			return nil, err
+		}
+		if source == nr.Agent {
+			return nil, fmt.Errorf("%w: guidance link source must not be its owning agent", ErrInvalid)
+		}
+	}
 	if nr.Supersedes != "" {
 		res, err := tx.Exec(`UPDATE records SET status = 'superseded' WHERE id = ? AND status = 'active'`, nr.Supersedes)
 		if err != nil {

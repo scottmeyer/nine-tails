@@ -417,6 +417,7 @@ nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N]
                                 [--coverage C] [--lint condition-loss] [--format json|yaml]
 nine-tails tool add <agent> <name> --script PATH (--description D | --stdin) [--meta]... [--context ctx]
 nine-tails agent add <agent> <name> --description D [--meta]...
+nine-tails agent follow [<subscriber>/]<alias> <source-agent> --expect none|<link-id> [--context ctx] [--meta]...
 nine-tails call [--context ctx | --agent A] <tool> [--input JSON | --stdin]
 nine-tails signal [<agent>] --subject S [--body B | --stdin] [--at RFC3339|+5m] [--dedupe-key K] [--meta]... [--context ctx]
 nine-tails signal ack <sig-id> --lease <token>
@@ -694,9 +695,23 @@ never advertises a compile checkpoint or scores the capsule. The legacy
 `compile_advice_tokens` setting remains readable for existing configurations
 but does not trigger a load diagnostic. Advanced condensation is explicit.
 
+Guidance links are active agent-owned `definition/guidance-link` records. A
+link's literal source owner contributes only active direct guidance entries,
+never brief items. Source lifecycle accounting still suppresses an obsolete
+entry when an applicable current successor will render; represented entries
+remain raw because source brief text never crosses the link. The link, source
+record, and load scope must share a value
+for every constrained key; ordinary missing load metadata remains a wildcard.
+Local guidance
+renders first. Identical source record IDs are grouped while every link remains
+provenance. This is one hop: no source base, state, recall, tools, related
+agents, catalog, or links are loaded. An existing source with no active
+guidance is valid; an absent source produces a bounded skipped diagnostic.
+
 Receipt: `contexts` row + resolved `context_metadata` + `context_records` for
-every rendered record with `section` ∈ {base, state, brief, recent, tools,
-agents, state-links, referenced-state, recall, signals} and `ordinal` = render order. Only selected recall IDs
+every rendered record with `section` ∈ {base, state, brief, recent,
+shared-guidance, guidance-links, tools, agents, state-links, referenced-state,
+recall, signals} and `ordinal` = render order. Only selected recall IDs
 are recorded; candidates examined by retrieval are not recorded as seen.
 
 Markdown output (exact shape — tests assert on it):
@@ -841,7 +856,7 @@ with `[` in a record with no meta is emitted as `\[` so it cannot be mistaken
 for a bracket.
 
 JSON output: spec §10.1 shape — `context_id, context_ref, agent, task, parent_context,
-metadata, instructions, state[], state_links[], tools[], agents[], recall[], recall_more, recall_next?, library?, signals[],
+metadata, instructions, state[], state_links[], guidance_links[], tools[], agents[], recall[], recall_more, recall_next?, library?, signals[],
 rendered_record_ids, estimated_tokens, uncompiled_adjustments, skipped[]`.
 An optional `library: {count, inspect}` gives the size of the active same-agent
 recall library under resolved context scope and an exact paged inspection
@@ -869,6 +884,12 @@ kind, excerpt (without …), truncated, meta, inspect}`. Origin refs are omitted
 when provenance has no known local alias; the canonical origin stays intact.
 `signals[]` = `{id, ref, subject, excerpt (without …), truncated, state,
 leased_until?, meta, inspect}`.
+
+`guidance_links[]` = `{id, ref, name, source, guidance_id, guidance_ref, meta,
+source_meta}` identifies each successful subscription and source record.
+Shared guidance enters Instructions, full Markdown, `estimated_tokens`, and
+transport limits, but not `uncompiled_adjustments`: the subscriber cannot
+compile foreign guidance.
 
 ## 8. State (spec §11.4)
 
@@ -940,6 +961,31 @@ for their own. No write authority is conferred. A transport size failure rolls
 back the entire receipt, including references. Exports and agent inspections
 include the agent's link definitions in the `state` section; they never copy
 foreign target values or recursively export their owners.
+
+### 8.2 Scoped shared-guidance subscriptions
+
+`agent follow [<subscriber>/]<alias> <source-agent> --expect none|<link-id>`
+creates or replaces a subscriber-owned `definition/guidance-link`. Its body is
+one literal source agent name; generic definition `put` and import enforce that
+grammar and reject self-links. A bare alias requires `--context`, which selects
+the subscriber; an explicit subscriber must match. `--expect` is required
+(`none` creates) and supports local record references. Link metadata is the
+complete scope; context supplies provenance. Disable a link normally without
+changing its source.
+
+Each load resolves active direct `guidance` records at the source owner only.
+It does not render source compiler/brief text, base, state, recall, tools,
+related agents, catalog, or subscriptions. Each constrained metadata key needs
+a nonempty value intersection across link, source, and load; missing keys keep
+normal wildcard semantics. Source successor accounting remains in force: an
+obsolete record stays suppressed only while its current eligible successor can
+render through the same link. Local recent guidance
+renders before **Shared guidance**. Each shared entry labels its source owner,
+source record, source scope, and every eligible link. Duplicate source IDs
+render once. A source with records but no active guidance is silently valid;
+an absent owner is skipped with a bounded inspection diagnostic. Receipt rows
+are `shared-guidance` for source records and `guidance-links` for definitions.
+Exports include link definitions in `agents`; they never copy source guidance.
 
 ## 9. Tools (spec §13)
 

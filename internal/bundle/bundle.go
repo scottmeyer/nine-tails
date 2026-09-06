@@ -67,7 +67,7 @@ func SectionOf(r *store.Record) string {
 		return "state"
 	case r.Lane == "definition" && r.Kind == "tool":
 		return "tools"
-	case r.Lane == "definition" && r.Kind == "related-agent":
+	case r.Lane == "definition" && (r.Kind == "related-agent" || r.Kind == "guidance-link"):
 		return "agents"
 	}
 	return "journal"
@@ -957,6 +957,15 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 			if lane == "definition" && kind == "state-link" {
 				if _, _, err := store.StateLinkTarget(body); err != nil {
 					return fmt.Errorf("%s: %w", label, err)
+				}
+			}
+			if lane == "definition" && kind == "guidance-link" {
+				source, err := store.GuidanceLinkTarget(body)
+				if err != nil {
+					return fmt.Errorf("%s: %w", label, err)
+				}
+				if source == agent {
+					return fmt.Errorf("%w: %s: guidance link source must not be its owning agent", store.ErrInvalid, label)
 				}
 			}
 			if lane == "definition" && kind == "tool" {
