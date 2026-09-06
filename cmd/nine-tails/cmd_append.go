@@ -147,8 +147,8 @@ func newAppendCmd(a *app) *cobra.Command {
 		Use:   "append [<agent>] [--supersedes <record-id>] [--] [TEXT]",
 		Short: "Add a generic immutable record to an agent",
 		Long: `Add a record. Lanes control mechanical treatment: guidance is rendered as
-recent adjustments and compiled into the brief; recall is kept for explicit
-lookup. Unknown kinds are allowed. --lane defaults to recall, so unknown
+recent adjustments and can be condensed into the brief; recall is retrieved
+by task on load or by explicit lookup. Unknown kinds are allowed. --lane defaults to recall, so unknown
 material never silently becomes always-on guidance. Definitions, state and
 signals have their own commands (put, base, state put, tool add, agent add,
 signal). With --context the <agent> may be omitted.`,

@@ -17,9 +17,10 @@ func newCloseCmd(a *app) *cobra.Command {
 	var format string
 	c := &cobra.Command{
 		Use:   "close <ctx-id> [<id-or-ordinal>=<mark>]...",
-		Short: "Close a receipt with a mark on each record it rendered",
-		Long: `Close the receipt of one load and say what each rendered record was worth
-for this run. Records are named by id or by their ordinal in the receipt
+		Short: "Optionally close a receipt, with optional feedback marks",
+		Long: `Close the receipt of one load. Plain close needs no marks or reflection;
+learning is already durable before closure. If useful, add feedback on
+rendered records by id or by their ordinal in the receipt
 (` + "`nine-tails inspect ctx_N`" + ` lists both, with an excerpt). Marks:
   + +++ +++++   it applied: nudged me, shaped the work, decisive
   - --- -----   it hindered: cost a detour, misled me, caused a mistake
