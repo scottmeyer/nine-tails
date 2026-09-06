@@ -101,8 +101,46 @@ type briefView struct {
 // recordView is one record plus the receipts that rendered it.
 type recordView struct {
 	store.RecordEnvelope `yaml:",inline"`
-	Delivery             *deliveryView `json:"delivery,omitempty" yaml:"delivery,omitempty"`
-	RenderedIn           []string      `json:"rendered_in" yaml:"rendered_in"`
+	Delivery             *deliveryView     `json:"delivery,omitempty" yaml:"delivery,omitempty"`
+	RenderedIn           []string          `json:"rendered_in" yaml:"rendered_in"`
+	Sources              *briefSourcesView `json:"sources,omitempty" yaml:"sources,omitempty"`
+}
+
+// Recorded evidence explains the historical brief. Current successors are
+// repair targets, not a claim that the historical text still represents them.
+type briefSourcesView struct {
+	Recorded []*store.Record `json:"recorded" yaml:"recorded"`
+	Current  []*store.Record `json:"current" yaml:"current"`
+}
+
+func briefSources(q store.Querier, itemID string) (*briefSourcesView, error) {
+	ids, err := store.BriefItemSources(q, itemID)
+	if err != nil {
+		return nil, err
+	}
+	v := &briefSourcesView{Recorded: []*store.Record{}, Current: []*store.Record{}}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		recorded, err := store.GetRecord(q, id)
+		if err != nil {
+			return nil, err
+		}
+		v.Recorded = append(v.Recorded, recorded)
+		currentID, err := store.LatestSuccessor(q, id)
+		if err != nil {
+			return nil, err
+		}
+		if seen[currentID] {
+			continue
+		}
+		current, err := store.GetRecord(q, currentID)
+		if err != nil {
+			return nil, err
+		}
+		seen[currentID] = true
+		v.Current = append(v.Current, current)
+	}
+	return v, nil
 }
 
 // signalRecordView is the record envelope plus its mechanical delivery state.
@@ -399,6 +437,12 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 		return nil, false, err
 	}
 	v := recordView{RecordEnvelope: rec.Envelope(), RenderedIn: []string{}}
+	if rec.Kind == "brief-item" {
+		v.Sources, err = briefSources(db, id)
+		if err != nil {
+			return nil, false, err
+		}
+	}
 	if rec.Lane == "signal" {
 		if d, err := store.GetDelivery(db, id); err == nil {
 			effective := deliveryViewAsOf(*d, a.now())

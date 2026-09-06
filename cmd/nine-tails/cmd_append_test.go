@@ -50,7 +50,7 @@ func TestSupersedeGuidanceRetag(t *testing.T) {
 	// renders as recent, with no obsolete compiled item left to lint.
 	r = h.ok("prefer", "a", "--supersedes", nu, "--meta", "repo-id=r1", "Trace the runtime and the shell policy separately.")
 	changed := r.id(t)
-	if out := h.ok("load", "a").out; !strings.Contains(out, "## Recent adjustments\n\n- [repo-id=r1] (prefer) Trace the runtime and the shell policy separately.\n") {
+	if out := h.ok("load", "a").out; !strings.Contains(out, "## Recent adjustments\n\n- `"+changed+"` [repo-id=r1] (prefer) Trace the runtime and the shell policy separately.\n") {
 		t.Fatalf("a changed body should render as recent:\n%s", out)
 	}
 	if got := h.ok("inspect", nu).json(t)["status"]; got != "superseded" {

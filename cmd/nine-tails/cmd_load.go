@@ -27,6 +27,8 @@ the exact record ids emitted. Its opaque ctx_... id appears as
 [nine-tails-context=...] in the capsule and is the only kind of id accepted by
 later --context flags; record ids and state CAS ids are not contexts. Pass
 --context to inherit a parent's metadata and link the new receipt.
+Explicit --meta keys replace inherited values for those keys; unspecified
+keys still inherit. Repeat --meta with the same key to select multiple values.
 
 The --task value is stored on that receipt and retrieves up to three matching
 recall excerpts. Use a concise, non-sensitive purpose and keep the complete
@@ -107,7 +109,7 @@ task in the calling harness conversation. --query overrides recall retrieval;
 	c.Flags().StringVar(&task, "task", "", "concise non-sensitive purpose stored on the receipt; the caller retains the full task")
 	c.Flags().StringVar(&query, "query", "", "recall search override (default: --task; explicitly empty disables recall)")
 	c.Flags().StringVar(&ctx, "context", "", "parent context receipt id (ctx_...); inherit its metadata")
-	c.Flags().StringArrayVar(&meta, "meta", nil, "ambient metadata key=value (repeatable)")
+	c.Flags().StringArrayVar(&meta, "meta", nil, "ambient key=value; supplied keys replace inherited values (repeatable)")
 	c.Flags().StringVar(&format, "format", "md", "md|json|yaml")
 	return c
 }

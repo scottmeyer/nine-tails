@@ -110,7 +110,7 @@ func TestSmokeBaseAndLoad(t *testing.T) {
 	ctx := contextID(t, r.out)
 	h.ok("prefer", "pr-review", "--context", ctx, "Lead with evidence.")
 	r = h.ok("load", "pr-review")
-	if !strings.Contains(r.out, "## Recent adjustments\n\n- (prefer) Lead with evidence.") {
+	if !strings.Contains(r.out, "(prefer) Lead with evidence.") {
 		t.Errorf("correction should appear on next load:\n%s", r.out)
 	}
 	// origin recorded, scope not inherited

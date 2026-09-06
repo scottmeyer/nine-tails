@@ -25,7 +25,10 @@ records:
          repository instruction file and `--meta harness=<harness>` whenever
          the harness is known. Use `harness=unknown` only when it genuinely
          cannot be identified. Later and nested calls inherit both through
-         `--context`; add only new facets.
+         `--context`; explicit child `--meta` keys replace inherited values
+         for those keys. Unspecified keys stay; repeat an explicit key to
+         deliberately select multiple values. Switching `repo-id` changes
+         project scope while retaining the harness.
       2. Pick the agent for the job from "Available agents" below or from
          `nine-tails agents`, then `nine-tails load <agent> --task "<concise non-sensitive purpose>" --context ctx_N`.
          Apply that capsule while preserving the original task; its receipt is

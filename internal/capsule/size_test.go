@@ -31,7 +31,7 @@ func TestLoadRendersEverythingAndCountsUncompiled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if brief, recent := strings.Count(c.Markdown, "- brief item"), strings.Count(c.Markdown, "(note) recent note"); brief != 10 || recent != 20 {
+	if brief, recent := strings.Count(c.Markdown, "` brief item"), strings.Count(c.Markdown, "(note) recent note"); brief != 10 || recent != 20 {
 		t.Fatalf("brief=%d recent=%d, want 10 and 20:\n%s", brief, recent, c.Markdown)
 	}
 	if c.UncompiledAdjustments != 20 || len(c.RenderedIDs) != 31 || c.EstimatedTokens <= 0 {

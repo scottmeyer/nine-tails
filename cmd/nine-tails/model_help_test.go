@@ -83,6 +83,8 @@ func TestModelFacingCommandHelp(t *testing.T) {
 				"record ids and state CAS ids are not contexts",
 				"The --task value is stored on that receipt",
 				"Use a concise, non-sensitive purpose",
+				"Explicit --meta keys replace inherited values for those keys",
+				"Repeat --meta with the same key to select multiple values",
 				"Examples:\n  nine-tails load pilot --task \"Review this change\"",
 			},
 		},

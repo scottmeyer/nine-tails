@@ -113,6 +113,13 @@ func ItemSources(q Querier, genID, itemID string) ([]string, error) {
 	return queryStrings(q, `SELECT entry_record_id FROM brief_item_sources WHERE generation_id = ? AND item_record_id = ? ORDER BY rowid`, genID, itemID)
 }
 
+// BriefItemSources returns the evidence linked to an immutable item, including
+// historical generations and source retags. A standalone imported item may
+// have no source links.
+func BriefItemSources(q Querier, itemID string) ([]string, error) {
+	return queryStrings(q, `SELECT DISTINCT entry_record_id FROM brief_item_sources WHERE item_record_id = ? ORDER BY rowid`, itemID)
+}
+
 // RepresentedEntryIDs returns the set of entry IDs the generation accounts for
 // as represented or superseded-by. Deferred entries are NOT included, so they
 // keep rendering as recent (spec §11.2).

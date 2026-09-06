@@ -95,7 +95,7 @@ func TestAC03(t *testing.T) {
 	ctx := contextID(t, h.ok("load", "correctable").out)
 	correction := h.ok("prefer", "correctable", "--context", ctx, "Lead with the failing assertion.").id(t)
 	r := h.ok("load", "correctable")
-	if !strings.Contains(r.out, "## Recent adjustments\n\n- (prefer) Lead with the failing assertion.\n") {
+	if !strings.Contains(r.out, "## Recent adjustments\n\n- `"+correction+"` (prefer) Lead with the failing assertion.\n") {
 		t.Fatalf("correction %s missing from next invocation:\n%s", correction, r.out)
 	}
 }
@@ -181,7 +181,7 @@ func TestAC07(t *testing.T) {
 		t.Fatalf("metadata was not preserved: %#v", meta)
 	}
 	matching := h.ok("load", "metadata", "--meta", "scope=two")
-	if !strings.Contains(matching.out, `- [custom="two words" scope=one scope=two] (prefer) Scoped guidance.`) {
+	if !strings.Contains(matching.out, `[custom="two words" scope=one scope=two] (prefer) Scoped guidance.`) {
 		t.Fatalf("arbitrary metadata was not rendered:\n%s", matching.out)
 	}
 	if conflicting := h.ok("load", "metadata", "--meta", "scope=other"); strings.Contains(conflicting.out, "Scoped guidance.") {

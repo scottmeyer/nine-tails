@@ -194,10 +194,10 @@ entries:
 	// AC8 / AC10: the brief renders as items, represented and superseded
 	// entries leave "Recent adjustments", the deferred one stays.
 	r = h.ok("load", "pr-review")
-	if !strings.Contains(r.out, "## Working brief\n\n- [phase=review] Lead review comments with concrete evidence.\n") {
+	if !strings.Contains(r.out, "[phase=review] Lead review comments with concrete evidence.\n") {
 		t.Errorf("brief section:\n%s", r.out)
 	}
-	if !strings.Contains(r.out, "## Recent adjustments\n\n- (prefer) Keep comments short.\n") {
+	if !strings.Contains(r.out, "(prefer) Keep comments short.\n") {
 		t.Errorf("deferred entry should stay recent:\n%s", r.out)
 	}
 	if strings.Contains(r.out, "(prefer) Lead with evidence") {
@@ -220,7 +220,7 @@ entries:
 
 	// a new prefer after the compile is recent again
 	e4 := h.ok("prefer", "pr-review", "--meta", "repo-id=r1", "Use bullet lists.").id(t)
-	if r = h.ok("load", "pr-review"); !strings.Contains(r.out, "- [repo-id=r1] (prefer) Use bullet lists.\n") {
+	if r = h.ok("load", "pr-review"); !strings.Contains(r.out, "- `"+e4+"` [repo-id=r1] (prefer) Use bullet lists.\n") {
 		t.Errorf("new prefer should be recent:\n%s", r.out)
 	}
 
@@ -302,7 +302,7 @@ entries:
 		t.Errorf("old item should be superseded: %s", r.out)
 	}
 	r = h.ok("load", "pr-review")
-	if !strings.Contains(r.out, "## Working brief\n\n- [phase=review] Lead review comments with concrete evidence; keep them short.\n- Use bullet lists.\n") {
+	if !strings.Contains(r.out, "[phase=review] Lead review comments with concrete evidence; keep them short.\n") || !strings.Contains(r.out, "` Use bullet lists.\n") {
 		t.Errorf("second generation brief:\n%s", r.out)
 	}
 	if strings.Contains(r.out, "## Recent adjustments") {
@@ -372,7 +372,7 @@ entries:
 	if in, err := os.ReadFile(inPath); err != nil || !strings.Contains(string(in), `"expect_generation": "`+gen2+`"`) || !strings.Contains(string(in), `"`+e5+`"`) {
 		t.Errorf("compiler should receive compile-input JSON on stdin: %s", in)
 	}
-	if r = h.ok("load", "pr-review"); !strings.Contains(r.out, "## Working brief\n\n- Cite the diff hunk.\n") {
+	if r = h.ok("load", "pr-review"); !strings.Contains(r.out, "` Cite the diff hunk.\n") {
 		t.Errorf("compiled generation should render:\n%s", r.out)
 	}
 	// the same fixture now echoes an entry that is no longer an input → 2
@@ -490,7 +490,7 @@ func TestCompileAC20ConcurrentInstall(t *testing.T) {
 	if g, err := store.ActiveGeneration(s.DB, "a"); err != nil || g.Status != "active" {
 		t.Fatalf("ActiveGeneration: %+v %v", g, err)
 	}
-	if r := h.ok("load", "a"); !strings.Contains(r.out, "## Working brief\n\n- body\n") {
+	if r := h.ok("load", "a"); !strings.Contains(r.out, "` body\n") {
 		t.Errorf("the surviving generation should load:\n%s", r.out)
 	}
 }

@@ -131,6 +131,10 @@ nine-tails load --agent pr-review \
 Use the returned `pr-review` receipt for calls and corrections made while
 reviewing. A delegated child load can add `--context <parent-context-id>` to
 inherit metadata and link its work to the parent.
+Explicit child `--meta` keys replace their inherited values; other keys stay.
+For example, `--context <framework-context-id> --meta repo-id=soccer-chess`
+switches project scope while retaining the harness. Repeat an explicit key
+to deliberately select several values.
 
 Teach it while it works:
 

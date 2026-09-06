@@ -658,6 +658,21 @@ The child context stores its fully resolved ambient metadata and references
 through `LORE_CONTEXT`, but `--context` is the canonical interface because
 separate shell calls often do not preserve environment state.
 
+Child loads inherit metadata keys not explicitly supplied. An explicit
+`--meta key=value` replaces the parent's complete value set for that key;
+repeated explicit values form an ordered, deduplicated set. This replacement
+happens before selecting guidance, state, recall, signals, and tools, and the
+resolved values are stored on the new receipt. The parent and all historical
+receipts remain unchanged. For example, a parent carrying
+`repo-id=nine-tails` and `harness=codex`, followed by a child load with
+`--meta repo-id=soccer-chess`, selects only the soccer project while retaining
+the harness. To select both projects, explicitly supply both values. The same
+rule lets a fresh load narrow a historical receipt that contains both.
+
+This is key-level replacement for invocation context only. It does not copy
+context metadata onto a new lesson or state record; write scope remains
+explicit. A call using a receipt uses that receipt's already-resolved metadata.
+
 ### 9.1 Origin is not scope
 
 Appending against a context records where the entry came from but does not
@@ -767,14 +782,14 @@ next-action: revisit the concurrency finding
 
 ## Working brief
 
-- Prioritize concrete findings over general commentary.
-- Trace the relevant execution path before reporting a defect.
-- State the failure, evidence, and smallest safe correction.
+- `item_1` Prioritize concrete findings over general commentary.
+- `item_2` Trace the relevant execution path before reporting a defect.
+- `item_3` State the failure, evidence, and smallest safe correction.
 
 ## Recent adjustments
 
-- [repo-id=my_repo phase=review] Keep evidence specific and prose concise.
-- [repo-id=my_repo] Generated mocks are not edited directly.
+- `rec_4` [phase=review repo-id=my_repo] (prefer) Keep evidence specific and prose concise.
+- `rec_5` [repo-id=my_repo] (avoid) Generated mocks are not edited directly.
 
 ## Available tools
 
@@ -814,7 +829,9 @@ provenance rather than automatic write scope. State read/write recipes include
 the selected agent, receipt, YAML stdin, and CAS expectation; they explain
 explicit creation scope and scope preservation on updates. A delegated agent
 can use the visible metadata and state record IDs without extra help or
-receipt-inspection calls.
+receipt-inspection calls. Recent guidance and brief bullets carry their exact
+record IDs in inline code. Correct recent guidance through that ID; inspect a
+brief item to identify current source records before replacing a lesson.
 The protocol gives the child-load delegation convention, and
 states that the task label is stored on the context receipt. It tells manual
 callers to use a concise, non-sensitive purpose and forbids copying secrets,
@@ -1647,7 +1664,8 @@ lore load evidence-reviewer \
 ```
 
 The child inherits ambient metadata through `ctx_72`, records that identifier
-as its parent, and produces a new context receipt. Guidance later appended
+as its parent, replaces explicitly supplied keys as described in §9, and
+produces a new context receipt. Guidance later appended
 against the child records the child as its origin without automatically using
 the inherited metadata as scope.
 
@@ -2029,6 +2047,14 @@ lore inspect shared --kind tool --format yaml
 lore inspect pr-review --coverage covered-unrendered --format json
 lore inspect pr-review --lint condition-loss --format json
 ```
+
+Inspecting a brief-item record also returns `sources: {recorded: [], current: []}`.
+Both arrays contain complete record envelopes. Recorded links retain the
+historical evidence (including retags); current sources follow replacement
+chains and deduplicate successors in first-source order. Status and metadata
+remain explicit, so a disabled source is not presented as an active repair
+target. A standalone imported item has empty arrays. Current source text is
+not a claim that a historical summary still represents it.
 
 Example user interaction:
 

@@ -28,6 +28,15 @@ On state updates, omitted `meta` preserves scope and an explicit empty `meta: {}
 
 Each invocation carries its own receipt. Loading a second agent does not change the first agent's calls or mutate connection-wide persona state. Current definitions and metadata filtering are shared with CLI behavior. Responses include `isError` for operation failures; invalid protocol requests and unknown tool arguments use JSON-RPC errors. Initialization and discovery of the fixed MCP menu do not open the knowledge store.
 
+For `nt_load` with a parent `context`, each supplied `meta` key replaces all
+inherited values for that key. Unspecified keys inherit. For example,
+`meta: {"repo-id":"soccer-chess"}` switches a framework parent to the game
+project while retaining its `harness`. An array deliberately selects multiple
+values and exact duplicates collapse. Omitted metadata or `meta: {}` inherits
+unchanged. Parent receipts are immutable; only the new receipt gets the resolved
+scope, which governs its capsules, tool discovery, and calls. This invocation
+inheritance rule does not copy ambient scope onto lessons or new state.
+
 Scripts run from the MCP server's launch directory. Launch the server in the project where its scripts should operate, or use a separate server process per working directory. A receipt carries applicability, not a filesystem working directory or authorization grant. Tools keep their declared execution timeouts. This first adapter processes requests sequentially and treats cancellation notifications as advisory; it does not implement HTTP transport, progressive output, or server-initiated model calls.
 
 The authoritative learning operations remain the CLI/store functions. The adapter never infers permissions, copies transcripts into memory, or changes the user's host configuration.

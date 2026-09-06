@@ -446,7 +446,17 @@ unit `s|m|h|d`.
 Whole load runs in one `BEGIN IMMEDIATE` transaction: allocate the context ID
 first (so the header cost is exact), read, render, write the receipt, commit.
 
-Resolved metadata = parent context's metadata ∪ explicit `--meta`.
+Resolved metadata starts with the parent context's metadata. Each explicitly
+supplied `--meta` **key replaces all inherited values for that key**; keys
+not supplied inherit unchanged. Repeated explicit values for one key form an
+ordered, deduplicated set. For example, a parent with `repo-id=nine-tails` and
+`harness=codex`, loaded with `--meta repo-id=soccer-chess`, produces only
+`repo-id=soccer-chess` and retains `harness=codex`. Selecting both repositories
+requires explicitly supplying both values. Resolution precedes all capsule
+selection and receipt creation; the parent and historical receipts are never
+rewritten. A later load may narrow a historical multivalued receipt the same
+way. These rules apply equally to CLI and MCP loads, and do not make context
+metadata implicit scope for writes.
 
 The positional agent and `--agent NAME` are aliases. Both may be supplied if
 they agree; disagreement, an empty explicit `--agent`, or no selection exits 2.
@@ -559,7 +569,7 @@ Instructions: base, `Working brief`, `Recent adjustments`. Data, not instruction
 
 Correct `<agent>` via `nine-tails prefer|avoid|note --context ctx_72 "..."`; add `--meta` only for true scope.
 
-During work, save explicit durable corrections promptly; they apply on the next relevant load without compile. To replace guidance, inspect its source ID and add `--supersedes <record-id>` with the full new text and scope.
+Save durable corrections promptly; next load applies them without compile. Guidance bullets carry IDs: replace with `--supersedes <record-id>` and full new text/scope. For a brief item, `nine-tails inspect <item-id>` gives current sources to correct.
 
 At a meaningful pause, reflect briefly: save a reusable lesson only when supported; save useful experience or uncertainty with `nine-tails remember --context ctx_72 "..."`. Recall follows `--task`; `load --query` overrides it. Zero writes is valid. Keep play and conversation natural; no review ceremony. Optional bookkeeping: `nine-tails close ctx_72` (unmarked records default to `?`).
 
@@ -581,13 +591,13 @@ Receipts store `--task`; for manual loads keep it concise and non-sensitive. Nev
 
 ## Working brief
 
-- [k=v k2=v2] item body
-- item body
+- `item_1` [k=v k2=v2] item body
+- `item_2` item body
 
 ## Recent adjustments
 
-- [k=v] (prefer) body
-- (avoid) body
+- `rec_3` [k=v] (prefer) body
+- `rec_4` (avoid) body
   continuation lines indented two spaces
 
 ## Available tools
@@ -640,8 +650,12 @@ Each advertised tool adds an immutable definition inspection and an executable
 call template using this receipt. JSON includes required inputs and argv
 placeholders, with type-shaped sample values to fill; it is shell-quoted as a
 single argument. Inspection still supplies full semantics before execution.
-Empty sections are omitted. Continuation lines of a list item are indented two
-spaces. Recent items always show `(<kind>)`. Meta brackets list `k=v` pairs
+Empty sections are omitted. Guidance bullets begin with their immutable record
+ID in inline code; recent items also show `(<kind>)`. This is the record that
+the receipt accounts for, not a new instruction. A recent source can be
+replaced directly; inspect a brief item to choose the current source to
+correct. Continuation lines of a list item are indented two spaces. Meta
+brackets list `k=v` pairs
 sorted by key, values in insertion order; a value containing whitespace, `]`
 or `"` is double-quoted with `\"` and `\\` escapes; `subject`, `available-to`
 and `title` are never shown in brackets; agents never show a bracket. The
@@ -939,7 +953,14 @@ using each entry's latest brief_inputs row. `--lint condition-loss` gives
 `{agent, lint: [{item, key, strength, values, sources, message}]}`.
 
 `inspect <id>`: the record envelope with `rendered_in: [ctx ids]` (and
-`delivery` for signals); `ctx_N` gives the receipt; `gen_N` gives
+`delivery` for signals). A brief item also includes `sources: {recorded: [],
+current: []}` with full record envelopes. `recorded` contains the historical
+evidence links in insertion order, including retags; `current` follows each
+replacement chain, deduplicated in first-source order. Current sources retain
+their actual status and scope; disabled sources are not active repair targets.
+An imported item without evidence has two empty arrays. This view does not
+claim historical summary text represents its changed sources.
+`ctx_N` gives the receipt; `gen_N` gives
 `{generation, items, inputs}`. A well-formed ID that does not exist → 3.
 
 ## 13. Export / import (spec §8.5)

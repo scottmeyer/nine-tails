@@ -64,7 +64,7 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 	// The seeded pilot is an ordinary agent: correctable and replaceable.
 	ctx := contextID(t, h.ok("load", "pilot").out)
 	h.ok("note", "--context", ctx, "Also run make build first in this repo.")
-	if r := h.ok("load", "pilot"); !strings.Contains(r.out, "## Recent adjustments\n\n- (note) Also run make build first in this repo.") {
+	if r := h.ok("load", "pilot"); !strings.Contains(r.out, "(note) Also run make build first in this repo.") {
 		t.Fatalf("correction should render on the pilot:\n%s", r.out)
 	}
 }

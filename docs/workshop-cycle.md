@@ -14,6 +14,16 @@ The framework pool develops nine-tails. The game studio develops a playable Socc
 - A summary could hide its source even when its scope excluded it from a particular load. Capsule assembly now falls back to source guidance when its applicable representation is unavailable. Subsequent compaction also receives original source wording.
 - Native tool access required a host integration. The optional stdio MCP adapter exposes stable context, learning, inspection, state, discovery and execution operations. It retains explicit receipts instead of changing connection-wide agent identity.
 
+## Further repairs from the next handoff
+
+The next framework-to-game load exposed metadata union retaining both project identities. Explicit child keys now replace inherited values, preserving other keys and the parent receipt. A real playtester handoff used this to narrow the mixed workshop receipt to Soccer Chess without framework reminders.
+
+Guidance now carries its immutable record ID. Inspecting a brief item exposes recorded evidence and deduplicated current successors, including scope and status, so a model can repair one source without searching the whole journal. The installed pilot was reconciled through public base/replacement operations: obsolete mandatory reflection and receipt-recency ownership rules were removed while its catalog and history remained.
+
+The returning designer found its local status snapshot lagging behind the workshop project state. Game roles now retain ownership and artifact pointers, with shared status in one authoritative state. This is a model-performed repair to observed duplication, not an automatic semantic conflict detector.
+
+The game gained seeded attack/defense practice and explicit post-play route evidence. Fresh role capsules surfaced prior guidance, including visible player names, which was applied to the new Runner role and route explanations. The maintained game-check capability was invoked again during this ordinary work.
+
 ## Operational boundaries
 
 This is contextual learning, performed by the working model through durable operations. It does not watch unobserved conversations or update model weights. Lexical recall is bounded, deterministic and inspectable; it is not semantic retrieval. More capable retrieval can be added when real work exposes misses. The MCP adapter must be connected by the host before its operations become native tools. No mandatory compiler or resident agent loop is introduced.
