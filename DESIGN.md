@@ -175,7 +175,7 @@ names and may be checked in as a pack; this repository's pack is `agents/`.
 `config.yaml` (all optional, defaults shown; the spec calls these configurable):
 
 ```yaml
-compile_advice_tokens: 4000 # `load` advises a compile above this estimated size; 0 = never
+compile_advice_tokens: 4000 # legacy setting, retained but no longer used by load
 signal_excerpt_chars: 300
 state_max_bytes: 8192
 context_retention_days: 30
@@ -235,7 +235,7 @@ to UTC with `Z` before storage so lexical comparison is chronological.
 Every record, context and brief generation also receives an immutable local
 `@N` handle (`N` is a positive SQLite integer, no leading zeroes). Existing
 entities are backfilled once in creation/ID order; later inserts allocate via
-SQLite triggers, including inserts from older schema-v4 binaries. The additive
+SQLite triggers. The
 `reference_aliases(number INTEGER PRIMARY KEY AUTOINCREMENT, entity_id TEXT
 UNIQUE NOT NULL)` table has no entity foreign key and forbids updates/deletes.
 A collected context leaves a tombstone: its handle never identifies a different
@@ -259,7 +259,8 @@ current-session alias.
 
 CLI existing-ID flags (`--context`, `--supersedes`, `--expect`,
 `--expect-base`, `--expect-generation`), inspect/disable/close IDs, context
-pin/unpin IDs, signal ack IDs, and explicit close mark keys accept `@N`.
+pin/unpin IDs and signal ack IDs accept `@N`. Consolidation source IDs and
+explicit recall selection resolve handles inside their operation transaction.
 Resolution precedes normal type, ownership, CAS and lease checks. Bodies,
 metadata, tasks, file contents, names, tool inputs and lease tokens are never
 rewritten. MCP resolves its corresponding identity arguments through the same
@@ -288,7 +289,7 @@ CREATE TABLE signal_delivery (                    -- spec §15.3
 );
 CREATE UNIQUE INDEX signal_dedupe ON signal_delivery(agent, dedupe_key)
     WHERE dedupe_key IS NOT NULL AND state != 'acknowledged';
-CREATE TABLE context_marks (                      -- §18: one mark per rendered record
+CREATE TABLE context_marks (                      -- §18: historical marks, read only
     context_id TEXT NOT NULL,
     record_id  TEXT NOT NULL,
     mark       TEXT NOT NULL,                     -- + +++ +++++ - --- ----- X ?
@@ -296,7 +297,8 @@ CREATE TABLE context_marks (                      -- §18: one mark per rendered
     PRIMARY KEY (context_id, record_id)
 );
 -- contexts also carries closed_at TEXT (null until closed)
-PRAGMA user_version = 4;   -- 2: contexts.token_budget became estimated_tokens; 3: prefix_ULID ids, seq dropped; 4: context_marks, contexts.closed_at
+PRAGMA user_version = 5;   -- v5: consolidation lineage and reasoned retirement
+-- v4: historical context_marks, contexts.closed_at; v3: prefix_ULID ids; v2: estimated_tokens
 ```
 
 `records.name`: required for lane=definition, lane=state, and kind=brief-item;
@@ -386,8 +388,9 @@ nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [-
 nine-tails note|avoid|prefer|remember [<agent>] [--meta k=v]... [--clear-meta] [--context ctx] [--supersedes ID] (TEXT | --stdin)
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
 nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
-nine-tails disable <id> [--format id|json|yaml]
-nine-tails close <ctx-id> [<id|ordinal>=<mark>]... [--format id|json|yaml]
+nine-tails consolidate --context ctx --source ID --source ID [--source ID]... --reason TEXT [--kind K] (TEXT | --stdin) [--format id|json|yaml]
+nine-tails disable <id> [--context ctx --reason TEXT] [--format id|json|yaml]
+nine-tails close <ctx-id> [--format id|json|yaml]
 nine-tails state get <agent>/<name> [--format yaml|json|id]
 nine-tails state put [<agent>/]<name> --expect ID|none [--context ctx] [--meta]... (TEXT | --stdin)
 nine-tails state link [<agent>/]<alias> <owner>/<state-name> --expect ID|none [--context ctx] [--meta]...
@@ -458,6 +461,42 @@ obsolete compiled meaning cannot coexist with its replacement. Check dependency
 before inserting the replacement so the predecessor is still the latest
 successor. An unrelated or deferred source does not churn the generation.
 
+**`consolidate`** is a semantic many-to-one replacement supplied by the working
+model. Require an originating context, at least two distinct exact active
+ordinary guidance sources, complete nonempty replacement text, and a nonempty
+reason. The context selects the owner. All sources must have that owner and
+identical metadata value sets; the successor copies scope. Omitted kind requires
+all source kinds to agree. Explicit kind deliberately selects a new ordinary
+guidance kind; `brief-item` is invalid. No ambient metadata is copied, and the
+operation offers no scope override. Correct scope separately after inspection.
+
+Validate and apply in one `BEGIN IMMEDIATE` transaction: inspect all exact
+sources, invalidate any dependent brief before adding edges, insert the new
+guidance and reason, link each predecessor, then mark all sources superseded.
+A stale source is conflict 7 with a current inspection handle; unknown is 3;
+duplicate sources, wrong owner/lane/kind or differing scope are invalid 2.
+There is no automatic forwarding, partial merge, body inference, or model call.
+New guidance applies on the next load without compilation. Retiring the merged
+instruction does not reactivate its predecessors.
+
+Schema v5 adds `consolidations(record_id PRIMARY KEY REFERENCES records(id),
+reason NOT NULL)` and `consolidation_sources(record_id REFERENCES
+consolidations(record_id), source_id PRIMARY KEY REFERENCES records(id),
+ordinal NOT NULL, UNIQUE(record_id, ordinal))`. `LatestSuccessor` follows both
+single replacements and consolidation edges with cycle protection. Each source
+can be consumed once. Original bodies, metadata and origin IDs are retained;
+historical receipts still name exactly what was delivered. Origin receipts
+follow ordinary retention and can be collected. v4 binaries refuse v5 stores.
+
+JSON/YAML output embeds the new record envelope and local `ref`, plus
+`consolidation: {reason, sources: [<historic source envelope with ref>, ...]}`
+in caller order. Default output remains the canonical ID. `inspect` includes
+this object on a consolidated record and its separate current successor when
+applicable. This is durable learned guidance, not a disposable brief cache or
+a generic supporting-evidence relation. Current export/import remains a
+snapshot format: consolidation ancestry and retirement audits are store-local,
+not portable graph interchange.
+
 **Lanes per command**: `append` accepts `--lane guidance|recall` only (default
 `recall`; `--kind` defaults to `note` for guidance, `memory` for recall) and
 rejects `--kind brief-item`; `put` accepts `--lane definition|state` only. The
@@ -479,6 +518,18 @@ active generation does not churn that generation. Brief items (compile a new
 generation) and signals (`signal ack`) are refused with 2; a `ctx_...` receipt
 or other ineligible resource → 2; a record that is not active → 7; unknown →
 3. The default output is the affected ID; JSON/YAML return its record envelope.
+
+For deliberate forgetting, `disable --context <receipt> --reason <text>`
+requires both options when either is supplied. The reason must be nonempty
+valid text, and the receipt must belong to the record's owner. Validate before
+any mutation. In the same transaction, record the decision in
+`record_retirements(record_id PRIMARY KEY REFERENCES records(id), context_id,
+reason, created_at)` with the original context ID retained independently of
+receipt GC. `inspect` returns optional `retirement: {context, context_ref,
+reason, created_at}` on both requested and current record views. A failed or
+repeated retirement cannot overwrite the original decision. Legacy bare
+`disable <id>` remains valid. There is no time-based instruction expiry;
+being irrelevant to one task is not a global retirement decision.
 
 `--meta k=v` may repeat; splits at the first `=`; missing `=` or empty key → 2.
 
@@ -542,8 +593,8 @@ Candidates:
    whose `available-to` names the agent or is absent), state != acknowledged,
    `available_at <= now`, joined to records, passing the conflict rule. Sort:
    score desc, then available_at asc, rowid asc. Load never mutates delivery.
-8. **Recall**: at most three active lane=recall records belonging to the loaded
-   agent, passing the conflict rule, with a positive lexical query match.
+8. **Recall**: active lane=recall records belonging to the loaded agent,
+   passing the conflict rule, with a positive lexical query match.
    Unicode letter/digit words are lowercased; words shorter than two runes and
    common stopwords/generic task verbs are discarded (`recallStopwords` in
    `internal/capsule/recall.go`). Match distinct whole words against body,
@@ -552,8 +603,27 @@ Candidates:
    cannot inflate score. Empty/stopword-only queries retrieve nothing.
    A stdlib scan over SQLite records keeps this deterministic with no model
    call or new dependency; its cost is linear in same-agent recall size.
-   Excerpts collapse whitespace and cap at 360 runes, positioning the window
-   near the first matching body word (up to 80 runes of preceding context).
+   Automatic selection takes ranked results up to a soft target of 4,096
+   rendered bytes; always keep the top match even if it alone exceeds the
+   target, then stop before adding a result that would exceed it. There is no
+   record-count limit. `recall_more` counts remaining eligible keyword matches
+   and optional `recall_next: {id, ref, inspect}` points to the next omitted
+   match. Markdown shows the same count and inspection hint as data; that hint
+   is not a delivered memory and does not enter the receipt.
+   Repeatable `load --recall <ID|@N>` explicitly selects all requested distinct
+   active same-agent recall records in caller order, without a count or recall
+   size target. The whole-capsule transport ceiling still applies. Canonical duplicates
+   collapse on first occurrence. No lexical padding or successor forwarding is
+   performed. Wrong type, owner, conflicting scope or invalid body → 2; unknown
+   → 3; inactive → 7. Any failure rolls back the whole load and receipt. Omitted
+   selection uses lexical ranking. The query/task focuses excerpts even with
+   explicit selection, but cannot make a selected record ineligible.
+   `nt_load.recall: []` explicitly selects none.
+   Excerpts collapse whitespace and cap at 360 runes including omission
+   markers, retaining whole words, preferring nearby sentence/clause boundaries
+   and keeping a short leading heading/label when cropping a later passage.
+   A single word longer than the budget yields an omission marker and inspect
+   path rather than partial text.
    A cut at either end is explicitly marked; each result always supplies its
    canonical record ID, local ref, recorded timestamp, optional originating
    context ID/local ref, metadata, kind, and exact `inspect` command. Markdown
@@ -588,22 +658,16 @@ an inspection command. A diagnostic is not delivery of a state or definition.
 Size (spec §10.3): explicit guidance is never cut or evicted for retrieval.
 All eligible non-recall candidates render in sort order; sections keep the
 order brief, recent, tools, agents, referenced state, recall, signals. Recall has its independent
-three-excerpt limit; signal excerpts cap at `signal_excerpt_chars` runes.
+soft automatic size target; explicit selection has no record-count limit.
+Signal excerpts cap at `signal_excerpt_chars` runes.
 `estimated_tokens` is `ceil(len(markdown)/3.5)`,
 reported in JSON and stored on the receipt; `uncompiled_adjustments` is the
 number of recent guidance entries rendered, what a compile would fold in.
 
-Size is advice: when `estimated_tokens` exceeds `compile_advice_tokens` and at
-least one adjustment is uncompiled, `load` writes one stderr line,
-`nine-tails: capsule is N estimated tokens with K uncompiled adjustments;
-optional condensation: `nine-tails compile <agent>``. Compilation is never
-required to activate new lessons. The only hard ceiling is a transport's: a harness adapter
-with a fixed hook-output limit passes `MaxBytes` to the capsule package, and a
-capsule over it is not recorded at all (`TooLargeError`, the transaction rolls
-back) so no receipt claims the model saw what the harness could not deliver;
-the adapter injects a pointer to an in-session load instead (harness hooks,
-below). Selection is format-independent: the same (agent, metadata, query) yields the
-same record set and receipt in md, json and yaml.
+Size is observable through `estimated_tokens` and receipt membership. Load
+never advertises a compile checkpoint or scores the capsule. The legacy
+`compile_advice_tokens` setting remains readable for existing configurations
+but does not trigger a load diagnostic. Advanced condensation is explicit.
 
 Receipt: `contexts` row + resolved `context_metadata` + `context_records` for
 every rendered record with `section` ∈ {base, state, brief, recent, tools,
@@ -627,7 +691,9 @@ Follow the original task. Base, brief and adjustments guide behavior; state, rec
 
 Save durable corrections with `nine-tails note|prefer|avoid --context @42 "..."`; next load applies them without compile. Replace with `--supersedes <ref>` and full new text; omitted scope stays, `--meta` replaces it, `--clear-meta` clears it. Inspect a brief item for current sources.
 
-At a useful pause, reflect briefly: save supported lessons as guidance or useful experience with `nine-tails remember --context @42 "..."`. Zero writes is valid; keep play natural. `--task` retrieves recall; `--query` overrides it.
+Reconcile overlap with `consolidate --source <ref> --source <ref>`, or retire obsolete material with `disable <ref>`; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.
+
+At a useful pause, update existing lessons before adding: save supported lessons as guidance or useful experience with `nine-tails remember --context @42 "..."`. Zero writes is valid; keep play natural. `--task` retrieves recall; `--query` overrides it.
 
 `--context` records origin; new scope needs explicit `--meta`. Local `@N` refs keep their kind: receipt for `--context`, record for corrections/CAS. Find handles with `nine-tails refs`; canonical IDs also work.
 
@@ -701,7 +767,7 @@ stable local refs. There is no repeated identity block.
 Both refs resolve to the exact canonical receipt IDs; the original marker and
 structured IDs remain unchanged. With any SQLite integer reference and an
 agent name no longer than `nine-tails.reviewer` (19 bytes),
-the protocol is at most 1,400 bytes without state/tools and 1,750 bytes
+the protocol is at most 1,650 bytes without state/tools and 2,000 bytes
 with both. The identity line carries any parent pair separately. Valid agent names are not length-bounded, so transport ceilings remain
 authoritative for longer names. The task itself remains the caller's input and
 the structured `task` field; the protocol deliberately does not duplicate
@@ -709,9 +775,10 @@ arbitrary prompt text into instruction position.
 The common learning loop is generated for every direct load: capture explicit
 durable corrections during work, use linked replacement rather than accumulate
 contradictions, and briefly reflect at meaningful boundaries. Reflection may
-produce no writes; uncertain experience belongs in recall. Optional closure
-and marks are available through command help and are omitted from the default
-protocol. No scoring or mandatory reflector delegation is needed.
+produce no writes; uncertain experience belongs in recall. Consolidate like
+instructions, retaining exceptions, and retire obsolete material with reasons.
+Optional closure remains available through explicit command help. Marks are
+no longer accepted or supplied to learning; historical inspection is retained.
 Resolved context metadata is visible below the receipt marker when nonempty,
 in a bracket with all keys sorted and normal value quoting. It is explicitly
 provenance, not automatically inherited write scope. State/tool instructions
@@ -743,7 +810,7 @@ with `[` in a record with no meta is emitted as `\[` so it cannot be mistaken
 for a bracket.
 
 JSON output: spec §10.1 shape — `context_id, context_ref, agent, task, parent_context,
-metadata, instructions, state[], state_links[], tools[], agents[], recall[], signals[],
+metadata, instructions, state[], state_links[], tools[], agents[], recall[], recall_more, recall_next?, signals[],
 rendered_record_ids, estimated_tokens, uncompiled_adjustments, skipped[]`.
 `instructions` is byte-identical to markdown before the referenced-state,
 recall and signal data sections. Existing owned state remains in that string,
@@ -905,9 +972,9 @@ evidence from prior summaries. Capsule selection uses contextual source
 fallback (§7) even when global generation accounting says represented.
 
 Default compiler instructions keep independently changeable rules in separate
-items, with necessary conditions attached. Practice tallies are self-reported
-usefulness, not correctness or compliance evidence; a mixed item's positive
-marks do not validate every clause or override an explicit correction.
+items, with necessary conditions attached. Compiler input contains source
+content and provenance, never practice tallies. Explicit corrections and
+evidence govern consolidation; repeated exposure is not evidence of truth.
 
 `compile-input <agent>` (default json):
 
@@ -922,9 +989,7 @@ active_generation:         # null when none
   id: gen_11
   items:                   # sources: the entries each item represents, with
     - {id: item_81, key: concise-evidence, body: "...", meta: {...},   # their own
-       sources: [{id: rec_12, kind: prefer, body: "original text", meta: {...}}],
-       tally: {renders: 30, closes: 12, plus: 7, minus: 1, unknown: 4, wrong: 0,
-               plus_weight: 15, minus_weight: 1, last_applied: "..."}} # §18
+       sources: [{id: rec_12, kind: prefer, body: "original text", meta: {...}}]}
 input_entries: [rec_41, rec_42]         # exactly the ids in entries[]
 entries:                                 # RecentGuidance(agent), oldest first
   - id: rec_41
@@ -994,7 +1059,6 @@ Condition-loss lint (computed on demand from `brief_item_sources`; returned by
 
 ```
 for each item with ≥1 source:
-  practice (§18): marked X by ≥2 runs → STRONG; ≥3 closes and hindered > applied → STRONG
   sources resolve to their latest successor (deduplicated); disabled ones are skipped
   for each key=value on the item:
      if no source carries it and the origin contexts do not all share it
@@ -1336,54 +1400,26 @@ not a background agent daemon or a harness. It adds no network service or
 implicit current-agent state. The transport contract is documented separately
 in [docs/mcp.md](docs/mcp.md).
 
-## 18. Close: the run's verdict on what it was shown
+## 18. Optional closure and historical marks
 
-A receipt records what a run was shown, not what mattered. `close <ctx-id>`
-is the run's verdict, given while the model is still alive: one mark per
-rendered record, named by id or by its ordinal in the receipt (`inspect
-ctx_N` lists both with an excerpt).
+`close <ctx-id>` only sets `contexts.closed_at`. It closes once (again → 7),
+accepts no marks or positional updates (exit 2), and creates no rows in
+`context_marks`. This is optional receipt bookkeeping, never a learning commit
+or prerequisite for the next correction. `nt_close` has the same behavior.
 
-| Mark | Meaning for this run |
-| --- | --- |
-| `+` `+++` `+++++` | it applied: nudged, shaped the work, decisive |
-| `-` `---` `-----` | it hindered: a detour, misled, caused a mistake |
-| `?` | never came up; the default for anything unlisted |
-| `X` | wrong as a statement, regardless of this run |
+Existing mark rows remain inspectable on historical receipts and in historical
+tallies. They are not supplied to compiler input, condition-loss lint, or any
+learning decision. No public command records new marks. Compile, brief and
+closure maintenance are omitted from ordinary command help; explicit command
+help remains available.
 
-Rules: a receipt closes once (again → 7); an id the receipt did not render
-→ 2; `X` needs a guidance record written with `--context ctx_N` first (else
-2), so a kill always carries its correction. Marks are stored in
-`context_marks` (one row per rendered record, `?` written explicitly) and
-`contexts.closed_at` is set. Nothing writes automatically: the hooks may put
-the close on the model's path at the end of a session, the marks are the
-agent's. The base and signals can be marked like any rendered record.
-
-Marks report usefulness, not verified correctness or compliance. The starter and
-close help ask the model to check measurable claims and record
-a wrong clause's correction even if another clause in that record helped.
-The compiler must read corrections despite positive marks; unknown marks
-suggest reviewing relevance and scope, not treating a conditional rule as
-false or discarding a rarely needed safeguard solely for lack of use.
-
-**Hooks offer a brief reminder.** Both harnesses fire `Stop`
-when the model is about to end its turn and accept `{"decision": "block",
-"reason": ...}`, which continues the session with the reason as its next
-prompt. In an activated run whose receipt is open, `Stop` answers once with
-the following reminder, substituting the current receipt and executable:
+**Hooks offer a brief reminder.** In an activated run whose receipt is open,
+`Stop` answers once with this reminder, substituting the receipt and executable:
 
 > nine-tails: before ending work under [nine-tails-context=ctx_N], save any already-known durable correction or changed state using its receipt. Zero writes is valid; do not manufacture a reflection task. Optional bookkeeping: `<exe> close ctx_N`. You may stop without closing.
 
 It requests neither record inspection nor scoring, reflector loading, or
-compilation. It performs no writes, background reflection, or model calls;
-the existing harness continuation receives only this text. A `Stop` carrying
-`stop_hook_active`, a closed receipt, or a run that never loaded is silent.
-A closed receipt ends the episode: the next `UserPromptSubmit` loads afresh
-with the closed receipt as parent, so marks are per episode and a
-multi-turn session can close as many times as it has pieces of work.
-
-Magnitude is ordinal. A tally per record (`store.TallyRecord`) counts
-renders, closes, plus, minus, unknown, wrong, the summed strengths, and the
-latest applied time. It is shown in `inspect <agent>` (`brief.tallies`),
-in compile-input on each active item, and read by the lint (§10). `?`
-across many closes is a relevance-review signal: rendered often, not reported
-useful in those episodes. Pruning remains a semantic judgment.
+compilation. It performs no writes, background reflection, or model calls.
+A `Stop` carrying `stop_hook_active`, a closed receipt, or a run that never
+loaded is silent. A closed receipt ends the episode: the next
+`UserPromptSubmit` loads afresh with the closed receipt as parent.

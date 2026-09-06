@@ -26,8 +26,9 @@ var errDryRun = errors.New("dry run")
 func newCompileInputCmd(a *app) *cobra.Command {
 	var format string
 	c := &cobra.Command{
-		Use:   "compile-input <agent>",
-		Short: "Print the document a brief compiler consumes",
+		Use:    "compile-input <agent>",
+		Hidden: true,
+		Short:  "Print the document a brief compiler consumes",
 		Long: `Assemble everything a compiler needs to produce the next brief generation:
 the compiler instructions, the active base, the active generation's items and
 every recent guidance entry (with what its origin context rendered), plus the
@@ -56,8 +57,9 @@ The instructions are the built-in default unless an agent named
 
 func newBriefCmd(a *app) *cobra.Command {
 	c := &cobra.Command{
-		Use:   "brief",
-		Short: "Install a compiled brief generation",
+		Use:    "brief",
+		Hidden: true,
+		Short:  "Install a compiled brief generation",
 		Long: `The brief is a generation of compiled items. "brief put" installs the
 compiler's output as the next generation with compare-and-swap:
   compile-input pr-review > in.json        (run a model over it)
@@ -198,8 +200,9 @@ func newCompileCmd(a *app) *cobra.Command {
 	var compiler, format string
 	var dryRun bool
 	c := &cobra.Command{
-		Use:   "compile <agent> [--compiler \"claude -p\"]",
-		Short: "Run the configured compiler over compile-input and install its output",
+		Use:    "compile <agent> [--compiler \"claude -p\"]",
+		Hidden: true,
+		Short:  "Run the configured compiler over compile-input and install its output",
 		Long: `compile-input → compiler → brief put, in one step. The compiler command is
 --compiler, else $NINE_TAILS_COMPILER, else compiler.argv in config.yaml; it
 receives the compile-input JSON on stdin and must print the output document

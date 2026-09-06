@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -14,7 +13,7 @@ import (
 // newDisableCmd retires a record: the spec's third status (§8.1), which no
 // command produced until tools started coming and going.
 func newDisableCmd(a *app) *cobra.Command {
-	var format string
+	var format, contextID, reason string
 	c := &cobra.Command{
 		Use:   "disable <id>",
 		Short: "Retire an active record without deleting it",
@@ -31,6 +30,11 @@ a record; use disable only when it should have no successor. Disabling guidance
 already represented in the active brief invalidates that compiled cache so no
 blended item can retain the retired meaning.
 
+For deliberate forgetting, pass --context and --reason together to retain
+why the record stopped surfacing. The receipt must belong to its agent.
+Inspect the exact record first; age or repeated retrieval is not evidence
+that a preference is obsolete. Its original body stays inspectable.
+
 The default format prints the affected id. JSON and YAML print its record
 envelope.`,
 		Example: `  nine-tails disable rec_01JABC...
@@ -39,6 +43,11 @@ envelope.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateRecordFormat(format); err != nil {
 				return err
+			}
+			if cmd.Flags().Changed("context") || cmd.Flags().Changed("reason") {
+				if contextID == "" || strings.TrimSpace(reason) == "" {
+					return cli.Invalid("--context and a nonempty --reason are required together")
+				}
 			}
 			id := args[0]
 			if strings.HasPrefix(id, "ctx_") {
@@ -52,29 +61,9 @@ envelope.`,
 			}
 			var rec *store.Record
 			err := a.st.Tx(func(tx *sql.Tx) error {
-				r, err := store.GetRecord(tx, id)
-				if err != nil {
-					return err
-				}
-				switch {
-				case r.Kind == "brief-item":
-					return cli.Invalid("%s is a brief item; compile a new generation instead", id)
-				case r.Lane == "signal":
-					return cli.Invalid("%s is a signal; use signal ack", id)
-				case r.Status != "active":
-					return fmt.Errorf("%w: %s is %s, not active", store.ErrConflict, id, r.Status)
-				}
-				if err := store.SetStatus(tx, id, "disabled"); err != nil {
-					return err
-				}
-				if r.Lane == "guidance" {
-					if _, err := store.InvalidateGenerationForGuidance(tx, r.Agent, r.ID); err != nil {
-						return err
-					}
-				}
-				r.Status = "disabled"
-				rec = r
-				return nil
+				var err error
+				rec, err = store.RetireRecord(tx, id, contextID, reason)
+				return err
 			})
 			if err != nil {
 				return err
@@ -83,5 +72,7 @@ envelope.`,
 		},
 	}
 	c.Flags().StringVar(&format, "format", "id", "id|json|yaml")
+	c.Flags().StringVar(&contextID, "context", "", "receipt of the agent making this retirement (requires --reason)")
+	c.Flags().StringVar(&reason, "reason", "", "why the record should stop surfacing (requires --context)")
 	return c
 }

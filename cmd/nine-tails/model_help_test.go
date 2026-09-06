@@ -25,18 +25,18 @@ func requireHelpText(t *testing.T, got string, wants ...string) {
 	}
 }
 
-func TestRootHelpDocumentsMachineContractAndGroupsCommands(t *testing.T) {
+func TestRootHelpShowsOrdinaryLearningPathAndGroupsCommands(t *testing.T) {
 	h := newHarness(t)
 	out := helpText(t, h, "--help")
 
 	requireHelpText(t, out,
-		"nine-tails itself never prompts;\nhooks run explicitly launches a harness, which may be interactive",
-		"Mutation\noutput is command-specific; see that command's help.",
-		"Exit codes are 0 success, 2 invalid input, 3 not found, 4 store failure",
-		"When --format json is present, errors also go to stdout as an error/code object",
-		"call is the exception because its stdout belongs exclusively to the tool",
-		"A ctx_... id is a context receipt created by load and passed to --context",
-		"Immutable record ids such as base_..., rec_..., state_..., and tool_...",
+		"Load an agent, do the work, and save what should carry forward:",
+		`Use "load pilot" to discover roles`,
+		"Save new guidance with note, prefer, or avoid --context <receipt>.",
+		"Correct a lesson with --supersedes <ref>.",
+		"Use consolidate for overlapping lessons and disable with a reason",
+		"Remember stores historical experience as data",
+		"without a separate learning step",
 		"Everyday Commands:",
 		"Advanced Commands:",
 	)
@@ -56,16 +56,25 @@ func TestRootHelpDocumentsMachineContractAndGroupsCommands(t *testing.T) {
 	}
 	everyday := out[everydayAt:advancedAt]
 	advanced := out[advancedAt:]
-	for _, command := range []string{"  load ", "  note ", "  remember ", "  state ", "  call "} {
+	for _, command := range []string{"  load ", "  note ", "  remember ", "  consolidate ", "  disable ", "  state ", "  call "} {
 		if !strings.Contains(everyday, command) {
 			t.Errorf("everyday group is missing %q:\n%s", command, everyday)
 		}
 	}
-	for _, command := range []string{"  append ", "  base ", "  put ", "  disable ", "  completion ", "  help "} {
+	for _, command := range []string{"  append ", "  base ", "  put ", "  completion ", "  help "} {
 		if !strings.Contains(advanced, command) {
 			t.Errorf("advanced group is missing %q:\n%s", command, advanced)
 		}
 	}
+	for _, hidden := range []string{"  close ", "  compile ", "  compile-input ", "  brief "} {
+		if strings.Contains(out, hidden) {
+			t.Errorf("optional compatibility command exposed in ordinary help: %q", hidden)
+		}
+	}
+	if strings.Contains(out, "Exit codes are") {
+		t.Error("root help should teach the ordinary path, not duplicate machine contracts")
+	}
+
 }
 
 func TestModelFacingCommandHelp(t *testing.T) {
@@ -102,7 +111,7 @@ func TestModelFacingCommandHelp(t *testing.T) {
 			name: "note",
 			args: []string{"note", "--help"},
 			wants: []string{
-				"eligible for compilation into the brief",
+				"affects the next relevant capsule",
 				"ctx_... value passed to --context identifies the originating load receipt",
 				"Use --supersedes rec_... to replace an active record",
 				"Omitted --meta preserves\nthe prior scope; explicit --meta replaces the complete set.",
@@ -132,9 +141,10 @@ func TestModelFacingCommandHelp(t *testing.T) {
 			name: "remember",
 			args: []string{"remember", "--help"},
 			wants: []string{
-				"A load retrieves up to three\nrelevant excerpts using --task",
-				"data, not instructions, and is never automatically compiled into the brief",
-				`Use load --query "" to disable retrieval`,
+				"A load retrieves keyword-matched excerpts within a soft size budget using --task",
+				"historical data, never an instruction",
+				`Use load --query "" to disable automatic retrieval`,
+				"load --recall <ID|@N> to select evidence deliberately",
 				"--supersedes rec_...",
 				"nine-tails inspect pr-review --lane recall --query \"patch bodies\" --format json",
 			},

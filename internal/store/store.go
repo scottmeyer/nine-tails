@@ -51,7 +51,7 @@ func HomeDir() (string, error) {
 	return filepath.Join(u, ".nine-tails"), nil
 }
 
-const userVersion = 4 // 2: contexts.token_budget became estimated_tokens; 3: ids are prefix_ULID, seq dropped; 4: receipts close with marks
+const userVersion = 5 // 2: estimated_tokens; 3: prefix_ULID; 4: receipt closure; 5: consolidation lineage and retirement audit
 
 // Open opens (creating if needed) the store under home.
 func Open(home string) (*Store, error) {
@@ -283,6 +283,12 @@ func (s *Store) migrate() error {
 	}
 	if err := initializeReferences(tx); err != nil {
 		return fmt.Errorf("initialize readable references: %w", err)
+	}
+	if err := initializeConsolidations(tx); err != nil {
+		return fmt.Errorf("initialize consolidations: %w", err)
+	}
+	if err := initializeRetirements(tx); err != nil {
+		return fmt.Errorf("initialize retirements: %w", err)
 	}
 	return tx.Commit()
 }
@@ -776,8 +782,8 @@ func sameMetadata(a, b Meta) bool {
 	return true
 }
 
-// LatestSuccessor follows supersession forward from id and returns the last
-// record in the chain (id itself when nothing supersedes it).
+// LatestSuccessor follows ordinary replacement and many-to-one consolidation
+// forward from id. Branches and cycles are corrupt history, not choices to guess.
 func LatestSuccessor(q Querier, id string) (string, error) {
 	seen := map[string]bool{}
 	for {
@@ -785,15 +791,33 @@ func LatestSuccessor(q Querier, id string) (string, error) {
 			return "", fmt.Errorf("cyclic supersession history at %s", id)
 		}
 		seen[id] = true
-		var next string
-		err := q.QueryRow(`SELECT id FROM records WHERE supersedes_id = ? ORDER BY rowid DESC LIMIT 1`, id).Scan(&next)
-		if errors.Is(err, sql.ErrNoRows) {
-			return id, nil
-		}
+		rows, err := q.Query(`SELECT id FROM records WHERE supersedes_id = ?
+			UNION SELECT record_id FROM consolidation_sources WHERE source_id = ? LIMIT 2`, id, id)
 		if err != nil {
 			return "", err
 		}
-		id = next
+		var successors []string
+		for rows.Next() {
+			var next string
+			if err := rows.Scan(&next); err != nil {
+				rows.Close()
+				return "", err
+			}
+			successors = append(successors, next)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return "", err
+		}
+		switch len(successors) {
+		case 0:
+			return id, nil
+		case 1:
+			id = successors[0]
+		default:
+			return "", fmt.Errorf("ambiguous supersession history at %s", id)
+		}
 	}
 }
 

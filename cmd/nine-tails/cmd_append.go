@@ -159,8 +159,8 @@ func newAppendCmd(a *app) *cobra.Command {
 		Use:   "append [<agent>] [--supersedes <record-id>] [--] [TEXT]",
 		Short: "Add a generic immutable record to an agent",
 		Long: `Add a record. Lanes control mechanical treatment: guidance is rendered as
-recent adjustments and can be condensed into the brief; recall is retrieved
-by task on load or by explicit lookup. Unknown kinds are allowed. --lane defaults to recall, so unknown
+current instructions; recall is retrieved by task on load or by explicit lookup.
+Unknown kinds are allowed. --lane defaults to recall, so unknown
 material never silently becomes always-on guidance. Definitions, state and
 signals have their own commands (put, base, state put, tool add, agent add,
 signal). With --context the <agent> may be omitted.
@@ -220,8 +220,7 @@ func newNoteCmd(a *app, verb, lane, kind, short string) *cobra.Command {
 func noteHelp(verb string) (long, example string) {
 	switch verb {
 	case "note":
-		long, example = `Add general guidance that should affect relevant future capsules
-immediately and is eligible for compilation into the brief. Add --meta only
+		long, example = `Add general guidance that affects the next relevant capsule. Add --meta only
 when the guidance is genuinely scoped.
 
 On success, stdout is the new immutable rec_... record id by default. A
@@ -231,8 +230,7 @@ not the new record.`, `  nine-tails note pr-review "Repository tests run with ma
   nine-tails note --context ctx_72 --supersedes rec_41 --meta repo-id=acme`
 	case "avoid":
 		long, example = `Add guidance describing behavior the agent should avoid. It affects
-relevant future capsules immediately and is eligible for compilation into the
-brief.
+the next relevant capsule.
 
 On success, stdout is the new immutable rec_... record id by default. A
 ctx_... value passed to --context identifies the originating load receipt,
@@ -240,19 +238,18 @@ not the new record.`, `  nine-tails avoid pr-review "Do not edit generated files
   nine-tails avoid --context ctx_72 "Do not infer behavior without reading the implementation."`
 	case "prefer":
 		long, example = `Add guidance describing behavior the agent should prefer. It affects
-relevant future capsules immediately and is eligible for compilation into the
-brief.
+the next relevant capsule.
 
 On success, stdout is the new immutable rec_... record id by default. A
 ctx_... value passed to --context identifies the originating load receipt,
 not the new record.`, `  nine-tails prefer pr-review "Lead with evidence and expected impact."
   nine-tails prefer --context ctx_72 "Run focused tests before the full suite."`
 	case "remember":
-		long, example = `Store useful experience or a recall fact. A load retrieves up to three
-relevant excerpts using --task, or an explicit --query override. Recall is
-data, not instructions, and is never automatically compiled into the brief.
-Use load --query "" to disable retrieval, or inspect --lane recall with --query
-to search full records.
+		long, example = `Store useful experience or a recall fact. A load retrieves keyword-matched
+excerpts within a soft size budget using --task, or an explicit --query override. Recall is
+historical data, never an instruction. Use load --query "" to disable automatic
+retrieval. Inspect --lane recall with --query to search full records, then use
+load --recall <ID|@N> to select evidence deliberately (repeatable).
 
 On success, stdout is the new immutable rec_... record id by default. A
 ctx_... value passed to --context identifies the originating load receipt,

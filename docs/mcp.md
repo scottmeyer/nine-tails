@@ -15,12 +15,12 @@ The tool menu stays stable:
 | Tool | Purpose |
 | --- | --- |
 | `nt_load` | Load an agent, record its receipt, and return current guidance plus relevant experience. |
-| `nt_learn` | Save a preference, warning, guidance, or recall; optionally supersede older knowledge. |
+| `nt_learn` | Add, correct, consolidate, or retire knowledge through its owning receipt. |
 | `nt_inspect` | Retrieve full records, search history, or inspect an agent. |
 | `nt_tools` | Discover current agent-owned and shared executable capabilities using a receipt. |
 | `nt_call` | Invoke a discovered capability through its receipt scope. |
 | `nt_state` | Read/update named state or subscribe to shared state with compare-and-swap. |
-| `nt_close` | Finish a receipt without a scoring exercise. |
+| `nt_close` | Optional receipt bookkeeping; accepts no marks. |
 
 For example, `nt_load({"agent":"game.playtester","task":"Check Soccer Chess passing lanes","meta":{"repo-id":"soccer-chess","harness":"my-host"}})` returns a capsule with a `context_id`. Use that exact id on subsequent calls. `nt_tools({"context":"ctx_..."})` returns tool descriptions, declared input fields and call templates. Discovery does not dynamically add each underlying tool to the host's native menu: execution goes through `nt_call`.
 
@@ -32,12 +32,37 @@ text and omitted `meta` preserves the prior record's complete scope. Explicit
 `clear_meta: true` also removes all scope and is mutually
 exclusive with `meta`; `false` has the same effect as omission. New lessons are
 unqualified unless `meta` is provided, regardless of the receipt's ambient scope.
-New lessons require a nonempty `body`; without it, a nonempty `supersedes` is
-required. An explicitly empty `body` is invalid, including on corrections.
+New lessons require a nonempty `body`; ordinary corrections may omit it with a
+nonempty `supersedes`. An explicitly empty `body` is invalid, including on corrections.
 When both `body` and `kind` are omitted, the exact predecessor's lane and kind
 are preserved, including custom guidance or recall kinds. Explicit `kind`
 requests a type change subject to the normal same-agent and same-lane checks.
 When `body` is supplied, omitted `kind` retains the usual `note` default.
+
+Two other `nt_learn` actions remove the need for a separate maintenance loop:
+
+- `sources: ["@17", "@23"], body: "complete replacement", reason: "why these belong together"`
+  consolidates at least two distinct active guidance records with identical
+  scope. Omitted `kind` is inferred only when source kinds agree; `remember`
+  is invalid for consolidation. Sources cannot accompany `supersedes`, `meta`,
+  `clear_meta`, or `forget`. The receipt must own every source. The new record
+  retains the reason and historical sources; stale input rejects the operation.
+- `forget: "@17", reason: "why this is obsolete"` retires that exact active
+  record without a successor. It cannot accompany body, kind, sources,
+  supersedes, meta, or clear_meta. History remains inspectable with the decision.
+
+Both require the existing `context` field. `reason` is invalid for ordinary
+append/correction actions. Consolidation and forgetting use the same atomic
+operations and validation as the CLI; no model service runs inside nine-tails.
+
+For caller-selected recall, `nt_load({"agent":"architect", "recall":["@17"]})`
+loads every requested eligible memory in the supplied order, with no
+record-count limit. Omission uses the lexical task/query fallback; `recall: []`
+selects none. Automatic recall uses a soft rendered-size target and reports
+`recall_more` plus an optional `recall_next` inspection hint for omitted matches.
+Wrong owner, lane, scope or invalid body rejects the whole load;
+inactive IDs conflict and are never silently redirected. Only the selected
+evidence is recorded on the receipt. `task`/`query` still focuses the excerpts.
 
 To include shared facts automatically in future loads, use
 `nt_state({"name":"game.engineer/project","target":"workshop/soccer-chess","expect":"none","meta":{"repo-id":"soccer-chess"}})`.

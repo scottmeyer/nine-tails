@@ -143,6 +143,11 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 		"full new text; omitted scope stays, `--meta` replaces it, `--clear-meta` clears it",
 		"Inspect a brief item for current sources.",
 		"next load applies them without compile",
+		"consolidate --source <ref> --source <ref>",
+		"disable <ref>",
+		"both take `--context` and `--reason`",
+		"Keep exceptions; age or repeated recall isn't evidence.",
+		"update existing lessons before adding",
 		"Zero writes is valid",
 		"keep play natural",
 		"save supported lessons as guidance or useful experience",
@@ -180,15 +185,15 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 	if protocolStart < 0 || baseStart <= protocolStart {
 		t.Fatalf("could not isolate protocol preamble:\n%s", direct.Instructions)
 	}
-	if got := len(direct.Instructions[protocolStart:baseStart]); got > 1400 {
-		t.Errorf("root protocol preamble is %d bytes, want at most 1400", got)
+	if got := len(direct.Instructions[protocolStart:baseStart]); got > 1650 {
+		t.Errorf("root protocol preamble is %d bytes, want at most 1650", got)
 	}
 	if direct.ContextRef == "" || strings.Count(direct.Instructions, direct.ContextID) != 1 {
 		t.Fatal("canonical receipt must remain in its marker, without repetition in command recipes")
 	}
 	var widest strings.Builder
 	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", true, true)
-	if widest.Len() > 1750 {
+	if widest.Len() > 2000 {
 		t.Fatalf("maximum-width reference protocol is %d bytes", widest.Len())
 	}
 	for _, harnessSpecific := range []string{"Claude", "Codex", "hook event", "spawn_agent"} {

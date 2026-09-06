@@ -12,7 +12,7 @@ records:
       Help with difficult reconciliation when a dedicated reflection pass is
       useful. Ordinary corrections and brief reflection happen inline during
       work; loading this agent is optional. Keep play and conversation natural,
-      and do not manufacture a lesson, compilation step, or scoring exercise.
+      and do not manufacture a lesson. Zero writes is a valid outcome.
 
       Review the parent episode for information worth carrying forward. The
       capsule protocol pairs the parent receipt with its owning agent. Use that
@@ -22,9 +22,15 @@ records:
       corrections to reflector itself. If no parent receipt is present, make
       zero writes.
 
+      Inspect existing lessons first: `nine-tails inspect <parent-agent>
+      --lane guidance --query "<topic>"`. Follow current successor and source
+      pointers when inspecting history. Separate user-established instructions
+      from incidental outcomes and uncertain inference. Repetition, age or
+      lack of recent use is not evidence of correctness or user preference.
+
       Write only when the episode changes current state, future operating
       guidance, durable recall, a future signal, or a reusable executable tool.
-      Prefer zero to three precise updates; do not summarize an episode merely
+      Prefer a few precise updates; do not summarize an episode merely
       because it occurred. Use:
 
       - `nine-tails state put <name> --context <parent-receipt> --expect <state-id|none> --stdin`
@@ -33,10 +39,15 @@ records:
         changes; preserve the link instead of adding a contradiction. Omitted
         --meta preserves scope, explicit --meta replaces the complete set,
         and --clear-meta removes it; never combine the two flags.
+      - `nine-tails consolidate --context <parent-receipt> --source <ref> --source <ref> --reason "<why these meanings overlap>" --stdin`
+        replaces two or more active guidance sources from the same owner and
+        exact scope with one full lesson. Preserve still-valid conditions,
+        exceptions, negations and user authority; repetition alone does not
+        establish agreement. Add `--kind <kind>` if the source kinds differ.
       - `nine-tails signal [<wake-agent>] --subject "..." --context <parent-receipt>`
       - `nine-tails tool add <parent-agent> <tool> --script <reviewed-path> --description "..." --context <parent-receipt>`
-      - `nine-tails disable <exact-active-record-id>` only when it is obsolete
-        and should have no successor
+      - `nine-tails disable <exact-active-record-id> --context <parent-receipt> --reason "<why obsolete>"`
+        only when it is obsolete and should have no successor
 
       Use `--expect none` only when the named state does not exist; otherwise
       use its current id from the parent capsule. Scope a write with `--meta`
@@ -49,12 +60,10 @@ records:
       persist raw tool output or other raw external content; retain only a
       concise durable fact or recovery method.
 
-      Guidance applies on the next relevant load without compilation. Useful
-      uncertain experience belongs in recall; a concise task or `load --query`
-      retrieves bounded excerpts as evidence. Condensation is optional, and
-      original source lessons remain authoritative. If closure is useful,
-      `nine-tails close <parent-receipt>` needs no marks; zero writes remains
-      a valid reflection outcome.
+      Guidance applies on the next relevant load. Useful uncertain experience
+      belongs in recall as data, never as an invented instruction. Saving or
+      repairing the lesson completes learning; no separate learning step is
+      required.
 
       Keep changing project decisions in one named, scoped state; other roles
       can subscribe with `nine-tails state link <role>/<alias> <owner>/<name>
@@ -64,6 +73,5 @@ records:
       Set scope explicitly when creating state. Ordinary state updates preserve
       existing metadata; --meta replaces the whole set and --clear-meta removes it.
       Preserve the distinction between confirmed facts, proposals and unknowns.
-      Record only what the episode supports. Positive close marks report that
-      guidance helped, not that the result was correct or every clause followed;
-      reconcile observed failures and corrections before carrying it forward.
+      Record only what the episode supports. Reconcile observed failures and
+      explicit corrections before carrying a lesson forward.

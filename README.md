@@ -167,7 +167,7 @@ wherever the agent runs. Correct an active record with `--supersedes`; omitting
 exact replacement set with `--meta`, or use `--clear-meta` to remove all scope.
 The two flags are mutually exclusive. Omit new text to keep the prior body.
 New records never inherit ambient context metadata. To retire an obsolete active record
-without a replacement, use `disable <record-id>`; it remains inspectable by ID
+without a replacement, use `disable <record-id> --context <receipt> --reason "..."`; it remains inspectable by ID
 and under its agent's `inspect --all` history. Retiring compiled guidance
 invalidates that brief generation as an inseparable cache; surviving sources
 appear immediately as recent guidance. Replacing a compiled source with changed
@@ -180,8 +180,27 @@ briefly consider whether anything should carry forward. Supported reusable
 lessons become guidance; useful experience or uncertainty can be saved with
 `remember`. Zero writes is valid, including a playful companion session.
 Reflection can happen inline. The optional `reflector` helps with difficult
-reconciliation. `nine-tails close <context-id>` is optional bookkeeping and
-needs no scoring exercise; unlisted records default to `?`.
+reconciliation. Update existing lessons before adding another overlapping note.
+Explicit user corrections can become guidance immediately; inferred experience
+belongs in recall until evidence supports a reusable instruction.
+
+When several instructions say the same thing, inspect their complete text and
+combine them while keeping their conditions and exceptions:
+
+```sh
+nine-tails consolidate --context @42 --source @17 --source @23 \
+  --reason "These notes describe the same review preference" \
+  "Lead with concrete evidence, keeping each independent finding separate."
+```
+
+Sources must belong to the same agent and have identical scope. Their old
+handles lead to the replacement; their original text and the decision remain
+inspectable. This changes durable knowledge directly. A short-lived task mismatch
+does not justify retiring a preference, and repeated recall is not proof of it.
+See [the learning cycle](docs/learning-cycle.md) for the decision process.
+
+Marks have been removed from the supported learning workflow. Optional
+`close <receipt>` only closes a receipt; it accepts no scoring arguments.
 
 The optional [workshop catalog](agents/workshop/README.md) supplies a coordinator,
 an `architect`, framework roles, and a game team: `game.designer`,
@@ -204,14 +223,15 @@ records the concrete changes and remaining limits.
 
 | Need | Command | Result |
 | --- | --- | --- |
-| Operating guidance | `note`, `prefer`, `avoid` | Appears in recent adjustments and can later be compiled |
+| Operating guidance | `note`, `prefer`, `avoid` | Applies on the next relevant load |
+| Correct existing guidance | Add `--supersedes <ref>` to the write | Replaces the rule while preserving scope and history |
+| Combine like instructions | `consolidate --source <ref> --source <ref>` | One replacement with original sources and a reason |
 | Useful experience or a fact | `remember` | Relevant excerpts surface on load as data; full records remain searchable with `inspect --query` |
 | Small current working state | `state put` | Replaces a named YAML state using compare-and-swap |
 | Shared state in a role's next capsule | `state link` | Subscribes to current named state without copying its values |
 | A reminder or external event | `signal` | Appears when due and can be leased by a scheduler |
 | A reusable executable capability | `tool add` | Adds a validated named tool callable through a context |
-| Optional shorter guidance | `compile` | Condenses eligible guidance through a configured model command; original lessons remain authoritative |
-| Retire an obsolete record | `disable` | Stops loading, compiling, or calling it without deleting history |
+| Retire obsolete material | `disable <ref> --context <receipt> --reason "..."` | Stops surfacing it, retaining its history and the reason |
 
 Examples:
 
@@ -266,13 +286,21 @@ nine-tails inspect <pr-review-context-id>
 nine-tails inspect pr-review --lane recall --query "generated mocks"
 ```
 
-`load` uses the concise `--task` to retrieve up to three matching recall
-excerpts, capped at 360 characters each. The lexical search respects metadata
+`load` uses the concise `--task` to select matching recall under a soft size
+target, with excerpts capped at 360 Unicode characters each. The lexical search respects metadata
 conflicts and labels results as data, with record IDs, truncation notices, and
 inspection paths. Guidance is never shortened or evicted to make room.
 Override retrieval with `--query "generated mocks"`, or disable it for a load
 with `--query ""`. This matches words rather than inferring synonyms; use
-`inspect` or a different query when you need other evidence.
+`inspect` or a different query when you need other evidence. When preparing an
+agent's next load, select memories against the actual task with repeatable
+`--recall @17 --recall @23`. All requested eligible records replace lexical picks, with no record-count limit;
+omitting selection keeps the normal automatic path. MCP accepts `recall: []`
+for none. Excerpts retain whole words and short headings. No search/reload
+ceremony is required for an ordinary session. Automatic recall reports omitted
+keyword matches with an inspection hint. If the complete capsule exceeds an
+harness-supplied transport ceiling, the load fails without silently
+dropping selected memories or recording an incomplete receipt.
 
 Data goes to stdout and diagnostics to stderr. Core data commands are
 non-interactive; `hooks run` is the explicit interactive supervisor. Commands
@@ -380,31 +408,11 @@ To move an agent to another machine or share it with someone else, use
 `export --bundle` and `import`. No repository-aware synchronization is hidden
 inside the binary.
 
-## Optional condensation
+## Advanced condensation
 
-Recent adjustments remain visible immediately. When they grow large,
-`compile` can condense them into a cached brief through any command that reads the
-compile document on stdin and writes the result on stdout:
-
-```yaml
-# ~/.nine-tails/config.yaml
-compiler:
-  argv: ["my-model-command", "--noninteractive"]
-  timeout: 300s
-```
-
-```sh
-nine-tails compile pr-review
-```
-
-For a manual or custom-model workflow, use `compile-input` followed by
-`brief put`. Compiler output is validated for complete dispositions and
-installed with compare-and-swap protection.
-
-Original lessons remain authoritative. Compiler input includes the original
-source bodies behind existing summaries. If a compiled representation is
-inapplicable or cannot render on a load, the eligible source guidance returns
-in full. Compilation is never a checkpoint required to activate learning.
+Durable corrections and consolidation take effect immediately. An optional
+[condensation cache](docs/condensation.md) can shorten presentation when useful;
+its commands are omitted from ordinary help. Source records remain authoritative.
 
 ## State and handoffs
 

@@ -33,16 +33,19 @@ records:
       Pick a role from "Available agents" below or `nine-tails agents`, then
       use the capsule protocol's named load and receipt handoff. Inspect an
       advertised tool before calling it; its capsule entry gives the command
-      and input fields. The common protocol owns correction, reflection,
-      delegation and closure. For difficult reconciliation, optionally load
+      and input fields. The common protocol owns correction, reflection and
+      delegation. For difficult reconciliation, optionally load
       `reflector`; ordinary learning stays inline.
 
-      Asked to explain or repair an agent: `nine-tails inspect <agent>`, with
-      `--query`, `--coverage` or `--lint condition-loss`. Retire an obsolete
-      active record with no successor using `disable <id>`; never edit history.
-      Explicit close marks describe usefulness, not verified correctness or
-      compliance. A positive mark must not conceal a wrong clause in a mixed
-      record; save the actual correction.
+      Before adding a lesson, inspect current guidance with `nine-tails inspect
+      <agent> --lane guidance --query "<topic>"`. Correct one lesson with
+      `nine-tails note --context <receipt> --supersedes <ref> "<full corrected lesson>"`.
+      Merge overlapping lessons with `nine-tails consolidate --context <receipt>
+      --source <ref> --source <ref> --reason "<why these overlap>" --stdin`;
+      sources must share owner and exact scope. Preserve every still-valid
+      condition, exception and user instruction. Retire obsolete knowledge with
+      `nine-tails disable <ref> --context <receipt> --reason "<why obsolete>"`.
+      Current lessons change through these commands; history remains inspectable.
 
       ## Conventions
 
@@ -75,21 +78,19 @@ records:
       - Context receipts prove past loads, not live workers. Never infer
         checkout ownership or choose a worktree from receipt recency; use an
         explicit user or repository coordination instruction.
-      - The task also retrieves up to three relevant recall excerpts as data,
-        separate from instructions. Use `load --query "<terms>"` to override
-        retrieval or `--query ""` to disable it. Inspect the supplied record ID
-        for full evidence; recall is never automatically promoted to guidance.
+      - The task retrieves a bounded set of recall excerpts as data, separate
+        from instructions. Inspect omitted matches when needed or select exact
+        memory references with `load --recall <ref>` for the next load. Use
+        `load --query "<terms>"` to override automatic retrieval or `--query ""`
+        to disable it. Inspect supplied references for full evidence; recall is
+        never automatically promoted to guidance.
       - Metadata on records is applicability scope: a load that passes the
         same key with a disjoint value set drops the record. Visible context
         metadata is provenance, not automatically copied write scope. Follow the
         common correction protocol to preserve or explicitly replace scope.
         A correction without new text keeps the prior body.
-      - New guidance applies on the next relevant load without compilation.
-        When Recent adjustments grows long, optional condensation is available:
-        `nine-tails compile <agent> --compiler "<compiler-command>"`, using a
-        command that reads the document on stdin and writes the new brief on
-        stdout. Original lessons remain authoritative; compilation is a cache,
-        not a checkpoint required to remember anything.
+      - New guidance applies on the next relevant load. Saving a correction
+        completes learning; no separate learning step is required.
 
       ## Adopting an existing agent file
 

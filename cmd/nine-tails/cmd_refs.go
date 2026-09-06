@@ -124,17 +124,5 @@ func (a *app) resolveCommandReferences(cmd *cobra.Command, args []string) error 
 			args[0] = resolved
 		}
 	}
-	if path == "close" {
-		for i := 1; i < len(args); i++ {
-			key, mark, ok := strings.Cut(args[i], "=")
-			if ok && strings.HasPrefix(key, "@") {
-				resolved, err := a.resolveReference(key)
-				if err != nil {
-					return err
-				}
-				args[i] = resolved + "=" + mark
-			}
-		}
-	}
 	return nil
 }

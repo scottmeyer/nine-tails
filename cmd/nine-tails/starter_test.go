@@ -28,9 +28,13 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 		"A load does not itself spawn a worker.",
 		"A direct named load,",
 		"no guide load is required.",
-		"up to three relevant recall excerpts as data",
-		"New guidance applies on the next relevant load without compilation.",
-		"Original lessons remain authoritative; compilation is a cache,",
+		"retrieves a bounded set of recall excerpts as data",
+		"memory references with `load --recall <ref>`",
+		"New guidance applies on the next relevant load.",
+		"Saving a correction",
+		"nine-tails consolidate --context <receipt>",
+		"--source <ref> --source <ref> --reason",
+		"nine-tails disable <ref> --context <receipt> --reason",
 		"nine-tails base <name> --expect none",
 		"## Adopting an existing agent file",
 		"## Available agents\n\n- `reflector`: ",
@@ -39,7 +43,7 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 			t.Errorf("pilot capsule lacks %q:\n%s", want, r.out)
 		}
 	}
-	for _, obsolete := range []string{"within the last hour means", `--compiler "claude -p"`, "done or blocked) load reflector", "Before you finish, close your receipt", "try a small task from", "## The loop", "--context ctx_M", "--context ctx_N"} {
+	for _, obsolete := range []string{"within the last hour means", `--compiler "claude -p"`, "done or blocked) load reflector", "Before you finish, close your receipt", "try a small task from", "## The loop", "--context ctx_M", "--context ctx_N", "close marks", "nine-tails compile", "up to three relevant recall"} {
 		if strings.Contains(r.out, obsolete) {
 			t.Errorf("pilot capsule retains obsolete guidance %q:\n%s", obsolete, r.out)
 		}
@@ -82,7 +86,7 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 		"--expect <state-id|none>",
 		"Use `--expect none` only when the named state does not exist",
 		"nine-tails tool add <parent-agent> <tool> --script <reviewed-path> --description \"...\" --context <parent-receipt>",
-		"nine-tails disable <exact-active-record-id>",
+		"nine-tails disable <exact-active-record-id> --context <parent-receipt> --reason",
 		"Before disabling, inspect the exact active record",
 		"prefer a superseding write when replacement guidance",
 		"always keep the parent receipt as",
@@ -93,14 +97,20 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 		"confirmed facts, proposals and unknowns.",
 		"loading this agent is optional.",
 		"Ordinary corrections and brief reflection happen inline",
-		"do not manufacture a lesson, compilation step, or scoring exercise.",
-		"Guidance applies on the next relevant load without compilation.",
+		"do not manufacture a lesson. Zero writes is a valid outcome.",
+		"Inspect existing lessons first:",
+		"Repetition, age or",
+		"lack of recent use is not evidence of correctness or user preference.",
+		"nine-tails consolidate --context <parent-receipt> --source <ref> --source <ref> --reason",
+		"exceptions, negations and user authority",
+		"belongs in recall as data, never as an invented instruction",
+		"Guidance applies on the next relevant load.",
 	} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("reflector capsule lacks %q:\n%s", want, r.out)
 		}
 	}
-	for _, unsafe := range []string{"--context ctx_N", "tool add <reflector>"} {
+	for _, unsafe := range []string{"--context ctx_N", "tool add <reflector>", "close marks", "nine-tails close", "zero to three", "scoring exercise"} {
 		if strings.Contains(r.out, unsafe) {
 			t.Errorf("reflector capsule retains unsafe episode-write guidance %q:\n%s", unsafe, r.out)
 		}

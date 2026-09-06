@@ -1,108 +1,165 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
-// close is the run's verdict on its receipt: one mark per rendered record,
-// ? by default, X only with its correction, once per receipt; tallies then
-// reach inspect, compile-input and the lint.
-func TestCloseMarksReceipt(t *testing.T) {
+func TestCloseIsOptionalBookkeepingWithoutMarks(t *testing.T) {
 	h := newHarness(t)
 	base := h.ok("base", "a", "Base.").id(t)
-	g1 := h.ok("prefer", "a", "Lead with evidence.").id(t)
-	g2 := h.ok("avoid", "a", "Restating the finding.").id(t)
-	ctx := h.ok("load", "a", "--format", "json").json(t)["context_id"].(string)
-
-	view := h.ok("inspect", ctx).json(t)
-	rendered := view["rendered"].([]any)
-	if len(rendered) != 3 {
-		t.Fatalf("rendered: %v", rendered)
+	h.ok("prefer", "a", "Lead with evidence.")
+	loaded := h.ok("load", "a", "--format", "json").json(t)
+	ctx := loaded["context_id"].(string)
+	ref := loaded["context_ref"].(string)
+	before := h.ok("inspect", ctx).json(t)
+	rendered := before["rendered"].([]any)
+	if first := rendered[0].(map[string]any); len(rendered) != 2 || first["id"] != base || first["ordinal"] != float64(0) || first["excerpt"] != "Base." {
+		t.Fatalf("receipt evidence: %v", rendered)
 	}
-	first := rendered[0].(map[string]any)
-	if first["id"] != base || first["ordinal"] != float64(0) || first["excerpt"] != "Base." || first["kind"] != "agent-base" {
-		t.Fatalf("receipt view lacks ordinal and excerpt: %v", first)
+	for _, extra := range []string{"0=+", base + "=X", "@1=?"} {
+		if r := h.run("close", ref, extra); r.code != 2 {
+			t.Fatalf("obsolete mark argument accepted: %d %q", r.code, r.err)
+		}
 	}
-
-	// An X without its correction is refused; a bad mark, an unrendered id
-	// and a bad ordinal too.
-	if r := h.run("close", ctx, g1+"=X"); r.code != 2 || !strings.Contains(r.err, "needs its correction first") {
-		t.Fatalf("X without correction: %d %q", r.code, r.err)
+	if got := h.ok("inspect", ctx).json(t)["closed_at"]; got != nil && got != "" {
+		t.Fatalf("invalid close mutated receipt: %v", got)
 	}
-	if r := h.run("close", ctx, g1+"=++"); r.code != 2 {
-		t.Fatalf("bad mark: %d %q", r.code, r.err)
+	// Saving and loading work while the preceding receipt remains open.
+	h.ok("note", "--context", ctx, "State the concrete finding first.")
+	if r := h.ok("load", "a"); !strings.Contains(r.out, "State the concrete finding first.") {
+		t.Fatalf("learning waited for receipt closure: %s", r.out)
 	}
-	if r := h.run("close", ctx, "rec_999=+"); r.code != 2 || !strings.Contains(r.err, "did not render") {
-		t.Fatalf("unrendered id: %d %q", r.code, r.err)
+	closed := h.ok("close", ref, "--format", "json").json(t)
+	if closed["context_id"] != ctx || closed["closed_at"] == nil || closed["closed_at"] == "" || closed["marks"] != nil {
+		t.Fatalf("close result: %v", closed)
 	}
-	if r := h.run("close", ctx, "9=+"); r.code != 2 || !strings.Contains(r.err, "ordinal") {
-		t.Fatalf("bad ordinal: %d %q", r.code, r.err)
+	for _, r := range h.ok("inspect", ctx).json(t)["rendered"].([]any) {
+		if r.(map[string]any)["mark"] != nil {
+			t.Fatalf("new close manufactured a mark: %v", r)
+		}
 	}
-	if r := h.run("close", ctx, "0=+", base+"=+++"); r.code != 2 || !strings.Contains(r.err, "twice") {
-		t.Fatalf("duplicate: %d %q", r.code, r.err)
+	if count := countLegacyMarks(t, h); count != 0 {
+		t.Fatalf("close wrote %d legacy marks", count)
 	}
-
-	h.ok("avoid", "a", "--context", ctx, "Leading with evidence buried the finding.")
-	r := h.ok("close", ctx, "0=+++", g1+"=X", "--format", "json")
-	m := r.json(t)
-	marks := m["marks"].(map[string]any)
-	if marks[base] != "+++" || marks[g1] != "X" || marks[g2] != "?" || m["closed_at"] == "" {
-		t.Fatalf("close result: %s", r.out)
-	}
-	if r := h.run("close", ctx, "0=+"); r.code != 7 {
+	if r := h.run("close", ctx); r.code != 7 {
 		t.Fatalf("a receipt closes once: %d %q", r.code, r.err)
 	}
-	if got := h.ok("inspect", ctx).json(t)["rendered"].([]any)[0].(map[string]any)["mark"]; got != "+++" {
-		t.Fatalf("mark on the receipt view: %v", got)
+	if r := h.run("close", base); r.code != 2 {
+		t.Fatalf("record is not a receipt: %d %q", r.code, r.err)
 	}
-	if r := h.run("close", "rec_999", "0=+"); r.code != 2 {
-		t.Fatalf("not a context id: %d %q", r.code, r.err)
+	if r := h.run("close", "ctx_999"); r.code != 3 {
+		t.Fatalf("unknown receipt: %d %q", r.code, r.err)
 	}
-	if r := h.run("close", "ctx_999", "0=+"); r.code != 3 {
-		t.Fatalf("unknown context: %d %q", r.code, r.err)
+	next := h.ok("load", "a", "--format", "json").id(t)
+	if got := h.ok("close", next).id(t); got != next {
+		t.Fatalf("default output must remain canonical ID: %q", got)
 	}
+}
 
-	// A compiled item accumulates a tally that compile-input, inspect and
-	// the lint all read.
-	doc := fmt.Sprintf("input_entries: [%s, %s]\nitems:\n  - {key: evidence, body: Lead with evidence.}\nentries:\n  - {id: %s, disposition: represented, items: [evidence]}\n  - {id: %s, disposition: deferred}\n", g1, g2, g1, g2)
-	res := h.okIn(doc, "brief", "put", "a", "--expect-generation", "none", "--expect-base", base, "--stdin", "--format", "json").json(t)
-	item := strs(t, res["items"])[0]
-	for i := 0; i < 2; i++ {
-		c := h.ok("load", "a", "--format", "json").json(t)["context_id"].(string)
-		h.ok("avoid", "a", "--context", c, "Evidence first buried the point.")
-		h.ok("close", c, item+"=X")
+func TestCloseInvalidArgumentsAndHelpDoNotOpenStore(t *testing.T) {
+	h := newHarness(t)
+	for _, args := range [][]string{{"close"}, {"close", "ctx_999", "0=+"}, {"close", "ctx_999", "--format", "bad"}} {
+		if r := h.run(args...); r.code != 2 {
+			t.Fatalf("invalid close %v: %d %q", args, r.code, r.err)
+		}
 	}
-	for _, mark := range []string{"-", "---", "+"} {
-		c := h.ok("load", "a", "--format", "json").json(t)["context_id"].(string)
-		h.ok("close", c, item+"="+mark)
+	help := h.ok("close", "--help").out
+	if !strings.Contains(help, "closure is optional") || strings.Contains(help, "mark") {
+		t.Fatalf("close help: %s", help)
 	}
-	in := h.ok("compile-input", "a").json(t)
-	tally := in["active_generation"].(map[string]any)["items"].([]any)[0].(map[string]any)["tally"].(map[string]any)
-	if tally["renders"] != float64(5) || tally["closes"] != float64(5) || tally["wrong"] != float64(2) ||
-		tally["minus"] != float64(2) || tally["plus"] != float64(1) || tally["minus_weight"] != float64(4) || tally["last_applied"] == nil {
-		t.Fatalf("tally: %v", tally)
+	entries, err := os.ReadDir(h.home)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("invalid/help calls touched store: %v %v", entries, err)
+	}
+}
+
+func countLegacyMarks(t *testing.T, h *harness) int {
+	t.Helper()
+	st, err := store.Open(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var n int
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM context_marks`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestHistoricalMarksRemainInspectableWithoutAffectingLearning(t *testing.T) {
+	h := newHarness(t)
+	base := h.ok("base", "a", "Base.").id(t)
+	source := h.ok("prefer", "a", "Lead with evidence.").id(t)
+	doc := fmt.Sprintf("input_entries: [%s]\nitems:\n  - {key: evidence, body: Lead with evidence.}\nentries:\n  - {id: %s, disposition: represented, items: [evidence]}\n", source, source)
+	installed := h.okIn(doc, "brief", "put", "a", "--expect-generation", "none", "--expect-base", base, "--stdin", "--format", "json").json(t)
+	item := strs(t, installed["items"])[0]
+	var first string
+	for _, mark := range []string{"X", "X", "-", "---", "+"} {
+		ctx := h.ok("load", "a", "--format", "json").id(t)
+		if first == "" {
+			first = ctx
+		}
+		// Simulate rows written by an older version. The supported command
+		// tree has no score writer and must not reinterpret this history.
+		st, err := store.Open(h.home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = st.Tx(func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`INSERT INTO context_marks(context_id, record_id, mark, created_at) VALUES (?, ?, ?, ?)`, ctx, item, mark, store.Now()); err != nil {
+				return err
+			}
+			_, err := tx.Exec(`UPDATE contexts SET closed_at = ? WHERE id = ?`, store.Now(), ctx)
+			return err
+		})
+		st.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	found := false
+	for _, r := range h.ok("inspect", first).json(t)["rendered"].([]any) {
+		record := r.(map[string]any)
+		if record["id"] == item {
+			found = record["mark"] == "X"
+		}
+	}
+	if !found {
+		t.Fatal("historical receipt lost its mark")
 	}
 	brief := h.ok("inspect", "a", "--include", "brief").json(t)["brief"].(map[string]any)
-	if tallies := brief["tallies"].(map[string]any); tallies[item].(map[string]any)["wrong"] != float64(2) {
-		t.Fatalf("inspect tallies: %v", brief["tallies"])
+	tally := brief["tallies"].(map[string]any)[item].(map[string]any)
+	if tally["wrong"] != float64(2) || tally["minus"] != float64(2) || tally["plus"] != float64(1) {
+		t.Fatalf("historical tally changed: %v", tally)
 	}
-	lint := h.ok("inspect", "a", "--lint", "condition-loss").json(t)["lint"].([]any)
-	var msgs []string
-	for _, w := range lint {
-		msgs = append(msgs, w.(map[string]any)["message"].(string))
+	input := h.ok("compile-input", "a").json(t)
+	active := input["active_generation"].(map[string]any)["items"].([]any)[0].(map[string]any)
+	if _, exists := active["tally"]; exists {
+		t.Fatalf("compiler consumes historical scores: %v", active)
 	}
-	joined := strings.Join(msgs, "\n")
-	if len(lint) != 2 || !strings.Contains(joined, "was marked wrong by 2 runs") || !strings.Contains(joined, "hindered 2 runs and helped 1") {
-		t.Fatalf("practice lint: %v", msgs)
+	instructions := input["instructions"].(string)
+	for _, word := range []string{"tally", "mark", "hindered", "usefulness"} {
+		if strings.Contains(instructions, word) {
+			t.Fatalf("compiler teaches scores (%s): %s", word, instructions)
+		}
 	}
-	// Unlisted renders after the item's closes stay unknown, not negative.
-	c := h.ok("load", "a", "--format", "json").json(t)["context_id"].(string)
-	h.ok("close", c)
-	in = h.ok("compile-input", "a").json(t)
-	tally = in["active_generation"].(map[string]any)["items"].([]any)[0].(map[string]any)["tally"].(map[string]any)
-	if tally["unknown"] != float64(1) || tally["closes"] != float64(6) {
-		t.Fatalf("unknown mark: %v", tally)
+	lint := h.ok("inspect", "a", "--lint", "condition-loss").json(t)["lint"]
+	if lint != nil && len(lint.([]any)) != 0 {
+		t.Fatalf("history became score-based lint: %v", lint)
+	}
+	next := h.ok("load", "a", "--format", "json").id(t)
+	h.ok("close", next)
+	if count := countLegacyMarks(t, h); count != 5 {
+		t.Fatalf("new close changed legacy marks: %d", count)
+	}
+	if r := h.run("close", first); r.code != 7 {
+		t.Fatalf("historical receipt reclosed: %d %q", r.code, r.err)
 	}
 }

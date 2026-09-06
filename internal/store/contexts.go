@@ -19,7 +19,7 @@ type Context struct {
 	Pinned          bool   `json:"pinned" yaml:"pinned"`
 	ClosedAt        string `json:"closed_at,omitempty" yaml:"closed_at,omitempty"`
 	Meta            Meta   `json:"metadata" yaml:"metadata"`
-	// Marks is the run's verdict on each rendered record, present once closed.
+	// Marks holds legacy feedback, retained only for historical inspection.
 	Marks map[string]string `json:"marks,omitempty" yaml:"marks,omitempty"`
 	// Rendered lists emitted records in render order.
 	Rendered []ContextRecord `json:"rendered" yaml:"rendered"`

@@ -12,6 +12,8 @@ Nine-tails already stores a small directed graph in SQLite:
 | --- | --- |
 | Record → originating context | The episode that recorded it |
 | New record → superseded record | A deliberate correction with preserved history |
+| Consolidated instruction → source instructions | A reasoned many-to-one replacement with all predecessors intact |
+| Retired record → decision and episode | Why knowledge stopped surfacing, without erasing it |
 | Brief item → source records | Evidence used to derive a condensed instruction |
 | Context → delivered records | Exactly what that invocation received |
 | Role → state link → named current state | One authoritative value shared without copies |
@@ -27,10 +29,16 @@ links, then selects applicable guidance and relevant historical evidence. New
 knowledge must not rewrite an old receipt, and being connected to a node does
 not mean that node belongs in every capsule.
 
-This iteration repairs one concrete dependency failure: changing a source's
-scope could leave its compiled instruction active under the old scope. Body,
-kind or metadata-set changes now invalidate a dependent brief atomically. The
-corrected source becomes usable immediately; optional condensation can follow.
+Body, kind or metadata-set changes invalidate a dependent brief atomically.
+Many-to-one consolidation now connects ordinary guidance records as deliberate
+replacements. A working model supplies the merged meaning and reason; the store
+preserves each source and rejects stale or differently scoped inputs. Retiring
+a record can also retain the reason and deciding episode. Neither operation
+requires a successful compiler run.
+
+Explicit recall selection lets a caller choose relevant evidence for a new
+load. It does not traverse every connected node into context. A receipt still
+records only what that invocation actually received.
 
 ## Where the design should go
 
@@ -49,17 +57,21 @@ semantic relationships already exist:
   and recover its evidence. Traversal needs scope and size limits; adjacency
   alone is insufficient relevance.
 
-The next small extension should be explicit supporting-source relationships
-for ordinary learned records, reusing canonical IDs and the existing inspection
-and replacement operations. It should have a concrete caller in the learning
-flow and preserve the ability to load and work without a model service inside
-nine-tails. A generic graph editor or graph database is unnecessary.
+Consolidation edges mean “replaces these instructions”; they do not mean “is
+supported independently by these observations.” Keep that distinction when
+adding evidence relationships. More edge types need concrete learning callers,
+not a generic graph editor. SQLite remains sufficient for the present graph.
 
 ## Remaining learning limits
 
 Today the working model still decides what to retain and which correction
-replaces which lesson. Recall uses lexical matching. Explicit eligible guidance
+replaces which lesson. Automatic recall uses lexical matching; callers may explicitly select memories. Explicit eligible guidance
 is preserved in full; this iteration does not silently rank away user rules.
 Dates identify recalled observations as historical, but do not themselves prove
 that an observation is obsolete. A graph supplies traceable relationships; it
 does not supply semantic judgment or evidence of correctness.
+
+See [the learning cycle](learning-cycle.md) for operational decisions. Graph
+ancestry and retirement audits are currently store-local; snapshot export/import
+does not preserve them. Source receipts can be collected under ordinary GC,
+while the original source bodies and recorded origin IDs remain inspectable.

@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// Size is advice, not enforcement: load renders everything, reports the
-// estimate, and past the configured threshold says to compile.
-func TestLoadAdvisesCompileInsteadOfCutting(t *testing.T) {
+// Guidance remains complete and its size observable without turning ordinary
+// loads into a compiler workflow, even with the legacy threshold configured.
+func TestLoadPreservesGuidanceAndReportsSize(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "a", "Base.")
 	for i := 0; i < 12; i++ {
@@ -24,11 +24,11 @@ func TestLoadAdvisesCompileInsteadOfCutting(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = h.ok("load", "a")
-	if !strings.HasPrefix(r.err, "nine-tails: capsule is ") || !strings.HasSuffix(r.err, " estimated tokens with 12 uncompiled adjustments; optional condensation: `nine-tails compile a`\n") {
-		t.Fatalf("advice line: %q", r.err)
+	if r.err != "" || strings.Contains(r.out, "nine-tails compile") {
+		t.Fatalf("ordinary load advertises a compiler workflow: stderr=%q\n%s", r.err, r.out)
 	}
 	if strings.Count(r.out, "Adjustment ") != 12 {
-		t.Fatalf("advice must not cut anything:\n%s", r.out)
+		t.Fatalf("size handling must not cut guidance:\n%s", r.out)
 	}
 	m := h.ok("load", "a", "--format", "json").json(t)
 	if m["uncompiled_adjustments"] != float64(12) || m["estimated_tokens"].(float64) <= 100 {
@@ -48,7 +48,7 @@ func TestLoadAdvisesCompileInsteadOfCutting(t *testing.T) {
 	}
 	requireExit(t, h.run("load", "a", "--budget", "100"), 2, "unknown flag: --budget")
 
-	// Nothing uncompiled means nothing to advise, however large the capsule.
+	// A large base also remains complete and silent on stderr.
 	if err := os.WriteFile(filepath.Join(h.home, "config.yaml"), []byte("compile_advice_tokens: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

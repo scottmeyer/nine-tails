@@ -1,0 +1,104 @@
+# Learning through ordinary work
+
+The working model makes the semantic decisions while the evidence and the
+user's intent are available. Nine-tails stores those decisions, protects their
+scope and lineage, and projects the current result on the next load. It does
+not need a second model service or a successful compilation to learn.
+
+## What to do when
+
+| What happened | Action | What carries forward |
+| --- | --- | --- |
+| The user gives a durable preference | `prefer`, `avoid`, or `note --context <receipt>` | Applicable guidance on the next load |
+| A known instruction needs correction | Inspect it, then write with `--supersedes <ref>` | Replacement wording; old scope stays unless explicitly changed |
+| Several instructions express the same rule | `consolidate --source <ref> --source <ref> --context <receipt> --reason "..." "replacement"` | One instruction with its exact predecessors and the decision |
+| An old defect report or instruction is obsolete | Inspect it, then `disable <ref> --context <receipt> --reason "..."` | Inspectable history and reason; no future automatic surfacing |
+| An experience might help but is not a general rule | `remember --context <receipt> "..."` | Task-relevant evidence, with its date and provenance |
+| A project decision or result changes | `state put` with the current expected ID | Current named state; linked roles receive it on their next load |
+| Nothing durable changed | Keep working | No write |
+
+Explicit user instruction is evidence of what the user wants. A model's guess
+about that preference is not equivalent evidence. Store an uncertain experience
+as uncertain recall, including the circumstance that made it useful. Avoid
+promoting one successful workaround into a universal instruction.
+
+Before adding a lesson, check the current capsule and, when necessary, search
+the agent's existing records. Correct or consolidate the existing rule if it
+already covers the case. Do not accumulate a new contradictory paragraph and
+expect the next agent to resolve it again.
+
+## Consolidation is semantic work
+
+Read complete sources, including their kind, scope, conditions and exceptions.
+Ask whether the same future decision would apply every source. Related subject
+matter alone does not make two instructions interchangeable. Keep independently
+changeable rules separate. Preserve the user's concrete intent; remove repeated
+wording and superseded implementation claims.
+
+Write the complete replacement and a concise reason identifying what was
+combined or corrected. Nine-tails checks same owner, active exact sources and
+identical scope, then installs the entire replacement atomically. It cannot
+mechanically prove that the replacement preserved meaning. The caller should
+compare each original clause with the replacement and inspect the result.
+
+The source records remain intact. Their references lead through further
+consolidations and corrections to current knowledge. Historical receipts keep
+their exact delivered versions. This is a small graph of deliberate replacement
+decisions, not a chain of summaries that gradually loses its evidence.
+
+## Forgetting has two different meanings
+
+An observation can be irrelevant to this task without being obsolete. Leave it
+out of this capsule and keep it available for other work. When preparing a child
+or a new episode, the caller can search recall and select exact relevant records
+with `load --recall <ref>`; every eligible selection is delivered, without an
+arbitrary record-count limit. A harness-supplied whole-capsule transport ceiling can reject
+an oversized load, but never silently drop a chosen memory. Without explicit picks,
+lexical task/query search uses a soft context-size target and reports remaining
+keyword matches with an inspection hint. Excerpts remain bounded; inspect
+complete records when the decision requires their full evidence.
+
+Retire a record only when evidence supports it: the defect is resolved with no
+remaining recovery lesson, the user withdrew a preference, or the workflow no
+longer exists. If a useful replacement exists, supersede or consolidate instead.
+Age, absence from recent tasks, and repeated exposure are not evidence that a
+conditional preference became wrong. Retirement preserves history and a reason;
+it does not revive an earlier instruction automatically.
+
+## What this iteration removed
+
+Marks no longer participate in learning. `close` accepts only a receipt and
+creates no marks. Compiler input and scope lint no longer receive practice
+tallies. Historical marks stay inspectable. Compilation remains an advanced
+cache operation, omitted from ordinary help. Closing and compiling are never
+required pauses in the learning flow.
+
+## Actual repairs in this iteration
+
+The nine-tails corpus contained overlapping instructions about brief repair,
+tool discovery, and the product's domain. One repair instruction still said a
+same-body scope change should preserve a compiled brief; its corrected version
+said scope changes must invalidate it. Another tool instruction still described
+MCP as a future proposal. These require source-aware reconciliation, not an
+age threshold or a higher retrieval score.
+
+A recalled defect report claimed receipt JSON omitted empty task and parent
+fields, although current output includes them. That report can be retired with
+the fix as its reason. Meanwhile “semantic learning” matched old semantic-search
+experiments: those are different meanings of the same word. Explicit memory
+selection addresses the caller's judgment; lexical fallback still has that
+limitation.
+
+## Remaining boundaries
+
+Nine-tails does not yet detect paraphrases, infer contradictions, extract lessons
+from a transcript, or rerank memories semantically on its own. The loaded model
+must do that work. It now has atomic operations and a short protocol that make
+those decisions durable. Better automation should propose inspectable decisions
+with their evidence, then use these same operations.
+
+Consolidation currently accepts guidance with equal scope; ordinary supporting
+or contradicting observation edges are not implemented. Source bodies remain
+durable, but source receipts follow ordinary retention. Snapshot export/import
+does not transport consolidation ancestry or retirement audits; use a store
+backup when preserving that history is required.

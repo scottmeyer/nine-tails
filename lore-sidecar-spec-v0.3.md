@@ -760,8 +760,21 @@ The agent may be selected positionally or with `--agent NAME`. If both are
 supplied they must agree; an empty explicit name or no name is invalid.
 `--task` is a concise, non-sensitive receipt label and the default recall
 query. `--query` overrides retrieval without changing the receipt's task;
-an explicitly empty query disables retrieval. The override is not separately
+an explicitly empty query disables automatic retrieval. The override is not separately
 persisted; the receipt records the exact selected record IDs.
+
+Repeatable `load --recall <ID|@N>` selects every requested distinct active
+same-agent recall record, without a record-count limit. Canonical duplicates collapse in first-selected
+order. Explicit selection MUST preserve that order, perform no lexical padding
+or successor forwarding, and retain ordinary scope and text validation. Invalid
+type, ownership, scope or body is exit 2, unknown is 3, and inactive is 7; any
+failure rolls back the entire load and receipt. Explicit selections MUST NOT
+be silently dropped for size; a whole-capsule transport ceiling rejects the
+complete load. Omission retains lexical retrieval. The MCP `recall` array has the same behavior; an empty array selects
+none. A query focuses explicit excerpts without excluding selected records.
+Excerpts are bounded to 360 Unicode code points including omission markers,
+preserve whole words, and retain a short leading heading when practical.
+Relevant recall remains evidence, never an instruction or current-state claim.
 
 ````md
 # PR Review Agent
@@ -778,7 +791,9 @@ Follow the original task. Base, brief and adjustments guide behavior; state, rec
 
 Save durable corrections with `lore note|prefer|avoid --context @42 "..."`; next load applies them without compile. Replace with `--supersedes <ref>` and full new text; omitted scope stays, `--meta` replaces it, `--clear-meta` clears it. Inspect a brief item for current sources.
 
-At a useful pause, reflect briefly: save supported lessons as guidance or useful experience with `lore remember --context @42 "..."`. Zero writes is valid; keep play natural. `--task` retrieves recall; `--query` overrides it.
+Reconcile overlap with `consolidate --source <ref> --source <ref>`, or retire obsolete material with `disable <ref>`; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.
+
+At a useful pause, update existing lessons before adding: save supported lessons as guidance or useful experience with `lore remember --context @42 "..."`. Zero writes is valid; keep play natural. `--task` retrieves recall; `--query` overrides it.
 
 `--context` records origin; new scope needs explicit `--meta`. Local `@N` refs keep their kind: receipt for `--context`, record for corrections/CAS. Find handles with `lore refs`; canonical IDs also work.
 
@@ -969,11 +984,11 @@ explicit guidance is never cut or evicted to make room for recall.
 There is no instruction budget. `load` renders every eligible instruction whole, reports the
 capsule's estimated size (a conservative deterministic estimate; a
 model-specific tokenizer may replace it), and counts the recent guidance not
-yet compiled. When the size passes a configurable threshold and something is
-uncompiled, `load` advises optional condensation on stderr. Compilation is
+yet compiled. Load does not advertise a compilation checkpoint. Compilation is
 never necessary for new lessons to apply. State is size-capped when written;
-signal and recall bodies render as capped excerpts, recall also has a fixed
-item-count limit, and optional compilation condenses guidance.
+signal and recall bodies render as capped excerpts. Automatic recall has a
+soft rendered-size target; explicitly selected recall has no record-count or
+recall-size limit. A supplied whole-capsule transport ceiling still applies.
 
 Lore never truncates instructions or drops them to fit retrieval. A
 harness adapter with a hard transport ceiling may refuse a capsule that does
@@ -1059,6 +1074,39 @@ replacement and signals through acknowledgement, so neither may be disabled.
 An unknown record is not found (exit 3), an inactive record is a conflict
 (exit 7), and an ineligible record is invalid input (exit 2).
 
+For deliberate forgetting, `disable --context <receipt> --reason <text>`
+MUST require both options, a nonempty reason and a receipt owned by the record's
+agent. The retirement decision (context, timestamp and reason) MUST be retained
+atomically with status change, exposed by inspection, and not overwrite an
+earlier decision. The original body stays intact. Legacy bare disabling MAY
+remain supported. Inactivity or age alone MUST NOT automatically erase or
+retire operating guidance.
+
+`consolidate --context <receipt> --source <id> --source <id> --reason <text>
+[--kind <kind>] (TEXT | --stdin)` replaces two or more exact active ordinary
+guidance records with complete model-supplied wording. Sources MUST be distinct,
+owned by the context's agent, and have identical metadata value sets. The
+replacement MUST copy that scope; it MUST NOT infer scope from the receipt or
+union different scopes. Omitted kind requires agreement among sources; an
+explicit kind selects the replacement guidance kind. Brief items are invalid
+sources and outputs. Recall, state and definitions are not consolidation inputs.
+
+Source validation, dependent-brief invalidation, new record and reason creation,
+source links and predecessor retirement MUST commit atomically. Invalid input
+is exit 2, unknown source/context is 3, and inactive sources are conflict 7.
+Stale sources MUST NOT be silently forwarded. The new ordinary guidance MUST
+apply immediately on the next applicable load without compilation.
+
+Each original record and its provenance remain inspectable. Inspection of a
+source follows subsequent single replacements and consolidations to a separate
+current envelope; historical text is not rewritten. Inspecting the merged
+record exposes its reason and exact immediate sources in caller order. Retiring
+the merged record MUST NOT reactivate its predecessors. This operation records
+deliberate semantic replacement, not independent supporting evidence or a
+derived summary cache. Source receipt retention follows the ordinary GC policy.
+Implementations MUST disclose when their snapshot export format does not carry
+consolidation ancestry or retirement audits.
+
 Guidance and recall are separate uses even when both contain ordinary text:
 
 ```bash
@@ -1082,8 +1130,13 @@ call after every append. Recall entries never enter the brief automatically.
 
 ### 11.3 Recall
 
-Each load automatically retrieves up to three active same-agent recall records
-using the concise task label or explicit query override. Recall remains data,
+Each load automatically selects active same-agent recall using the concise task
+label or explicit query override, under a soft target of 4,096 rendered bytes.
+Always retain the highest-ranked match even if it alone exceeds the target,
+then stop before adding another result that would exceed it. There is no
+record-count cap. Return `recall_more` and optional `recall_next: {id, ref,
+inspect}` for omitted eligible keyword matches. The hint is data, not evidence
+that the omitted record was delivered. Recall remains data,
 never an automatic instruction or brief entry. Metadata conflicts exclude a
 record using the ordinary conflict rule. Retrieval uses distinct lowercased
 Unicode letter/digit words of at least two runes, excludes common stopwords
@@ -1092,8 +1145,10 @@ title. Other metadata is not query text. Ranking is matching-word count desc,
 metadata overlap desc, created_at desc, then insertion order desc; repeated
 words do not increase the score. Zero positive matches means zero recall.
 
-Each result carries an excerpt of at most 360 runes after collapsing whitespace,
-positioned near the first body match with up to 80 runes of preceding context.
+Each result carries an excerpt of at most 360 Unicode code points including
+omission markers, after collapsing whitespace. Retain whole words, prefer
+nearby sentence or clause boundaries, and keep a short leading heading when
+practical. A word longer than the excerpt budget is omitted rather than split.
 A cut at either end is explicitly marked. Every result includes record ID,
 kind, metadata, truncation flag, and an exact inspect path. Only selected
 recall IDs appear in the receipt, under section `recall`. The bound never
@@ -1347,7 +1402,7 @@ Review the episode for information worth carrying forward.
 
 Write only when the episode changes current state, future operating guidance,
 durable recall memory, a future signal, or reusable executable capability.
-Prefer zero to three precise updates. Do not summarize the episode merely
+Prefer a few precise updates; zero is valid. Do not summarize the episode merely
 because it occurred. Do not store raw tool output when a concise fact or
 recovery procedure is sufficient.
 ```
@@ -1373,7 +1428,8 @@ lore prefer ...
 lore remember ...
 lore signal ...
 lore tool add ... --context <parent-receipt>
-lore disable <exact-active-record-id> # after inspection, only with no successor
+lore consolidate --context <parent-receipt> --source <ref> --source <ref> --reason "..." "replacement"
+lore disable <exact-active-record-id> --context <parent-receipt> --reason "..." # only with no successor
 ```
 
 No special reflection store is required. If a raw reflection is itself worth
@@ -1421,17 +1477,10 @@ authoritative and remains available when the cache cannot apply (§10.2).
 
 ### 12.2 Invocation
 
-Compilation may run:
-
-- Explicitly through `lore compile <agent>`.
-- After a configurable number of unrepresented guidance entries.
-- When `load` advises it: the capsule passed the size threshold with
-  uncompiled guidance in it.
-- On a periodic signal.
-- Through an agent asked to inspect and repair a profile.
-
-Automatic compilation is optional. A fully functional v0 may require explicit
-invocation.
+Compilation is an explicit advanced operation through `lore compile <agent>`
+or an agent asked to maintain a brief. It is omitted from ordinary help and
+never scheduled by load, closure, record counts or marks. Durable learning
+uses immediate additions, replacements, consolidation and retirement.
 
 ### 12.3 Compiler adapters
 
@@ -1601,7 +1650,7 @@ The default compiler instructions should be short and inspectable:
 - Account for every supplied guidance entry.
 - Merge equivalent entries and retain their source relationships.
 - Keep independently changeable instructions in separate items so each can be
-  corrected and marked on its own; retain necessary conditions with their rule.
+  corrected on its own; retain necessary conditions with its rule.
 - Retain conditions that explain apparent contradictions.
 - Prefer instructions that describe the desired behavior, not only what to
   avoid.
@@ -1610,14 +1659,12 @@ The default compiler instructions should be short and inspectable:
 - Do not invent preferences absent from the material.
 - Keep the whole brief concise; it is loaded on every invocation.
 
-Practice tallies are self-reported usefulness signals, not verified
-correctness or compliance. Positive marks on a mixed item do not validate
-every clause; sources and explicit corrections must still be considered.
-Repeated hindrance suggests revising wording or scope. Repeated unknown marks
-suggest reviewing relevance, not that a conditional rule is false. Do not
-discard an explicit correction or rarely needed safeguard solely for lack of
-recent application. Close-time guidance should likewise prompt checking
-measurable claims and correcting a wrong clause even if another clause helped.
+Compiler input MUST NOT contain practice tallies or marks. Repeated retrieval
+or a prior model's usefulness rating is not evidence of correctness. Preserve
+explicit corrections and rarely needed safeguards unless supported evidence
+changes their applicability. `close <receipt>` is optional bookkeeping only;
+it accepts no marks, records no new mark rows, and cannot activate learning.
+Historical marks MAY remain available through explicit inspection.
 
 The compiler may itself be represented as a small Lore agent. This is the
 preferred dogfooding path once harness adapters exist.

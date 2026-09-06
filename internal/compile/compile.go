@@ -52,7 +52,6 @@ type ItemView struct {
 	Body    string       `json:"body" yaml:"body"`
 	Meta    store.Meta   `json:"meta" yaml:"meta"`
 	Sources []SourceView `json:"sources" yaml:"sources"`
-	Tally   *store.Tally `json:"tally" yaml:"tally"` // what practice says (DESIGN §18)
 }
 
 // SourceView retains the original evidence for a represented entry, so
@@ -158,11 +157,7 @@ func BuildInput(q store.Querier, agent string) (*Input, error) {
 				}
 				sources = append(sources, SourceView{ID: id, Kind: src.Kind, Body: src.Body, Meta: src.Meta})
 			}
-			tally, err := store.TallyRecord(q, it.ID)
-			if err != nil {
-				return nil, err
-			}
-			gv.Items = append(gv.Items, ItemView{ID: it.ID, Key: it.Name, Body: it.Body, Meta: it.Meta, Sources: sources, Tally: tally})
+			gv.Items = append(gv.Items, ItemView{ID: it.ID, Key: it.Name, Body: it.Body, Meta: it.Meta, Sources: sources})
 		}
 		in.ActiveGeneration = gv
 		in.ExpectGeneration = gen.ID

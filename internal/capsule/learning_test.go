@@ -20,7 +20,7 @@ func TestRecallIsRelevantBoundedDataAndReceiptMatches(t *testing.T) {
 	}
 	best := remember("coach", strings.Repeat("前置き unrelated introduction. ", 50)+"Intercept passing taught anticipation.", nil)
 	scoped := remember("coach", "Passing needs support.", store.Meta{"repo-id": {"soccer"}})
-	remember("coach", "Passing an older trial.", nil)
+	older := remember("coach", "Passing an older trial.", nil)
 	newest := remember("coach", "Passing a newer trial.", nil)
 	remember("coach", "The task was to help create a new project.", nil)
 	remember("coach", "Passing intercept wrong project.", store.Meta{"repo-id": {"other"}})
@@ -34,7 +34,7 @@ func TestRecallIsRelevantBoundedDataAndReceiptMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{best.ID, scoped.ID, newest.ID}
+	want := []string{best.ID, scoped.ID, newest.ID, older.ID}
 	var got []string
 	for _, r := range c.Recall {
 		got = append(got, r.ID)

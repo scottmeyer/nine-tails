@@ -107,10 +107,12 @@ type briefView struct {
 type recordView struct {
 	Ref                  string `json:"ref" yaml:"ref"`
 	store.RecordEnvelope `yaml:",inline"`
-	Delivery             *deliveryView      `json:"delivery,omitempty" yaml:"delivery,omitempty"`
-	RenderedIn           []string           `json:"rendered_in" yaml:"rendered_in"`
-	Sources              *briefSourcesView  `json:"sources,omitempty" yaml:"sources,omitempty"`
-	Current              *currentRecordView `json:"current,omitempty" yaml:"current,omitempty"`
+	Delivery             *deliveryView        `json:"delivery,omitempty" yaml:"delivery,omitempty"`
+	RenderedIn           []string             `json:"rendered_in" yaml:"rendered_in"`
+	Sources              *briefSourcesView    `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Current              *currentRecordView   `json:"current,omitempty" yaml:"current,omitempty"`
+	Retirement           *store.Retirement    `json:"retirement,omitempty" yaml:"retirement,omitempty"`
+	Consolidation        *store.Consolidation `json:"consolidation,omitempty" yaml:"consolidation,omitempty"`
 }
 
 // A historical record remains the requested record. The separate current
@@ -119,6 +121,8 @@ type recordView struct {
 type currentRecordView struct {
 	Ref                  string `json:"ref" yaml:"ref"`
 	store.RecordEnvelope `yaml:",inline"`
+	Retirement           *store.Retirement    `json:"retirement,omitempty" yaml:"retirement,omitempty"`
+	Consolidation        *store.Consolidation `json:"consolidation,omitempty" yaml:"consolidation,omitempty"`
 }
 
 // Recorded evidence explains the historical brief. Current successors are
@@ -460,6 +464,14 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 		return nil, false, err
 	}
 	v := recordView{Ref: ref, RecordEnvelope: rec.Envelope(), RenderedIn: []string{}}
+	v.Retirement, err = store.GetRetirement(db, id)
+	if err != nil {
+		return nil, false, err
+	}
+	v.Consolidation, err = store.GetConsolidation(db, id)
+	if err != nil {
+		return nil, false, err
+	}
 	currentID, err := store.LatestSuccessor(db, id)
 	if err != nil {
 		return nil, false, err
@@ -474,6 +486,14 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 			return nil, false, err
 		}
 		v.Current = &currentRecordView{Ref: currentRef, RecordEnvelope: current.Envelope()}
+		v.Current.Retirement, err = store.GetRetirement(db, currentID)
+		if err != nil {
+			return nil, false, err
+		}
+		v.Current.Consolidation, err = store.GetConsolidation(db, currentID)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 	if rec.Kind == "brief-item" {
 		v.Sources, err = briefSources(db, id)

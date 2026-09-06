@@ -74,29 +74,16 @@ func newRoot(a *app) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "nine-tails",
 		Short: "persistent agent context sidecar",
-		Long: `With no agent already selected or injected, start with:
-  nine-tails load pilot --task "<concise non-sensitive purpose>" --meta repo-id=<repo> --meta harness=<harness>
-The pilot capsule is the usage guide and the catalog of agents in this store;
-a fresh store seeds it from the binary.
+		Long: `Load an agent, do the work, and save what should carry forward:
+  nine-tails load <agent> --task "<concise non-sensitive purpose>" --meta repo-id=<repo> --meta harness=<harness>
+Use "load pilot" to discover roles, and "refs" to find readable local @N handles.
 
-nine-tails resolves a named agent into a context capsule, records corrections,
-carries small versioned state, exposes named tools, and carries signals into
-future invocations.
-
-Data goes to stdout and diagnostics to stderr. nine-tails itself never prompts;
-hooks run explicitly launches a harness, which may be interactive. Mutation
-output is command-specific; see that command's help.
-
-Exit codes are 0 success, 2 invalid input, 3 not found, 4 store failure,
-5 tool or adapter failure, 6 unused, and 7 compare-and-swap or lease conflict.
-call and hooks run may instead preserve a child exit status or use 128+signal.
-When --format json is present, errors also go to stdout as an error/code object;
-call is the exception because its stdout belongs exclusively to the tool.
-
-A ctx_... id is a context receipt created by load and passed to --context.
-Immutable record ids such as base_..., rec_..., state_..., and tool_... are
-inspected, disabled, or used for compare-and-swap; they are not context ids.
-Use refs to find readable local @N handles; commands keep the same kind checks.`,
+Save new guidance with note, prefer, or avoid --context <receipt>.
+Correct a lesson with --supersedes <ref>. Use consolidate for overlapping
+lessons and disable with a reason to retire obsolete knowledge.
+Remember stores historical experience as data; state carries changing facts.
+The next load receives current applicable knowledge without a separate
+learning step. See each command's --help for its arguments.`,
 		Version:           version,
 		SilenceUsage:      true,
 		SilenceErrors:     true,
@@ -114,6 +101,8 @@ Use refs to find readable local @N handles; commands keep the same kind checks.`
 		newNoteCmd(a, "avoid", "guidance", "avoid", "Teach behavior the agent should avoid"),
 		newNoteCmd(a, "prefer", "guidance", "prefer", "Teach behavior the agent should prefer"),
 		newNoteCmd(a, "remember", "recall", "memory", "Store experience for relevant future loads and lookup"),
+		newConsolidateCmd(a),
+		newDisableCmd(a),
 		newInspectCmd(a),
 		newStateCmd(a),
 		newAgentsCmd(a),
@@ -124,7 +113,6 @@ Use refs to find readable local @N handles; commands keep the same kind checks.`
 		newAppendCmd(a),
 		newBaseCmd(a),
 		newPutCmd(a),
-		newDisableCmd(a),
 		newCloseCmd(a),
 		newContextCmd(a),
 		newConfigCmd(a),

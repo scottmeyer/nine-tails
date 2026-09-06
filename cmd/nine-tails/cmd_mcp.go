@@ -25,10 +25,12 @@ func newMCPCmd(a *app) *cobra.Command {
 }
 
 type mcpProperty struct {
-	Type        string   `json:"type"`
-	Description string   `json:"description,omitempty"`
-	Enum        []string `json:"enum,omitempty"`
-	MinLength   int      `json:"minLength,omitempty"`
+	Type        string       `json:"type"`
+	Description string       `json:"description,omitempty"`
+	Enum        []string     `json:"enum,omitempty"`
+	MinLength   int          `json:"minLength,omitempty"`
+	Items       *mcpProperty `json:"items,omitempty"`
+	MinItems    int          `json:"minItems,omitempty"`
 }
 type mcpRequirement struct {
 	Required []string `json:"required"`
@@ -52,26 +54,34 @@ func mcpCatalog() []mcpTool {
 	context := str("Receipt ID or local @N reference returned by nt_load; identifies the agent and applicability scope.")
 	meta := obj("Applicability metadata: keys map to strings or arrays of strings. On lessons use only true scope, never copy ambient metadata automatically.")
 	loadMeta := obj("Ambient metadata: supplied keys replace the parent's values; unspecified keys inherit. Strings or arrays of strings; repeated values collapse. Omit or use {} to inherit unchanged.")
+	refs := func(d string) mcpProperty {
+		return mcpProperty{Type: "array", Items: &mcpProperty{Type: "string", MinLength: 1}, Description: d}
+	}
 	def := func(n, d string, required []string, p map[string]mcpProperty) mcpTool {
 		return mcpTool{n, d, mcpSchema{Type: "object", Properties: p, Required: required}}
 	}
-	learn := def("nt_learn", "Save a durable correction or useful experience immediately. Use prefer/avoid/note for future behavior, remember for retrievable evidence. With supersedes, omitted body keeps the text and omitted meta preserves scope; explicit meta replaces it. No compile needed.", []string{"context"}, map[string]mcpProperty{
+	sources := refs("At least two distinct active guidance records to consolidate, with the same owner and exact scope. Requires body and reason; mutually exclusive with supersedes, meta, clear_meta and forget. Omitted kind is inferred only when source kinds agree.")
+	sources.MinItems = 2
+	learn := def("nt_learn", "Save or correct learned guidance and experience. Use sources plus body/reason to consolidate guidance, or forget plus reason to retire one exact record. These actions preserve provenance and require the owning agent's receipt. Ordinary corrections with supersedes preserve omitted body and scope. No compile needed.", []string{"context"}, map[string]mcpProperty{
 		"context":    context,
 		"body":       {Type: "string", MinLength: 1, Description: "Concise reusable lesson, never raw transcripts, secrets or task-only instructions. Required for new records; omit with supersedes to keep the prior body."},
-		"kind":       {Type: "string", Enum: []string{"note", "prefer", "avoid", "remember"}, Description: "Defaults to note when body is supplied; without body, omission preserves the predecessor's lane and kind. Explicit kind requests a deliberate change."},
+		"kind":       {Type: "string", Enum: []string{"note", "prefer", "avoid", "remember"}, Description: "Ordinary writes default to note with body; without body, omission preserves predecessor lane/kind. Consolidation infers agreeing source kinds, or accepts explicit note/prefer/avoid; remember is only for ordinary recall writes."},
 		"supersedes": {Type: "string", MinLength: 1, Description: "Exact prior record id or local reference when replacing its lesson; required if body is omitted."},
 		"meta":       meta,
 		"clear_meta": {Type: "boolean", Description: "Explicitly remove all scope; true is mutually exclusive with meta."},
+		"sources":    sources,
+		"reason":     {Type: "string", MinLength: 1, Description: "Concise durable reason required for consolidation or forgetting; do not copy raw transcripts."},
+		"forget":     {Type: "string", MinLength: 1, Description: "Exact record ID or local @N to retire without a successor. Requires reason; mutually exclusive with body, kind, sources, supersedes, meta and clear_meta."},
 	})
-	learn.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"body"}}, {Required: []string{"supersedes"}}}
+	learn.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"body"}}, {Required: []string{"supersedes"}}, {Required: []string{"forget"}}}
 	return []mcpTool{
-		def("nt_load", "Adopt a named agent's role, current guidance, relevant experience, state and capabilities. Apply the returned capsule to the current task; keep its receipt for learning and calls.", []string{"agent"}, map[string]mcpProperty{"agent": str("Named agent; use workshop or pilot for discovery."), "task": str("Concise non-sensitive purpose, durably recorded; do not copy the whole prompt."), "context": context, "query": str("Optional recall search override; empty disables automatic recall."), "meta": loadMeta}),
+		def("nt_load", "Adopt a named agent's role, current guidance, relevant experience, state and capabilities. Apply the returned capsule to the current task; keep its receipt for learning and calls.", []string{"agent"}, map[string]mcpProperty{"agent": str("Named agent; use workshop or pilot for discovery."), "task": str("Concise non-sensitive purpose, durably recorded; do not copy the whole prompt."), "context": context, "query": str("Optional recall search/excerpt focus override; empty disables automatic recall."), "recall": refs("Exact recall IDs or local @N handles selected after inspection, in order, with no count cap. Replaces lexical results; [] selects none. Omission uses a soft size budget for lexical matches with recall_more and recall_next when more remain. Same agent, active recall and applicable scope required."), "meta": loadMeta}),
 		learn,
 		def("nt_inspect", "Retrieve an agent, exact record, or receipt. Use to recover full recalled evidence or inspect existing guidance before correcting it.", []string{"target"}, map[string]mcpProperty{"target": str("Agent name or exact record/receipt id."), "query": str("Search phrase."), "lane": str("Optional lane: guidance or recall."), "include": str("Optional comma-separated sections, e.g. base,brief,journal,tools.")}),
 		def("nt_tools", "Discover executable capabilities applicable to a loaded agent. Returns descriptions, declared inputs and exact nt_call arguments; does not change the MCP tool list.", []string{"context"}, map[string]mcpProperty{"context": context, "query": str("Optional name or description substring.")}),
 		def("nt_call", "Run a discovered agent tool with its current definition and receipt scope. Inspect nt_tools first. Execution uses the server launch directory and the tool's declared timeout.", []string{"context", "tool"}, map[string]mcpProperty{"context": context, "tool": str("Exact tool name from nt_tools."), "input": obj("Tool input object; omitted means {}.")}),
 		def("nt_state", "Read/update named state, or subscribe to state with target. State updates preserve omitted scope; links use exactly the supplied scope. Writes require expect; linking never writes the target.", []string{"name"}, map[string]mcpProperty{"name": str("Qualified agent/name, or bare state/link name with context."), "context": context, "body": str("YAML body for state update; omit to read."), "target": str("Qualified owner/state for a one-hop subscription; mutually exclusive with body."), "expect": str("Required for writes: current state/link id, or none."), "meta": meta}),
-		def("nt_close", "Finish a receipt without rating every instruction. Save useful corrections first. Closure is bookkeeping, not a prerequisite for learning.", []string{"context"}, map[string]mcpProperty{"context": context}),
+		def("nt_close", "Close a context receipt. Closure is optional bookkeeping and does not affect learning.", []string{"context"}, map[string]mcpProperty{"context": context}),
 	}
 }
 
@@ -253,6 +263,22 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 			if _, ok := v.(bool); !ok {
 				return nil, fmt.Errorf("%s must be a boolean", k)
 			}
+		case "array":
+			items, ok := v.([]any)
+			if !ok {
+				return nil, fmt.Errorf("%s must be an array", k)
+			}
+			if len(items) < p.MinItems {
+				return nil, fmt.Errorf("%s needs at least %d entries", k, p.MinItems)
+			}
+			for _, item := range items {
+				if p.Items != nil && p.Items.Type == "string" {
+					s, ok := item.(string)
+					if !ok || utf8.RuneCountInString(s) < p.Items.MinLength {
+						return nil, fmt.Errorf("%s entries must be nonempty strings", k)
+					}
+				}
+			}
 		}
 	}
 	if len(spec.InputSchema.AnyOf) > 0 {
@@ -266,12 +292,42 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 			matched = matched || present
 		}
 		if !matched {
-			return nil, fmt.Errorf("body or supersedes is required")
+			return nil, fmt.Errorf("body, supersedes or forget is required")
 		}
 	}
-	if name == "nt_learn" && args["clear_meta"] == true {
-		if _, supplied := args["meta"]; supplied {
-			return nil, fmt.Errorf("clear_meta and meta are mutually exclusive")
+	if name == "nt_learn" {
+		_, forgetting := args["forget"]
+		_, consolidating := args["sources"]
+		if forgetting || consolidating {
+			reason, _ := args["reason"].(string)
+			if strings.TrimSpace(reason) == "" {
+				return nil, fmt.Errorf("reason is required for consolidation or forgetting")
+			}
+			if consolidating && args["kind"] == "remember" {
+				return nil, fmt.Errorf("consolidation accepts guidance kinds; remember is for recall writes")
+			}
+			incompatible := []string{"supersedes", "meta", "clear_meta"}
+			action := "sources"
+			if forgetting {
+				action = "forget"
+				incompatible = append(incompatible, "body", "kind", "sources")
+			} else if body, _ := args["body"].(string); body == "" {
+				return nil, fmt.Errorf("body is required for consolidation")
+			}
+			for _, key := range incompatible {
+				if _, supplied := args[key]; supplied {
+					return nil, fmt.Errorf("%s and %s are mutually exclusive", action, key)
+				}
+			}
+		} else {
+			if _, supplied := args["reason"]; supplied {
+				return nil, fmt.Errorf("reason applies only to consolidation or forgetting")
+			}
+			if args["clear_meta"] == true {
+				if _, supplied := args["meta"]; supplied {
+					return nil, fmt.Errorf("clear_meta and meta are mutually exclusive")
+				}
+			}
 		}
 	}
 	return args, nil
@@ -292,7 +348,7 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		}
 	}
 	get := func(k string) string { s, _ := v[k].(string); return s }
-	for _, key := range []string{"agent", "target", "tool", "name"} {
+	for _, key := range []string{"agent", "target", "tool", "name", "forget"} {
 		if strings.HasPrefix(get(key), "-") {
 			return key + " must be a name or identifier, not a flag.", true
 		}
@@ -308,7 +364,30 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		if _, ok := v["query"]; ok {
 			argv = append(argv, "--query", get("query"))
 		}
+		if selected, supplied := v["recall"].([]any); supplied {
+			if len(selected) == 0 {
+				argv = append(argv, "--query", "")
+			}
+			for _, ref := range selected {
+				argv = append(argv, "--recall", ref.(string))
+			}
+		}
 	case "nt_learn":
+		if get("forget") != "" {
+			argv = []string{"disable", get("forget"), "--reason", get("reason"), "--format", "json"}
+			break
+		}
+		if selected, supplied := v["sources"].([]any); supplied {
+			argv = []string{"consolidate", "--reason", get("reason"), "--stdin", "--format", "json"}
+			for _, source := range selected {
+				argv = append(argv, "--source", source.(string))
+			}
+			if get("kind") != "" {
+				argv = append(argv, "--kind", get("kind"))
+			}
+			body = get("body")
+			break
+		}
 		kind := get("kind")
 		_, bodySupplied := v["body"]
 		if kind == "" && !bodySupplied {

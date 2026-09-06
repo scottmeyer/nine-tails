@@ -138,8 +138,8 @@ INSERT INTO brief_generations(id,agent,created_at,status) VALUES ('gen_1','build
 	requireReference(t, s.DB, "ctx_1", "@2")
 	requireReference(t, s.DB, "gen_1", "@3")
 	var version int
-	if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 4 {
-		t.Fatalf("additive migration changed version: %d, %v", version, err)
+	if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != userVersion {
+		t.Fatalf("migration version: %d, %v; want %d", version, err, userVersion)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
