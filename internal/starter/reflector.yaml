@@ -28,20 +28,39 @@ records:
       from incidental outcomes and uncertain inference. Repetition, age or
       lack of recent use is not evidence of correctness or user preference.
 
+      Focus on the supplied topic or source references. For recall, browse
+      `nine-tails inspect --page --context <parent-receipt> --query "<topic>"`
+      and inspect complete sources. An empty keyword result does not establish
+      absence; broaden the wording or browse without a query when needed.
+      Follow relevant sources and successors, without auditing the whole library
+      just because it exists.
+
+      For each proposed repair, identify the future situation, useful response,
+      supporting observation, and still-valid exceptions. Merge only sources
+      that guide the same future decision. Preserve independent lessons and
+      uncertain evidence separately. A recall replacement should stand on its
+      own as useful experience, with conditions and concise supporting facts;
+      leave obsolete test counts and changing project status out of the lesson.
+      Original source bodies remain available through consolidation lineage.
+      For a narrow correction, edit the existing wording and preserve unaffected
+      claims. Compare every source claim against the replacement, identifying
+      any deliberate removal in the reason.
+
       Write only when the episode changes current state, future operating
       guidance, durable recall, a future signal, or a reusable executable tool.
-      Prefer a few precise updates; do not summarize an episode merely
+      Make only justified updates; do not summarize an episode merely
       because it occurred. Use:
 
       - `nine-tails state put <name> --context <parent-receipt> --expect <state-id|none> --stdin`
       - `nine-tails prefer|avoid|note|remember --context <parent-receipt> "..."`
       - Add `--supersedes <source-id>` with replacement text when guidance
-        changes; preserve the link instead of adding a contradiction. Omitted
+        or recall changes; preserve the link instead of adding a contradiction. Omitted
         --meta preserves scope, explicit --meta replaces the complete set,
         and --clear-meta removes it; never combine the two flags.
       - `nine-tails consolidate --context <parent-receipt> --source <ref> --source <ref> --reason "<why these meanings overlap>" --stdin`
-        replaces two or more active guidance sources from the same owner and
-        exact scope with one full lesson. Preserve still-valid conditions,
+        replaces two or more active sources from the same owner, lane
+        (guidance or recall) and exact scope with one complete replacement.
+        Recall stays experience; it does not become an instruction. Preserve still-valid conditions,
         exceptions, negations and user authority; repetition alone does not
         establish agreement. Add `--kind <kind>` if the source kinds differ.
       - `nine-tails signal [<wake-agent>] --subject "..." --context <parent-receipt>`
@@ -75,3 +94,18 @@ records:
       Preserve the distinction between confirmed facts, proposals and unknowns.
       Record only what the episode supports. Reconcile observed failures and
       explicit corrections before carrying a lesson forward.
+
+      If a useful memory failed to surface, check the exact record with
+      `nine-tails inspect <memory-ref> --context <parent-receipt> --query "<actual terms>"`.
+      This separates recorded delivery from current lexical matching; it does
+      not reconstruct an old query override or prove that a model used an
+      excerpt. Save a concise rationale and the returned JSON as a project
+      artifact for an observed problem, never as another recall memory.
+      Distinguish vocabulary misses, scope or budget exclusions, stale content,
+      and delivered knowledge that was not applied. Only the first is direct
+      evidence for improving semantic retrieval.
+
+      Report what changed or remained separate and why, with the relevant
+      source references. Inspect written replacements and their lineage.
+      Later use must supply evidence of usefulness; a successful write alone
+      establishes persistence, not better behavior.

@@ -58,6 +58,20 @@ func recallTerms(text string) map[string]bool {
 	return out
 }
 
+// Both selection and diagnosis use exactly the same match vocabulary. Ambient
+// metadata such as repo-id must not turn every local memory into a search hit.
+func recallMatches(r *store.Record, terms map[string]bool) []string {
+	doc := recallTerms(r.Name + " " + r.Meta.First("subject") + " " + r.Meta.First("title") + " " + r.Body)
+	matches := []string{}
+	for word := range terms {
+		if doc[word] {
+			matches = append(matches, word)
+		}
+	}
+	sort.Strings(matches)
+	return matches
+}
+
 func recallCandidates(q store.Querier, c *Capsule, req Request, meta store.Meta) ([]candidate, map[string]RecallView, error) {
 	query := req.Task
 	if req.Query != nil {
@@ -77,15 +91,7 @@ func recallCandidates(q store.Querier, c *Capsule, req Request, meta store.Meta)
 		if store.Conflicts(r.Meta, meta) || !c.renderableTextBody(r, "recall") {
 			continue
 		}
-		// Match content and explicit labels, but never ambient context keys
-		// such as repo-id that would make every local memory a search hit.
-		doc := recallTerms(r.Name + " " + r.Meta.First("subject") + " " + r.Meta.First("title") + " " + r.Body)
-		score := 0
-		for word := range terms {
-			if doc[word] {
-				score++
-			}
-		}
+		score := len(recallMatches(r, terms))
 		if req.Recall == nil && score == 0 {
 			continue
 		}

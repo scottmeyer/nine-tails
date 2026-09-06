@@ -103,6 +103,52 @@ func TestConsolidatePreservesScopeHistoryAndSuccessors(t *testing.T) {
 	}
 }
 
+func TestConsolidateRecallPreservesGenerationAndExactLineage(t *testing.T) {
+	s := openTest(t)
+	ctx := consolidationContext(t, s, "a", nil)
+	guidance := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "Standing instruction"})
+	var generation *Generation
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		generation, _, err = InstallGeneration(tx, "a", "", []NewItem{{Key: "policy", Body: "Compiled instruction", Sources: []string{guidance.ID}}}, []BriefInput{{EntryID: guidance.ID, Disposition: "represented"}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	meta := Meta{"repo-id": {"one", "two"}}
+	one := mustInsert(t, s, NewRecord{Agent: "a", Lane: "recall", Kind: "memory", Body: "First observation", Meta: meta})
+	two := mustInsert(t, s, NewRecord{Agent: "a", Lane: "recall", Kind: "memory", Body: "Second observation", Meta: Meta{"repo-id": {"two", "one"}}})
+	merged, err := s.Consolidate(ConsolidateRequest{Context: ctx.ID, Sources: []string{one.ID, two.ID}, Body: "Combined durable observation", Reason: "Both observations describe one outcome"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.Lane != "recall" || merged.Kind != "memory" || !reflect.DeepEqual(merged.Meta, meta) || len(merged.Consolidation.Sources) != 2 {
+		t.Fatalf("wrong recall consolidation: %+v", merged)
+	}
+	current, err := ActiveGeneration(s.DB, "a")
+	if err != nil || current.ID != generation.ID {
+		t.Fatalf("recall consolidation changed guidance generation: %+v, %v", current, err)
+	}
+	for i, source := range []*Record{one, two} {
+		if merged.Consolidation.Sources[i].ID != source.ID {
+			t.Fatalf("source order or identity changed: %+v", merged.Consolidation)
+		}
+		latest, err := LatestSuccessor(s.DB, source.ID)
+		if err != nil || latest != merged.ID {
+			t.Fatalf("source does not navigate to recall replacement: %s, %v", latest, err)
+		}
+	}
+	if _, err := RetireRecord(s.DB, merged.ID, ctx.ID, "Outcome no longer useful"); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []*Record{one, two} {
+		latest, err := LatestSuccessor(s.DB, source.ID)
+		if err != nil || latest != merged.ID {
+			t.Fatalf("retirement resurrected predecessor %s: %s, %v", source.ID, latest, err)
+		}
+	}
+}
+
 func TestConcurrentConsolidationHasOneWinner(t *testing.T) {
 	s := openTest(t)
 	other, err := Open(s.Home)
@@ -145,7 +191,7 @@ func TestConcurrentConsolidationHasOneWinner(t *testing.T) {
 }
 
 func TestConsolidateRejectsInvalidSourcesAtomically(t *testing.T) {
-	for _, name := range []string{"one source", "duplicate alias", "wrong owner", "recall", "brief", "state", "different scope", "different kinds", "disabled", "missing", "wrong context type", "missing context", "missing reason", "blank body", "brief kind", "invalid utf8"} {
+	for _, name := range []string{"one source", "duplicate alias", "wrong owner", "mixed lane", "brief", "state", "different scope", "different kinds", "disabled", "missing", "wrong context type", "missing context", "missing reason", "blank body", "brief kind", "invalid utf8"} {
 		t.Run(name, func(t *testing.T) {
 			s := openTest(t)
 			ctx := consolidationContext(t, s, "a", nil)
@@ -154,7 +200,7 @@ func TestConsolidateRejectsInvalidSourcesAtomically(t *testing.T) {
 			switch name {
 			case "wrong owner":
 				nr.Agent = "b"
-			case "recall":
+			case "mixed lane":
 				nr.Lane = "recall"
 			case "brief":
 				nr.Kind = "brief-item"

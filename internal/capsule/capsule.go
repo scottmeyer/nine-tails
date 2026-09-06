@@ -481,7 +481,7 @@ func writeProtocol(md *strings.Builder, agent, contextRef string, hasState, hasT
 	if home != "" {
 		consolidate, disable = command("consolidate --source <ref> --source <ref>"), command("disable <ref>")
 	}
-	fmt.Fprintf(md, "Reconcile overlap with %s, or retire obsolete material with %s; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.\n\n", consolidate, disable)
+	fmt.Fprintf(md, "Merge guidance/recall with %s, or retire obsolete material with %s; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.\n\n", consolidate, disable)
 	fmt.Fprintf(md, "At a useful pause, update existing lessons before adding: save supported lessons as guidance or useful experience with %s. Zero writes is valid; keep play natural. `--task` retrieves recall; `--query` overrides it.\n\n", command("remember --context "+contextRef+" \"...\""))
 	fmt.Fprintf(md, "`--context` records origin; new scope needs explicit `--meta`. Local `@N` refs keep their kind: receipt for `--context`, record for corrections/CAS. Find handles with %s; canonical IDs also work.\n\n", command("refs"))
 	if hasState {

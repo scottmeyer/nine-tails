@@ -59,11 +59,14 @@ When `body` is supplied, omitted `kind` retains the usual `note` default.
 Two other `nt_learn` actions remove the need for a separate maintenance loop:
 
 - `sources: ["@17", "@23"], body: "complete replacement", reason: "why these belong together"`
-  consolidates at least two distinct active guidance records with identical
-  scope. Omitted `kind` is inferred only when source kinds agree; `remember`
-  is invalid for consolidation. Sources cannot accompany `supersedes`, `meta`,
-  `clear_meta`, or `forget`. The receipt must own every source. The new record
-  retains the reason and historical sources; stale input rejects the operation.
+  consolidates at least two distinct active guidance or recall records with the
+  same owner, lane, and identical scope. Omitted `kind` is inferred only when
+  source kinds agree; ordinary `memory` sources therefore produce a recall `memory`.
+  `kind: "remember"` is invalid here because `remember` is the ordinary recall
+  write shorthand; omit `kind` to preserve the recall lane. Sources cannot
+  accompany `supersedes`, `meta`, `clear_meta`, or `forget`. The receipt must
+  own every source. The new record retains the reason and historical sources;
+  stale input rejects the operation.
 - `forget: "@17", reason: "why this is obsolete"` retires that exact active
   record without a successor. It cannot accompany body, kind, sources,
   supersedes, meta, or clear_meta. History remains inspectable with the decision.
@@ -81,15 +84,15 @@ Wrong owner, lane, scope or invalid body rejects the whole load;
 inactive IDs conflict and are never silently redirected. Only the selected
 evidence is recorded on the receipt. `task`/`query` still focuses the excerpts.
 
-When memories exist, `nt_load` also includes `library: {count, inspect}`. Browse
+When memories exist, `nt_load` also includes `library: {count, inspect, check}`. Browse
 without reloading the agent using `nt_inspect({"page":true,"context":"@42"})`,
 optionally adding `query`. Alternatively supply an agent `target`; a supplied
 context must own it and supplies scope. Pages contain bounded previews, exact
 full-record inspection paths and a nullable `next` with its last-returned
 `after` reference. Continue with `nt_inspect` using that `after` and the same
 target/context/query. Page mode accepts only recall, and rejects include;
-`context` and `after` are invalid outside page mode. Ordinary full inspection
-still requires `target`.
+`after` is invalid outside page mode. Ordinary full inspection still requires
+`target`.
 Page syntax is checked before local reference resolution or store access.
 Incompatible arguments remain protocol errors; invalid selector, context, or
 cursor syntax is an operation failure with `isError`, as with other tool errors.
@@ -98,6 +101,17 @@ This is a live chronological catalog, not load's lexical ranking or a saved
 snapshot. A retired cursor retains its position; restart for newer entries or
 changed filters. Page previews and inventory counts are data, never delivered
 standing instructions, and browsing does not create a receipt.
+
+For unexpected recall, use
+`nt_inspect({"target":"@50","context":"@42","query":"undo"})` with page
+absent or false. This returns the exact recall record and `recall_check`:
+immutable delivery evidence alongside today's lexical selection under the
+receipt's scope. Omitted query uses the receipt task; explicit empty query
+remains empty. Lane, include and after are invalid in this mode. Syntax is
+validated before reference resolution. The operation neither creates a receipt
+nor changes memory. Save its JSON as a project artifact with a relevance
+rationale when a real problem occurs. It discloses historical limits and
+cannot reconstruct an original query override or prove that guidance was used.
 
 To include shared facts automatically in future loads, use
 `nt_state({"name":"game.engineer/project","target":"workshop/soccer-chess","expect":"none","meta":{"repo-id":"soccer-chess"}})`.

@@ -12,7 +12,7 @@ Nine-tails already stores a small directed graph in SQLite:
 | --- | --- |
 | Record → originating context | The episode that recorded it |
 | New record → superseded record | A deliberate correction with preserved history |
-| Consolidated instruction → source instructions | A reasoned many-to-one replacement with all predecessors intact |
+| Consolidated guidance or experience → same-lane sources | A reasoned many-to-one replacement with all predecessors intact |
 | Retired record → decision and episode | Why knowledge stopped surfacing, without erasing it |
 | Brief item → source records | Evidence used to derive a condensed instruction |
 | Context → delivered records | Exactly what that invocation received |
@@ -30,7 +30,7 @@ knowledge must not rewrite an old receipt, and being connected to a node does
 not mean that node belongs in every capsule.
 
 Body, kind or metadata-set changes invalidate a dependent brief atomically.
-Many-to-one consolidation now connects ordinary guidance records as deliberate
+Many-to-one consolidation now connects ordinary guidance or recall records as deliberate
 replacements. A working model supplies the merged meaning and reason; the store
 preserves each source and rejects stale or differently scoped inputs. Retiring
 a record can also retain the reason and deciding episode. Neither operation
@@ -57,7 +57,7 @@ semantic relationships already exist:
   and recover its evidence. Traversal needs scope and size limits; adjacency
   alone is insufficient relevance.
 
-Consolidation edges mean “replaces these instructions”; they do not mean “is
+Consolidation edges mean “replaces these records”; they do not mean “is
 supported independently by these observations.” Keep that distinction when
 adding evidence relationships. More edge types need concrete learning callers,
 not a generic graph editor. SQLite remains sufficient for the present graph.

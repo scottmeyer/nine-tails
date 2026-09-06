@@ -60,12 +60,12 @@ func mcpCatalog() []mcpTool {
 	def := func(n, d string, required []string, p map[string]mcpProperty) mcpTool {
 		return mcpTool{n, d, mcpSchema{Type: "object", Properties: p, Required: required}}
 	}
-	sources := refs("At least two distinct active guidance records to consolidate, with the same owner and exact scope. Requires body and reason; mutually exclusive with supersedes, meta, clear_meta and forget. Omitted kind is inferred only when source kinds agree.")
+	sources := refs("At least two distinct active guidance or recall records to consolidate, with the same owner, lane, and exact scope. Requires body and reason; mutually exclusive with supersedes, meta, clear_meta and forget. Omitted kind is inferred only when source kinds agree; the source lane is preserved.")
 	sources.MinItems = 2
-	learn := def("nt_learn", "Save or correct learned guidance and experience. Use sources plus body/reason to consolidate guidance, or forget plus reason to retire one exact record. These actions preserve provenance and require the owning agent's receipt. Ordinary corrections with supersedes preserve omitted body and scope. No compile needed.", []string{"context"}, map[string]mcpProperty{
+	learn := def("nt_learn", "Save or correct learned guidance and experience. Use sources plus body/reason to consolidate guidance or recall, or forget plus reason to retire one exact record. These actions preserve provenance and require the owning agent's receipt. Ordinary corrections with supersedes preserve omitted body and scope. No compile needed.", []string{"context"}, map[string]mcpProperty{
 		"context":    context,
 		"body":       {Type: "string", MinLength: 1, Description: "Concise reusable lesson, never raw transcripts, secrets or task-only instructions. Required for new records; omit with supersedes to keep the prior body."},
-		"kind":       {Type: "string", Enum: []string{"note", "prefer", "avoid", "remember"}, Description: "Ordinary writes default to note with body; without body, omission preserves predecessor lane/kind. Consolidation infers agreeing source kinds, or accepts explicit note/prefer/avoid; remember is only for ordinary recall writes."},
+		"kind":       {Type: "string", Enum: []string{"note", "prefer", "avoid", "remember"}, Description: "Ordinary writes default to note with body; without body, omission preserves predecessor lane/kind. Consolidation infers the agreeing source kind and lane; omit kind for recall sources. remember is only the ordinary recall-write shorthand and cannot select a consolidation lane."},
 		"supersedes": {Type: "string", MinLength: 1, Description: "Exact prior record id or local reference when replacing its lesson; required if body is omitted."},
 		"meta":       meta,
 		"clear_meta": {Type: "boolean", Description: "Explicitly remove all scope; true is mutually exclusive with meta."},
@@ -74,14 +74,14 @@ func mcpCatalog() []mcpTool {
 		"forget":     {Type: "string", MinLength: 1, Description: "Exact record ID or local @N to retire without a successor. Requires reason; mutually exclusive with body, kind, sources, supersedes, meta and clear_meta."},
 	})
 	learn.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"body"}}, {Required: []string{"supersedes"}}, {Required: []string{"forget"}}}
-	inspect := def("nt_inspect", "Retrieve an agent, exact record or receipt. During work, use page:true with the current context to browse its scoped recall library; query is a substring filter and after continues a prior page. Read a record's exact reference for full evidence before relying on it.", []string{}, map[string]mcpProperty{
-		"target":  {Type: "string", MinLength: 1, Description: "Agent name or exact record/receipt id. Optional on a library page when context supplies the agent; with both, the agent must match."},
+	inspect := def("nt_inspect", "Retrieve an agent, exact record or receipt. With an exact recall target and context, compare immutable delivery evidence with current lexical selection. During work, use page:true with the current context to browse its scoped recall library. Read a record's exact reference for full evidence before relying on it.", []string{}, map[string]mcpProperty{
+		"target":  {Type: "string", MinLength: 1, Description: "Agent name or exact record/receipt id. With context and page absent or false, must be an exact recall record for a read-only selection check. Optional on a library page when context supplies the agent; with both, the agent must match."},
 		"page":    {Type: "boolean", Description: "Browse a compact recall index page. Requires context or a target agent; after advances the cursor. Does not load the agent or add recalled evidence to a receipt."},
-		"context": {Type: "string", MinLength: 1, Description: "Current receipt ID or @N supplying the page's agent and applicability scope; page mode only."},
+		"context": {Type: "string", MinLength: 1, Description: "Receipt ID or @N supplying scope for a page, or historical delivery and scope for an exact recall check."},
 		"after":   {Type: "string", MinLength: 1, Description: "Exact record cursor ID or @N returned by the previous page; page mode only."},
-		"query":   str("Case-insensitive substring filter; omitted or empty lists without a text filter."),
-		"lane":    str("Optional guidance/recall filter for ordinary inspection; page mode accepts only recall."),
-		"include": str("Optional comma-separated sections for ordinary inspection, e.g. base,brief,journal,tools; not valid in page mode."),
+		"query":   str("Page substring filter, ordinary inspection filter, or current lexical query for an exact recall check. An omitted recall-check query uses the receipt task; explicit empty checks no query terms."),
+		"lane":    str("Optional guidance/recall filter for ordinary inspection; page mode accepts only recall; invalid for an exact recall check."),
+		"include": str("Optional comma-separated sections for ordinary inspection, e.g. base,brief,journal,tools; invalid for page mode and exact recall checks."),
 	})
 	inspect.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"target"}}, {Required: []string{"page", "context"}}}
 	return []mcpTool{
@@ -319,9 +319,23 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 			if _, supplied := args["target"]; !supplied {
 				return nil, fmt.Errorf("target is required for ordinary inspection")
 			}
-			for _, key := range []string{"context", "after"} {
+			_, recallCheck := args["context"]
+			for _, key := range []string{"after"} {
 				if _, supplied := args[key]; supplied {
 					return nil, fmt.Errorf("%s requires page mode", key)
+				}
+			}
+			if recallCheck {
+				for _, key := range []string{"lane", "include"} {
+					if _, supplied := args[key]; supplied {
+						return nil, fmt.Errorf("%s is invalid for an exact recall check", key)
+					}
+				}
+				target, _ := args["target"].(string)
+				context, _ := args["context"].(string)
+				query, _ := args["query"].(string)
+				if err := validateRecallCheckSelectors([]string{target}, context, query, "json"); err != nil {
+					return nil, err
 				}
 			}
 		}
@@ -335,7 +349,7 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 				return nil, fmt.Errorf("reason is required for consolidation or forgetting")
 			}
 			if consolidating && args["kind"] == "remember" {
-				return nil, fmt.Errorf("consolidation accepts guidance kinds; remember is for recall writes")
+				return nil, fmt.Errorf("omit kind when consolidating recall sources; remember is only the ordinary recall-write shorthand")
 			}
 			incompatible := []string{"supersedes", "meta", "clear_meta"}
 			action := "sources"
@@ -374,6 +388,10 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		// This adapter also resolves handles before CLI dispatch. Reuse the
 		// page preflight before either resolver can open a store.
 		if err := validateLibraryArguments(args, get("context"), get("query"), get("after"), "json"); err != nil {
+			return err.Error(), true
+		}
+	} else if name == "nt_inspect" && get("context") != "" {
+		if err := validateRecallCheckSelectors([]string{get("target")}, get("context"), get("query"), "json"); err != nil {
 			return err.Error(), true
 		}
 	}

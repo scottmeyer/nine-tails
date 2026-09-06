@@ -47,6 +47,36 @@ func TestMCPConsolidationPreservesKindScopeAndSources(t *testing.T) {
 	}
 }
 
+func TestMCPConsolidationPreservesRecallLaneAndLibrary(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "Base.")
+	ctx := contextID(t, h.ok("load", "a").out)
+	first := h.ok("remember", "a", "Measured retry pressure.").id(t)
+	second := h.ok("remember", "a", "Observed retry backoff.").id(t)
+	response := mcpLearnResponse(t, h, map[string]any{"context": ctx, "sources": []string{first, second}, "body": "Retry pressure was measured and backoff observed.", "reason": "These observations describe one retriable behavior."})
+	var result map[string]any
+	if err := json.Unmarshal([]byte(mcpText(t, response)), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["lane"] != "recall" || result["kind"] != "memory" {
+		t.Fatalf("recall consolidation changed lane or kind: %+v", result)
+	}
+	for _, id := range []string{first, second} {
+		old := h.ok("inspect", id).json(t)
+		if old["status"] != "superseded" || old["current"].(map[string]any)["id"] != result["id"] {
+			t.Fatalf("recall source history was not retained: %+v", old)
+		}
+	}
+	loaded := h.ok("load", "a", "--task", "retry pressure").out
+	if !strings.Contains(loaded, "Retry pressure was measured and backoff observed.") {
+		t.Fatalf("consolidated recall was not available to later load: %s", loaded)
+	}
+	page := h.ok("inspect", "a", "--page", "--query", "backoff").out
+	if !strings.Contains(page, result["id"].(string)) {
+		t.Fatalf("consolidated recall was not in the library page: %s", page)
+	}
+}
+
 func TestMCPConsolidationRequiresDeliberateKindForMixedSources(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "a", "Base.")

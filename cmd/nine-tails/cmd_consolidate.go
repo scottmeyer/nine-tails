@@ -15,18 +15,20 @@ func newConsolidateCmd(a *app) *cobra.Command {
 	var format string
 	c := &cobra.Command{
 		Use:   "consolidate [TEXT] --context <receipt> --source <record> --source <record> --reason <reason>",
-		Short: "Replace related guidance with one instruction, preserving its sources",
-		Long: `Consolidate at least two active guidance records owned by the context's agent.
-Supply the complete replacement text and why these instructions belong together.
+		Short: "Replace related guidance or recall while preserving its sources",
+		Long: `Consolidate at least two active guidance or recall records owned by the context's agent.
+Supply the complete replacement text and why these records belong together.
 Every source must have exactly the same metadata value sets; the replacement
-keeps that scope. Context metadata is provenance, never replacement scope.
+keeps that scope and inferred lane. Context metadata is provenance, never
+replacement scope. Guidance and recall cannot be mixed.
 
 Kinds must agree unless --kind deliberately chooses the replacement kind.
-Brief items, recall, state and definitions cannot be consolidated. Inspect a
+Brief items, state and definitions cannot be consolidated. Inspect a
 brief item for its underlying guidance sources first. Sources remain inspectable
 and their references navigate to the replacement, including later corrections.
-The write is atomic: a stale source rejects the whole operation; dependent
-compiled guidance is invalidated so the replacement applies on the next load.
+The write is atomic: a stale source rejects the whole operation. Dependent
+compiled guidance is invalidated; recall consolidation never changes a brief
+generation and is immediately available to recall retrieval and the library.
 
 JSON and YAML return the new envelope, local ref, reason and historical
 source envelopes. The default prints only the new canonical record ID.`,
@@ -60,9 +62,9 @@ source envelopes. The default prints only the new canonical record ID.`,
 		},
 	}
 	c.Flags().StringVar(&req.Context, "context", "", "required originating receipt (ctx_... or @ref); selects the agent")
-	c.Flags().StringArrayVar(&req.Sources, "source", nil, "active guidance record ID or @ref (repeat at least twice)")
-	c.Flags().StringVar(&req.Reason, "reason", "", "required reason for consolidating these instructions")
-	c.Flags().StringVar(&req.Kind, "kind", "", "replacement guidance kind; required only when source kinds differ")
+	c.Flags().StringArrayVar(&req.Sources, "source", nil, "active guidance or recall record ID or @ref (repeat at least twice)")
+	c.Flags().StringVar(&req.Reason, "reason", "", "required reason for consolidating these records")
+	c.Flags().StringVar(&req.Kind, "kind", "", "replacement kind; required only when source kinds differ")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read complete replacement text from stdin")
 	c.Flags().StringVar(&format, "format", "id", "id (one line) | json | yaml")
 	return c

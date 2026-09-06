@@ -11,7 +11,7 @@ not need a second model service or a successful compilation to learn.
 | --- | --- | --- |
 | The user gives a durable preference | `prefer`, `avoid`, or `note --context <receipt>` | Applicable guidance on the next load |
 | A known instruction needs correction | Inspect it, then write with `--supersedes <ref>` | Replacement wording; old scope stays unless explicitly changed |
-| Several instructions express the same rule | `consolidate --source <ref> --source <ref> --context <receipt> --reason "..." "replacement"` | One instruction with its exact predecessors and the decision |
+| Several instructions or experiences express the same lesson | `consolidate --source <ref> --source <ref> --context <receipt> --reason "..." "replacement"` | One same-lane replacement with its exact predecessors and the decision |
 | An old defect report or instruction is obsolete | Inspect it, then `disable <ref> --context <receipt> --reason "..."` | Inspectable history and reason; no future automatic surfacing |
 | An experience might help but is not a general rule | `remember --context <receipt> "..."` | Task-relevant evidence, with its date and provenance |
 | A project decision or result changes | `state put` with the current expected ID | Current named state; linked roles receive it on their next load |
@@ -85,9 +85,22 @@ wording and superseded implementation claims.
 
 Write the complete replacement and a concise reason identifying what was
 combined or corrected. Nine-tails checks same owner, active exact sources and
-identical scope, then installs the entire replacement atomically. It cannot
+identical lane and scope, then installs the entire replacement atomically. It cannot
 mechanically prove that the replacement preserved meaning. The caller should
 compare each original clause with the replacement and inspect the result.
+
+Recall can use the same operation. Retain the situation, useful response,
+supporting observation and valid exceptions in the replacement. Remove obsolete
+test counts and changing project status; current facts belong in named state.
+Recall stays experience, and guidance stays instruction. The new memory is
+immediately available to retrieval and library browsing; there is no compile
+checkpoint and no guidance-generation change.
+
+For difficult overlap, give `reflector` the owning episode as parent and the
+specific topic or source references in its task. It inspects full sources,
+repairs supported overlap, and leaves independent meanings separate. A focused
+review does not need to read the whole library or produce a minimum number of
+writes. Its output explains changed and retained meanings and links the sources.
 
 The source records remain intact. Their references lead through further
 consolidations and corrections to current knowledge. Historical receipts keep
@@ -149,6 +162,38 @@ Standing instructions remain immediately applicable. This library is for
 situational evidence and experience, not an excuse to quietly hide a user rule
 because the agent has accumulated many of them.
 
+## Capturing a real retrieval problem
+
+When a useful memory did not surface, or a surfaced memory was inappropriate,
+inspect it against the original receipt:
+
+```sh
+nine-tails inspect <memory-ref> --context <original-receipt> --query "<actual terms>"
+```
+
+The result retains the complete exact memory and receipt. `recorded_in_context`
+answers whether that exact memory was delivered; `current` checks today's
+lexical retrieval with the receipt's scope. It distinguishes no word match,
+scope exclusion, supersession/retirement and a result outside the context budget.
+It uses the real selector, so diagnostic and load cannot develop separate
+ranking rules. The memory-library pointer advertises this check when needed.
+
+The original query override, explicit-selection mode and excerpt bytes were
+not retained. Supply the actual non-sensitive query when known, and do not
+present today's selection as a historical reconstruction. A delivery receipt
+also does not prove the full memory body was present or the model applied it.
+
+Save the returned JSON/YAML as a repository artifact alongside a short rationale
+for why the memory mattered. This preserves useful evidence after receipt GC
+without creating more recall content or another store schema. See
+[retrieval cases](retrieval-cases/README.md). Capture only problems encountered
+in ordinary work; do not manufacture examples or make this a closing ritual.
+
+An appropriate memory missed through different wording can justify semantic
+retrieval. A stale handoff needs content repair, a scope mistake needs scope
+repair, and a delivered lesson ignored by the model needs application/review
+work. Embeddings cannot be inferred as the fix merely because learning failed.
+
 ## What this iteration removed
 
 Marks no longer participate in learning. `close` accepts only a receipt and
@@ -181,7 +226,7 @@ must do that work. It now has atomic operations and a short protocol that make
 those decisions durable. Better automation should propose inspectable decisions
 with their evidence, then use these same operations.
 
-Consolidation currently accepts guidance with equal scope; ordinary supporting
+Consolidation accepts guidance or recall within one lane and equal scope; ordinary supporting
 or contradicting observation edges are not implemented. Source bodies remain
 durable, but source receipts follow ordinary retention. Snapshot export/import
 does not transport consolidation ancestry or retirement audits; use a store

@@ -98,6 +98,9 @@ func TestMCPInspectPageArgumentsValidateBeforeStore(t *testing.T) {
 		{"page": true, "target": "a", "lane": ""},
 		{"target": "a", "context": "ctx_MISSING"},
 		{"target": "a", "after": "@1"},
+		{"target": "@999999", "context": "@999998", "lane": "recall"},
+		{"target": "@999999", "context": "@999998", "include": "journal"},
+		{"target": "@999999", "context": "@999998", "after": "@999997"},
 	} {
 		response := mcpInspectResponse(t, h, args)
 		if failure, ok := response["error"].(map[string]any); !ok || failure["code"] != float64(-32602) {

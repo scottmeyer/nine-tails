@@ -26,8 +26,8 @@ func initializeConsolidations(q Querier) error {
 }
 
 // ConsolidateRequest supplies complete replacement wording for two or more
-// active, equally scoped guidance records. Context and Sources accept canonical
-// IDs or local @ references. Empty Kind infers the common source kind.
+// active, equally scoped guidance or recall records. Context and Sources accept
+// canonical IDs or local @ references. Empty Kind infers the common source kind.
 type ConsolidateRequest struct {
 	Context string
 	Sources []string
@@ -129,7 +129,7 @@ func (s *Store) Consolidate(req ConsolidateRequest) (*ConsolidationResult, error
 		return nil, err
 	}
 	if req.Kind == "brief-item" || (req.Kind != "" && strings.TrimSpace(req.Kind) == "") {
-		return nil, fmt.Errorf("%w: consolidation kind must be an ordinary guidance kind, not %q", ErrInvalid, req.Kind)
+		return nil, fmt.Errorf("%w: consolidation kind must be an ordinary guidance or recall kind, not %q", ErrInvalid, req.Kind)
 	}
 	var result *ConsolidationResult
 	err := s.Tx(func(tx *sql.Tx) error {
@@ -147,13 +147,14 @@ func (s *Store) Consolidate(req ConsolidateRequest) (*ConsolidationResult, error
 		seen := map[string]bool{}
 		var sources []*Record
 		kind := req.Kind
+		lane := ""
 		for _, value := range req.Sources {
 			id, err := consolidationID(tx, value)
 			if err != nil {
 				return err
 			}
 			if strings.HasPrefix(id, "ctx_") || strings.HasPrefix(id, "gen_") {
-				return fmt.Errorf("%w: consolidation source must be a guidance record, not %s", ErrInvalid, value)
+				return fmt.Errorf("%w: consolidation source must be a guidance or recall record, not %s", ErrInvalid, value)
 			}
 			if seen[id] {
 				return fmt.Errorf("%w: duplicate consolidation source %s", ErrInvalid, value)
@@ -163,8 +164,8 @@ func (s *Store) Consolidate(req ConsolidateRequest) (*ConsolidationResult, error
 			if err != nil {
 				return err
 			}
-			if r.Agent != ctx.Agent || r.Lane != "guidance" || r.Kind == "brief-item" {
-				return fmt.Errorf("%w: source %s must be ordinary guidance owned by context agent %s", ErrInvalid, value, ctx.Agent)
+			if r.Agent != ctx.Agent || (r.Lane != "guidance" && r.Lane != "recall") || r.Kind == "brief-item" {
+				return fmt.Errorf("%w: source %s must be ordinary guidance or recall owned by context agent %s", ErrInvalid, value, ctx.Agent)
 			}
 			if r.Status != "active" {
 				latest, err := LatestSuccessor(tx, id)
@@ -175,13 +176,17 @@ func (s *Store) Consolidate(req ConsolidateRequest) (*ConsolidationResult, error
 				if err != nil {
 					return err
 				}
-				return fmt.Errorf("%w: source %s is not active; inspect %s before consolidating current guidance", ErrConflict, value, ref)
+				return fmt.Errorf("%w: source %s is not active; inspect %s before consolidating current %s", ErrConflict, value, ref, r.Lane)
 			}
 			if len(sources) == 0 {
+				lane = r.Lane
 				if kind == "" {
 					kind = r.Kind
 				}
 			} else {
+				if r.Lane != lane {
+					return fmt.Errorf("%w: consolidation sources must belong to the same lane", ErrInvalid)
+				}
 				if !sameMetadata(sources[0].Meta, r.Meta) {
 					return fmt.Errorf("%w: consolidation sources must have identical metadata value sets; correct scope separately", ErrInvalid)
 				}
@@ -193,12 +198,14 @@ func (s *Store) Consolidate(req ConsolidateRequest) (*ConsolidationResult, error
 		}
 		// Check dependencies before retiring any source or introducing new edges.
 		// Existing superseded-by accounting can depend on the current chain tip.
-		for _, source := range sources {
-			if _, err := InvalidateGenerationForGuidance(tx, ctx.Agent, source.ID); err != nil {
-				return err
+		if lane == "guidance" {
+			for _, source := range sources {
+				if _, err := InvalidateGenerationForGuidance(tx, ctx.Agent, source.ID); err != nil {
+					return err
+				}
 			}
 		}
-		rec, err := InsertRecord(tx, NewRecord{Agent: ctx.Agent, Lane: "guidance", Kind: kind,
+		rec, err := InsertRecord(tx, NewRecord{Agent: ctx.Agent, Lane: lane, Kind: kind,
 			Body: req.Body, OriginContext: ctx.ID, Meta: sources[0].Meta.Clone()})
 		if err != nil {
 			return err

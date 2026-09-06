@@ -42,7 +42,7 @@ records:
       `nine-tails note --context <receipt> --supersedes <ref> "<full corrected lesson>"`.
       Merge overlapping lessons with `nine-tails consolidate --context <receipt>
       --source <ref> --source <ref> --reason "<why these overlap>" --stdin`;
-      sources must share owner and exact scope. Preserve every still-valid
+      sources must share owner, lane (guidance or recall) and exact scope. Preserve every still-valid
       condition, exception and user instruction. Retire obsolete knowledge with
       `nine-tails disable <ref> --context <receipt> --reason "<why obsolete>"`.
       Current lessons change through these commands; history remains inspectable.

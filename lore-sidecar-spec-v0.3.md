@@ -811,7 +811,7 @@ Follow the original task. Base, brief and adjustments guide behavior; state, rec
 
 Save durable corrections with `lore note|prefer|avoid --context @42 "..."`; next load applies them without compile. Replace with `--supersedes <ref>` and full new text; omitted scope stays, `--meta` replaces it, `--clear-meta` clears it. Inspect a brief item for current sources.
 
-Reconcile overlap with `consolidate --source <ref> --source <ref>`, or retire obsolete material with `disable <ref>`; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.
+Merge guidance/recall with `consolidate --source <ref> --source <ref>`, or retire obsolete material with `disable <ref>`; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.
 
 At a useful pause, update existing lessons before adding: save supported lessons as guidance or useful experience with `lore remember --context @42 "..."`. Zero writes is valid; keep play natural. `--task` retrieves recall; `--query` overrides it.
 
@@ -1125,18 +1125,21 @@ retire operating guidance.
 
 `consolidate --context <receipt> --source <id> --source <id> --reason <text>
 [--kind <kind>] (TEXT | --stdin)` replaces two or more exact active ordinary
-guidance records with complete model-supplied wording. Sources MUST be distinct,
-owned by the context's agent, and have identical metadata value sets. The
-replacement MUST copy that scope; it MUST NOT infer scope from the receipt or
+guidance or recall records with complete model-supplied wording. Sources MUST be distinct,
+owned by the context's agent, in the same lane, and have identical metadata value sets. The
+replacement MUST copy that lane and scope; it MUST NOT infer scope from the receipt or
 union different scopes. Omitted kind requires agreement among sources; an
-explicit kind selects the replacement guidance kind. Brief items are invalid
-sources and outputs. Recall, state and definitions are not consolidation inputs.
+explicit kind selects the replacement kind within that lane. Brief items are invalid
+sources and outputs. State and definitions are not consolidation inputs.
 
 Source validation, dependent-brief invalidation, new record and reason creation,
 source links and predecessor retirement MUST commit atomically. Invalid input
 is exit 2, unknown source/context is 3, and inactive sources are conflict 7.
 Stale sources MUST NOT be silently forwarded. The new ordinary guidance MUST
 apply immediately on the next applicable load without compilation.
+Recall consolidation MUST NOT invalidate guidance generations or promote recall
+to instructions. Its replacement MUST be available immediately to ordinary
+recall selection and library browsing; sources MUST leave both current surfaces.
 
 Each original record and its provenance remain inspectable. Inspection of a
 source follows subsequent single replacements and consolidations to a separate
@@ -1197,8 +1200,28 @@ removes explicit guidance. Retrieval is a deterministic lexical scan, requiring
 no model call, embedding service, or additional dependency. It does not infer
 synonyms; agents can override the query or inspect when lexical matches miss.
 
+`inspect <recall-id> --context <receipt> [--query <text>]` MUST distinguish
+exact recorded delivery from current lexical selection. The result retains
+the original record, a separate current successor when present, and a
+`recall_check` containing the complete stored receipt, checked query and its
+source, exact-ID recall delivery, and current eligibility, matched terms,
+selection and reason. Query omission uses the receipt's task; explicit empty
+query remains empty. Selection MUST reuse normal recall rules and the same
+store-bound byte budget under the receipt's scope, in one consistent read.
+
+This check MUST NOT create a load receipt or a learning record. It MUST reject
+a foreign owner or non-recall record and preflight incompatible filters and
+invalid syntax before resolving local references. Historical overrides,
+explicit selection mode and excerpt bytes were not retained; the output MUST
+disclose that its current check cannot reconstruct an old omission, establish
+relevance or prove application. Saved output MAY be used as an opt-in project
+artifact with a relevance rationale; it MUST NOT automatically enter recall.
+No embedding dependency or automatic scoring/maintenance ritual is required.
+
 When a role has active recall under the load's scope, its capsule SHOULD expose
 a compact memory-library count and paged inspection recipe as data. This count
+may be accompanied by a receipt-bound exact-record check recipe for unexpected
+recall. Such navigation
 does not imply delivery of those records and MUST NOT add their IDs to the
 receipt. It remains available with an empty query or no selected recall.
 

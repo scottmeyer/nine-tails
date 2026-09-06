@@ -490,16 +490,19 @@ successor. An unrelated or deferred source does not churn the generation.
 
 **`consolidate`** is a semantic many-to-one replacement supplied by the working
 model. Require an originating context, at least two distinct exact active
-ordinary guidance sources, complete nonempty replacement text, and a nonempty
+ordinary guidance or recall sources, complete nonempty replacement text, and a nonempty
 reason. The context selects the owner. All sources must have that owner and
-identical metadata value sets; the successor copies scope. Omitted kind requires
+the same lane and identical metadata value sets; the successor copies lane and scope. Omitted kind requires
 all source kinds to agree. Explicit kind deliberately selects a new ordinary
-guidance kind; `brief-item` is invalid. No ambient metadata is copied, and the
+kind within that lane; `brief-item` is invalid. No ambient metadata is copied, and the
 operation offers no scope override. Correct scope separately after inspection.
 
 Validate and apply in one `BEGIN IMMEDIATE` transaction: inspect all exact
-sources, invalidate any dependent brief before adding edges, insert the new
-guidance and reason, link each predecessor, then mark all sources superseded.
+sources, invalidate any dependent brief for guidance before adding edges, insert
+the replacement and reason, link each predecessor, then mark all sources superseded.
+Recall consolidation never changes guidance generations or promotes experience
+to instructions. Its replacement immediately participates in normal recall and
+library selection, without requiring a new compile or publication step.
 A stale source is conflict 7 with a current inspection handle; unknown is 3;
 duplicate sources, wrong owner/lane/kind or differing scope are invalid 2.
 There is no automatic forwarding, partial merge, body inference, or model call.
@@ -519,7 +522,7 @@ JSON/YAML output embeds the new record envelope and local `ref`, plus
 `consolidation: {reason, sources: [<historic source envelope with ref>, ...]}`
 in caller order. Default output remains the canonical ID. `inspect` includes
 this object on a consolidated record and its separate current successor when
-applicable. This is durable learned guidance, not a disposable brief cache or
+applicable. This is durable learned guidance or experience, not a disposable brief cache or
 a generic supporting-evidence relation. Current export/import remains a
 snapshot format: consolidation ancestry and retirement audits are store-local,
 not portable graph interchange.
@@ -735,7 +738,7 @@ Bind `repo-id` to this invocation's checkout; resolve stored artifact paths ther
 
 Save durable corrections with `nine-tails note|prefer|avoid --context @42 "..."`; next load applies them without compile. Replace with `--supersedes <ref>` and full new text; omitted scope stays, `--meta` replaces it, `--clear-meta` clears it. Inspect a brief item for current sources.
 
-Reconcile overlap with `consolidate --source <ref> --source <ref>`, or retire obsolete material with `disable <ref>`; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.
+Merge guidance/recall with `consolidate --source <ref> --source <ref>`, or retire obsolete material with `disable <ref>`; both take `--context` and `--reason`. Keep exceptions; age or repeated recall isn't evidence.
 
 At a useful pause, update existing lessons before adding: save supported lessons as guidance or useful experience with `nine-tails remember --context @42 "..."`. Zero writes is valid; keep play natural. `--task` retrieves recall; `--query` overrides it.
 
@@ -860,9 +863,10 @@ for a bracket.
 JSON output: spec §10.1 shape — `context_id, context_ref, agent, task, parent_context,
 metadata, instructions, state[], state_links[], guidance_links[], tools[], agents[], recall[], recall_more, recall_next?, library?, signals[],
 rendered_record_ids, estimated_tokens, uncompiled_adjustments, skipped[]`.
-An optional `library: {count, inspect}` gives the size of the active same-agent
+An optional `library: {count, inspect, check}` gives the size of the active same-agent
 recall library under resolved context scope and an exact paged inspection
-recipe. It appears only when that count is positive, independently of task,
+recipe. `check` supplies `inspect <memory-ref> --context <receipt>` for diagnosing
+unexpected recall, bound to this invocation's store. It appears only when that count is positive, independently of task,
 query or explicit recall selections. Its Markdown line is data, outside
 instructions. The inventory count does not claim that those records were
 delivered; it adds no record IDs to the receipt. The count reflects load time;
@@ -1231,7 +1235,8 @@ agree. A context applies its resolved metadata using ordinary conflict
 semantics. Without one, the named agent's active recall is an unscoped inventory.
 No load or receipt is created. The mode accepts an optional `--lane recall`
 but rejects other lanes, include, kind, name, all, coverage and lint. Context
-and after options require page mode and must be nonempty when supplied.
+and after options must be nonempty when supplied. After requires page mode;
+context also supports the exact recall check below.
 Validate these combinations, selector and ID/reference syntax, format, and
 query UTF-8 before resolving any local reference or opening config/store.
 The positional selector must be an agent name, never an ID or reference.
@@ -1270,6 +1275,45 @@ Load's `recall_next` is its first omitted lexical match, not a page cursor.
 Its direct record inspection remains valid; a catalog traversal starts its
 own page and never skips that match by treating it as an exclusive cursor.
 All previews are data. Paged lookup never evicts or demotes standing guidance.
+
+### Checking unexpected recall
+
+`inspect <recall-id|@ref> --context <receipt> [--query <text>]
+[--format json|yaml]` returns the ordinary exact record inspection, including
+its separate current successor and lineage, plus `recall_check`. It never
+loads an agent, records a delivery, pins a receipt, or creates a memory. Read
+the record, receipt and current retrieval in one transaction.
+
+The version-1 check contains `checked_at`, the complete stored `context`,
+`query`, `query_source: receipt-task|supplied`, `recorded_in_context`, `current`,
+and an explicit `limit`. Delivery is true only for the exact record ID in the
+receipt's recall section. It does not establish full-body delivery or use.
+Omitted query uses the receipt task; an explicit empty query remains empty.
+Historical overrides, explicit selection mode and excerpt bytes are not stored;
+this output must not claim to reconstruct the old query or omission reason.
+
+`current` has `eligible`, `selected`, `reason`, sorted distinct `matched_terms`,
+and a selected result's `excerpt` and `truncated`. Use the same active-record
+scan, vocabulary, ranking, excerpt and store-bound byte budget as ordinary
+load, under the receipt's metadata. Reasons are `superseded`, `disabled`,
+`scope-conflict`, `invalid-text`, `no-query-terms`, `no-word-match`,
+`outside-recall-budget`, or `selected`. A status/scope/text exclusion is
+ineligible; query and budget exclusions remain eligible. Exact historical
+records are never forwarded to their successor for this check.
+
+Require a recall record owned by the receipt's agent. Reject include, lane,
+kind, name, all, coverage, lint and after in check mode. Preflight combinations,
+ID/reference syntax, query UTF-8 and format before config/store/reference
+resolution; recheck resolved resource types afterward. Invalid input is exit 2;
+unknown well-formed record/context is 3. MCP `nt_inspect` exposes the same
+target/context/query combination with page absent or false and the same preflight.
+
+Save returned JSON/YAML with a concise caller-authored relevance rationale as
+a project artifact only for an observed problem. This opt-in artifact retains
+exact memory and receipt evidence after ordinary receipt GC, without placing
+test data in recall or requiring a store schema. It does not archive the whole
+historical candidate corpus. Correct stale content through normal replacement;
+do not label every omitted or unused memory a vocabulary miss.
 
 ### Full inspection and repair
 

@@ -1,0 +1,150 @@
+{
+  "ref": "@590",
+  "id": "rec_01M1VR3PBP8XY41J3WXEBNC09T",
+  "agent": "game.engineer",
+  "lane": "recall",
+  "kind": "memory",
+  "name": null,
+  "body": "Soccer Chess practice handoff added attack/defense practice controls and an engine-owned deterministic board identity. Seven DOM checks now exercise lesson play, named interception breakdown, seeded practice solutions, retry/undo, next board, hidden defensive routes, and separate lesson progress. A concrete UI integration mistake was prevented by mapping new Runner roles to RUN instead of falling through to DEF. Engine owns interception geometry; UI renders the travelled segment and intended route from LastPlay. Final build, fourteen rules tests, HTML test, typecheck and scoped lint passed. No live-browser layout or native dialog focus-trap check was available.",
+  "created_at": "2026-09-06T16:16:33Z",
+  "origin_context": "ctx_01M1VQSG3CHEDFQ9CR2GV91D3X",
+  "status": "superseded",
+  "supersedes": null,
+  "meta": {
+    "repo-id": [
+      "soccer-chess"
+    ]
+  },
+  "rendered_in": [
+    "ctx_01M1VXGR1XCFR3622ZX2GX46JA",
+    "ctx_01M1W2P4NAGA8RVA9YAV6A7TP5",
+    "ctx_01M1W375AQ5WBMJ0XDM5QP5EWJ"
+  ],
+  "current": {
+    "ref": "@792",
+    "id": "rec_01M1W37ZJ5FWJEGPV1RC6D9MN4",
+    "agent": "game.engineer",
+    "lane": "recall",
+    "kind": "memory",
+    "name": null,
+    "body": "Soccer Chess exposed the same UI transition hazard in two versions: the former grid game needed an explicit Runner display case rather than falling through to Defender; the 3D rules practices needed corner-only restrictions and a valid selected action after rewind. Represent a new role or temporary phase explicitly across display, enabled controls and action dispatch.\n\nDuring corner/offside verification, a conditional assertion passed without reaching reception, and a route that worked with relocated defenders did not work from the playable default state. Useful regression evidence records the starting state, drives the real public controls or physics actions, and asserts the intended intermediate outcome before checking recovery. The repaired tests exercise actual corner reception, Dribble selection, rewind to a prepared kick, and offside inspection/replay. Current artifacts and project state carry implementation status; historical test counts and removed grid mechanics have been dropped from this recall entry.",
+    "created_at": "2026-09-06T19:31:08Z",
+    "origin_context": "ctx_01M1W375AQ5WBMJ0XDM5QP5EWJ",
+    "status": "active",
+    "supersedes": "rec_01M1VR3PBP8XY41J3WXEBNC09T",
+    "meta": {
+      "repo-id": [
+        "soccer-chess"
+      ]
+    }
+  },
+  "recall_check": {
+    "version": 1,
+    "checked_at": "2026-09-06T20:04:49Z",
+    "context": {
+      "context_id": "ctx_01M1W2P4NAGA8RVA9YAV6A7TP5",
+      "agent": "game.engineer",
+      "parent_context": "ctx_01M1W0W843PFBXHVXG119HKH69",
+      "task": "Connect corner and offside practice controls",
+      "estimated_tokens": 3072,
+      "created_at": "2026-09-06T19:21:23Z",
+      "pinned": false,
+      "metadata": {
+        "harness": [
+          "codex"
+        ],
+        "repo-id": [
+          "soccer-chess"
+        ]
+      },
+      "rendered": [
+        {
+          "id": "base_01M1VQ2AJZ1R1SZKFCQEC12N1K",
+          "section": "base",
+          "ordinal": 0
+        },
+        {
+          "id": "state_01M1W03DQJS5HQVGHR5EMF85ED",
+          "section": "state",
+          "ordinal": 1
+        },
+        {
+          "id": "rec_01M1W1Y6F0TZHM8NYTKPZC96D0",
+          "section": "recent",
+          "ordinal": 2
+        },
+        {
+          "id": "rec_01M1W03DXKJPWVH55NTC1X9Q5F",
+          "section": "recent",
+          "ordinal": 3
+        },
+        {
+          "id": "rec_01M1W03DVME92XH8QQ9Q8Z276W",
+          "section": "recent",
+          "ordinal": 4
+        },
+        {
+          "id": "rec_01M1VR5RC9GSSD3MG5GAN7FAKD",
+          "section": "recent",
+          "ordinal": 5
+        },
+        {
+          "id": "rec_01M1VQ1JCXPS6VQVKD2GD2BYEM",
+          "section": "recent",
+          "ordinal": 6
+        },
+        {
+          "id": "rec_01M1W1XFK2MA037XTYDMCV7YTH",
+          "section": "shared-guidance",
+          "ordinal": 7
+        },
+        {
+          "id": "rec_01M1W1T3RFRK5V8QR1416PYTCX",
+          "section": "guidance-links",
+          "ordinal": 8
+        },
+        {
+          "id": "tool_01M1VZX2GKTZN2YW7JW0VPTSBQ",
+          "section": "tools",
+          "ordinal": 9
+        },
+        {
+          "id": "rel_01M1VPHV88SG5VCEV2Q18TJB87",
+          "section": "agents",
+          "ordinal": 10
+        },
+        {
+          "id": "rel_01M1VPHV8KMXHMBYPEN02DTBRF",
+          "section": "agents",
+          "ordinal": 11
+        },
+        {
+          "id": "rec_01M1VSAW8JZJB6HY20R9N8R6CT",
+          "section": "state-links",
+          "ordinal": 12
+        },
+        {
+          "id": "state_01M1W2EZRYKFE0TSAXY60JJ63N",
+          "section": "referenced-state",
+          "ordinal": 13
+        },
+        {
+          "id": "rec_01M1VR3PBP8XY41J3WXEBNC09T",
+          "section": "recall",
+          "ordinal": 14
+        }
+      ]
+    },
+    "query": "Connect corner and offside practice controls",
+    "query_source": "receipt-task",
+    "recorded_in_context": true,
+    "current": {
+      "eligible": false,
+      "selected": false,
+      "reason": "superseded",
+      "matched_terms": [],
+      "truncated": false
+    },
+    "limit": "Receipt proves exact record delivery, not full-text delivery, relevance or use. Current selection is a fresh lexical check; historical query overrides, explicit selections and excerpt bytes were not retained."
+  }
+}

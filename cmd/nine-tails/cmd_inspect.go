@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/scottmeyer/nine-tails/internal/capsule"
 	"github.com/scottmeyer/nine-tails/internal/cli"
 	"github.com/scottmeyer/nine-tails/internal/compile"
 	"github.com/scottmeyer/nine-tails/internal/store"
@@ -113,6 +114,7 @@ type recordView struct {
 	Current              *currentRecordView   `json:"current,omitempty" yaml:"current,omitempty"`
 	Retirement           *store.Retirement    `json:"retirement,omitempty" yaml:"retirement,omitempty"`
 	Consolidation        *store.Consolidation `json:"consolidation,omitempty" yaml:"consolidation,omitempty"`
+	RecallCheck          *capsule.RecallCheck `json:"recall_check,omitempty" yaml:"recall_check,omitempty"`
 }
 
 // A historical record remains the requested record. The separate current
@@ -186,6 +188,7 @@ func newInspectCmd(a *app) *cobra.Command {
   inspect rec_41 | ctx_72 | gen_12                one thing by id
   inspect --page --context @42                   compact memory library page
   inspect architect --page --query "passing"     search a role's memory library
+  inspect @50 --context @42 --query "undo"       check a memory against a receipt
 Add --all to include superseded and disabled records in ordinary inspection.
 
 --page browses active recall newest first, under a soft size target, with full
@@ -194,7 +197,15 @@ Pass --context to use the loaded agent and its scope. Without a context, name
 the agent explicitly. Follow the returned continuation without changing its
 agent, context or query; this is a live index, not a saved snapshot. Newer
 entries appear when you restart, and retired records disappear. Paging does
-not load the persona again or turn library entries into instructions.`,
+not load the persona again or turn library entries into instructions.
+
+For one recall record, --context adds a read-only recall_check: whether that
+exact record was delivered, and how today's lexical lookup selects it under
+the receipt's scope. --query supplies the query to check; otherwise the stored
+task is used. Historical query overrides and excerpt bytes were not retained,
+so current results cannot explain an old omission with certainty. Save this
+JSON/YAML output as a project artifact when a real retrieval problem occurs;
+it includes the exact memory and receipt without adding evaluation data to recall.`,
 		// Cobra validates Args before inherited reference resolution. Page
 		// syntax must fail without opening config or resolving any @N handle.
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -215,8 +226,11 @@ not load the persona again or turn library entries into instructions.`,
 				}
 				return validateLibraryArguments(args, pageContext, query, after, format)
 			}
-			if cmd.Flags().Changed("context") || cmd.Flags().Changed("after") {
-				return cli.Invalid("--context and --after require --page")
+			if cmd.Flags().Changed("context") {
+				return validateRecallCheckArguments(cmd, args, pageContext, query, format)
+			}
+			if cmd.Flags().Changed("after") {
+				return cli.Invalid("--after requires --page")
 			}
 			if len(args) != 1 {
 				return cli.Invalid("inspect requires a target, or --page with --context")
@@ -226,6 +240,13 @@ not load the persona again or turn library entries into instructions.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if page {
 				return a.inspectLibrary(args, pageContext, query, after, format)
+			}
+			if cmd.Flags().Changed("context") {
+				var suppliedQuery *string
+				if cmd.Flags().Changed("query") {
+					suppliedQuery = &query
+				}
+				return a.inspectRecallCheck(args[0], pageContext, suppliedQuery, format)
 			}
 			if err := a.open(); err != nil {
 				return err
@@ -322,7 +343,7 @@ not load the persona again or turn library entries into instructions.`,
 	c.Flags().StringVar(&lint, "lint", "", "run a lint: condition-loss")
 	c.Flags().BoolVar(&all, "all", false, "include superseded and disabled records")
 	c.Flags().BoolVar(&page, "page", false, "browse or search a compact page of active recall; follow next to continue")
-	c.Flags().StringVar(&pageContext, "context", "", "with --page, use this receipt's agent and applicability scope")
+	c.Flags().StringVar(&pageContext, "context", "", "receipt for scoped --page browsing or an exact recall record check")
 	c.Flags().StringVar(&after, "after", "", "with --page, continue after the last returned record ID or @ref")
 	c.Flags().StringVar(&format, "format", "json", "json|yaml")
 	return c
@@ -456,7 +477,10 @@ func (a *app) flattenInspectRecords(recs []*store.Record) ([]any, error) {
 }
 
 func (a *app) inspectByID(id string) (any, bool, error) {
-	db := a.st.DB
+	return a.inspectByIDFrom(a.st.DB, id)
+}
+
+func (a *app) inspectByIDFrom(db store.Querier, id string) (any, bool, error) {
 	switch {
 	case strings.HasPrefix(id, "ctx_"):
 		c, err := store.GetContext(db, id)

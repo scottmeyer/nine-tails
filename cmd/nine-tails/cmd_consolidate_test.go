@@ -93,6 +93,38 @@ func TestConsolidateCLIFormatsAndDeliberateKind(t *testing.T) {
 	}
 }
 
+func TestConsolidateCLIRecallIsImmediatelyRetrievableAndRetirementDoesNotResurrect(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "Role.")
+	origin := contextID(t, h.ok("load", "a").out)
+	one := h.ok("remember", "--context", origin, "Passing route failed after a late run.").id(t)
+	two := h.ok("remember", "--context", origin, "Late passing run exposed the same route failure.").id(t)
+	before := h.ok("load", "a", "--query", "passing route failure").out
+	context := contextID(t, before)
+	beforeReceipt := h.ok("inspect", context).json(t)
+	merged := h.ok("consolidate", "--context", context, "--source", one, "--source", two, "--reason", "Both observations record the same route failure", "A late run made the passing route fail.").id(t)
+	view := h.ok("inspect", merged).json(t)
+	if view["lane"] != "recall" || view["kind"] != "memory" {
+		t.Fatalf("recall lane or inferred kind changed: %v", view)
+	}
+	if afterReceipt := h.ok("inspect", context).json(t); !reflect.DeepEqual(beforeReceipt, afterReceipt) {
+		t.Fatal("recall consolidation rewrote the historical load receipt")
+	}
+	after := h.ok("load", "a", "--query", "passing route failure").out
+	if !strings.Contains(after, "A late run made the passing route fail.") || strings.Contains(after, "Passing route failed after") || strings.Contains(after, "Late passing run exposed") {
+		t.Fatalf("ordinary retrieval did not replace recall sources: %s", after)
+	}
+	page := h.ok("inspect", "--page", "--context", context, "--query", "passing route fail").out
+	if !strings.Contains(page, "A late run made the passing route fail.") || strings.Contains(page, "Passing route failed after") || strings.Contains(page, "Late passing run exposed") {
+		t.Fatalf("recall library did not expose only the replacement: %s", page)
+	}
+	h.ok("disable", merged)
+	retired := h.ok("load", "a", "--query", "passing route failure").out
+	if strings.Contains(retired, "passing route") || strings.Contains(retired, "Passing route") {
+		t.Fatalf("retiring recall consolidation resurrected its predecessors: %s", retired)
+	}
+}
+
 func TestConsolidateCLIValidationLeavesSourcesActive(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "a", "Role.")
