@@ -19,12 +19,24 @@ The tool menu stays stable:
 | `nt_inspect` | Retrieve full records, search history, or inspect an agent. |
 | `nt_tools` | Discover current agent-owned and shared executable capabilities using a receipt. |
 | `nt_call` | Invoke a discovered capability through its receipt scope. |
-| `nt_state` | Read named state or update it with compare-and-swap. |
+| `nt_state` | Read/update named state or subscribe to shared state with compare-and-swap. |
 | `nt_close` | Finish a receipt without a scoring exercise. |
 
 For example, `nt_load({"agent":"game.playtester","task":"Check Soccer Chess passing lanes","meta":{"repo-id":"soccer-chess","harness":"my-host"}})` returns a capsule with a `context_id`. Use that exact id on subsequent calls. `nt_tools({"context":"ctx_..."})` returns tool descriptions, declared input fields and call templates. Discovery does not dynamically add each underlying tool to the host's native menu: execution goes through `nt_call`.
 
 On state updates, omitted `meta` preserves scope and an explicit empty `meta: {}` clears it. Nonempty metadata replaces the complete set, with the same key grammar as the CLI. JSON numbers in tool inputs retain their exact decimal representation. Successful script stdout, including whitespace and empty output, is preserved in the result; script stderr remains on the MCP process stderr.
+
+To include shared facts automatically in future loads, use
+`nt_state({"name":"game.engineer/project","target":"workshop/soccer-chess","expect":"none","meta":{"repo-id":"soccer-chess"}})`.
+`target` selects an immutable state-link definition and is mutually exclusive
+with `body`; `expect` is the current link ID or `none`. A bare link name requires
+the subscribing agent's `context`. Links use exactly the supplied metadata;
+omitted or empty `meta` is unqualified, including replacement. Both link and
+target scopes must apply on load. Resolution is one hop, and the returned state
+names its real owner and exact version. Missing targets give a nonfatal skipped
+diagnostic; link writes never update the target. Inspect or disable link records
+through their normal CLI operations. This extends `nt_state`, keeping the native
+tool menu stable.
 
 Each invocation carries its own receipt. Loading a second agent does not change the first agent's calls or mutate connection-wide persona state. Current definitions and metadata filtering are shared with CLI behavior. Responses include `isError` for operation failures; invalid protocol requests and unknown tool arguments use JSON-RPC errors. Initialization and discovery of the fixed MCP menu do not open the knowledge store.
 
@@ -42,3 +54,11 @@ Scripts run from the MCP server's launch directory. Launch the server in the pro
 The authoritative learning operations remain the CLI/store functions. The adapter never infers permissions, copies transcripts into memory, or changes the user's host configuration.
 
 Protocol references: [Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle), [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), [tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+
+Receipt arguments accept the capsule's `context_ref` (for example `@42`) as
+well as its canonical `context_id`. `nt_inspect` accepts any local `@N`
+reference; correction `supersedes` and state `expect` arguments also accept
+record references. Resolution preserves the usual type, ownership, CAS and
+lease rules. Task text, content, metadata and tool input are never rewritten.
+Use `nine-tails refs --meta repo-id=soccer-chess` to browse a readable project
+inventory. References belong to one local store; exports use canonical IDs.

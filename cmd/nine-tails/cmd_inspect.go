@@ -49,6 +49,7 @@ type inspectOutput struct {
 // by ordinal without re-reading the capsule.
 type contextView struct {
 	ID              string         `json:"context_id" yaml:"context_id"`
+	Ref             string         `json:"ref" yaml:"ref"`
 	Agent           string         `json:"agent" yaml:"agent"`
 	Parent          string         `json:"parent_context" yaml:"parent_context"`
 	Task            string         `json:"task" yaml:"task"`
@@ -62,6 +63,7 @@ type contextView struct {
 
 type renderedView struct {
 	ID      string `json:"id" yaml:"id"`
+	Ref     string `json:"ref" yaml:"ref"`
 	Section string `json:"section" yaml:"section"`
 	Ordinal int    `json:"ordinal" yaml:"ordinal"`
 	Kind    string `json:"kind,omitempty" yaml:"kind,omitempty"`
@@ -73,8 +75,10 @@ type renderedView struct {
 func contextViewOf(db store.Querier, c *store.Context) contextView {
 	v := contextView{ID: c.ID, Agent: c.Agent, Parent: c.Parent, Task: c.Task, EstimatedTokens: c.EstimatedTokens,
 		CreatedAt: c.CreatedAt, Pinned: c.Pinned, ClosedAt: c.ClosedAt, Meta: c.Meta, Rendered: []renderedView{}}
+	v.Ref, _ = store.Reference(db, c.ID)
 	for _, r := range c.Rendered {
 		rv := renderedView{ID: r.RecordID, Section: r.Section, Ordinal: r.Ordinal, Mark: c.Marks[r.RecordID]}
+		rv.Ref, _ = store.Reference(db, r.RecordID)
 		if rec, err := store.GetRecord(db, r.RecordID); err == nil {
 			rv.Kind, rv.Name = rec.Kind, rec.Name
 			line := rec.Body
@@ -92,6 +96,7 @@ func contextViewOf(db store.Querier, c *store.Context) contextView {
 }
 
 type briefView struct {
+	Ref        string                  `json:"ref,omitempty" yaml:"ref,omitempty"`
 	Generation *store.Generation       `json:"generation" yaml:"generation"`
 	Items      []*store.Record         `json:"items" yaml:"items"`
 	Tallies    map[string]*store.Tally `json:"tallies,omitempty" yaml:"tallies,omitempty"` // by item id, active generation only
@@ -100,6 +105,7 @@ type briefView struct {
 
 // recordView is one record plus the receipts that rendered it.
 type recordView struct {
+	Ref                  string `json:"ref" yaml:"ref"`
 	store.RecordEnvelope `yaml:",inline"`
 	Delivery             *deliveryView     `json:"delivery,omitempty" yaml:"delivery,omitempty"`
 	RenderedIn           []string          `json:"rendered_in" yaml:"rendered_in"`
@@ -420,7 +426,11 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 		if inputs == nil {
 			inputs = []store.BriefInput{}
 		}
-		return briefView{Generation: g, Items: items, Inputs: inputs, Tallies: talliesFor(db, items)}, true, nil
+		ref, err := store.Reference(db, id)
+		if err != nil {
+			return nil, false, err
+		}
+		return briefView{Ref: ref, Generation: g, Items: items, Inputs: inputs, Tallies: talliesFor(db, items)}, true, nil
 	case strings.HasPrefix(id, "lease_"):
 		return nil, false, cli.NotFound("%s is a lease token, not a record", id)
 	}
@@ -436,7 +446,11 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	v := recordView{RecordEnvelope: rec.Envelope(), RenderedIn: []string{}}
+	ref, err := store.Reference(db, id)
+	if err != nil {
+		return nil, false, err
+	}
+	v := recordView{Ref: ref, RecordEnvelope: rec.Envelope(), RenderedIn: []string{}}
 	if rec.Kind == "brief-item" {
 		v.Sources, err = briefSources(db, id)
 		if err != nil {
@@ -476,7 +490,7 @@ func (a *app) fillInspect(v *inspectView, agent string, want map[string]bool, st
 					v.Base = r
 				}
 			}
-		case r.Lane == "state":
+		case r.Lane == "state" || (r.Lane == "definition" && r.Kind == "state-link"):
 			if want["state"] {
 				v.State = append(v.State, r)
 			}

@@ -63,7 +63,7 @@ func SectionOf(r *store.Record) string {
 		return "base"
 	case r.Kind == "brief-item":
 		return "brief"
-	case r.Lane == "state":
+	case r.Lane == "state" || (r.Lane == "definition" && r.Kind == "state-link"):
 		return "state"
 	case r.Lane == "definition" && r.Kind == "tool":
 		return "tools"
@@ -954,6 +954,11 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 				meta.Add("imported-from", r.ID)
 			}
 			nr := store.NewRecord{Agent: agent, Lane: lane, Kind: kind, Name: name, Body: body, Meta: meta}
+			if lane == "definition" && kind == "state-link" {
+				if _, _, err := store.StateLinkTarget(body); err != nil {
+					return fmt.Errorf("%s: %w", label, err)
+				}
+			}
 			if lane == "definition" && kind == "tool" {
 				def, err := tool.Parse(body)
 				if err != nil {

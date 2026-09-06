@@ -103,10 +103,24 @@ nine-tails load pilot \
 ```
 
 On a fresh store, that command seeds `pilot` and `reflector` from documents
-embedded in the binary. The returned Markdown contains a marker such as
-`[nine-tails-context=ctx_01M1PJF95JW91BHBS7QWHBAP8W]`. Context IDs are opaque:
-keep the exact value and pair it with the agent that returned it. IDs printed by
-mutations, such as `base_...` or `rec_...`, are not context IDs.
+embedded in the binary. Each load shows a short local reference such as `@42`,
+paired with its agent. Use that handle for calls, corrections and delegation.
+The original `[nine-tails-context=ctx_...]` marker remains for harnesses.
+A reference retains its kind: a record handle cannot stand in for a receipt.
+
+```sh
+nine-tails refs --kind context
+nine-tails refs --meta repo-id=soccer-chess
+nine-tails refs --kind signal --query "follow-up"
+nine-tails inspect @42
+nine-tails prefer --context @42 "Lead with concrete examples."
+```
+
+The numbers above are examples; use the references listed in your store.
+References stay assigned to one item, even after context cleanup. They are
+local: use canonical IDs when exchanging data between stores. `refs --format
+json` includes both. Existing commands and mutation output retain canonical
+IDs for compatibility.
 
 When you already know the agent, load it directly with `load --agent <name>`
 or `load <name>`. Every capsule includes the learning, tool, state, and
@@ -181,6 +195,7 @@ the Soccer Chess work used to identify friction in ordinary agent handoffs.
 | Operating guidance | `note`, `prefer`, `avoid` | Appears in recent adjustments and can later be compiled |
 | Useful experience or a fact | `remember` | Relevant excerpts surface on load as data; full records remain searchable with `inspect --query` |
 | Small current working state | `state put` | Replaces a named YAML state using compare-and-swap |
+| Shared state in a role's next capsule | `state link` | Subscribes to current named state without copying its values |
 | A reminder or external event | `signal` | Appears when due and can be leased by a scheduler |
 | A reusable executable capability | `tool add` | Adds a validated named tool callable through a context |
 | Optional shorter guidance | `compile` | Condenses eligible guidance through a configured model command; original lessons remain authoritative |
@@ -201,6 +216,11 @@ EOF
 nine-tails state get pr-review/working
 # Then state put with --expect <current-state-id>; omitted --meta preserves scope.
 
+# Subscribe a role to one authoritative shared project state.
+nine-tails state link game.engineer/project workshop/soccer-chess \
+  --expect none --meta repo-id=soccer-chess
+nine-tails load game.engineer --meta repo-id=soccer-chess
+
 # Schedule work without running a scheduler inside nine-tails.
 nine-tails signal pr-review --at +2h \
   --subject "Recheck PR 1842 after CI" \
@@ -216,6 +236,15 @@ nine-tails inspect pr-review --include tools
 nine-tails call --context <pr-review-context-id> complete-pr-diff \
   --input '{"pr": 1842}'
 ```
+
+State links resolve one hop on each load. Both the link's scope and the target's
+scope must apply. The capsule shows the current state once as data with its
+owner and version; updates by the owner appear on future loads. Missing targets
+produce a repair hint. Replace a link using its ID as `--expect`, or retire it
+with `disable`; neither operation changes the target. Link metadata follows
+definition rules: pass its complete scope when replacing it, because omission
+means unqualified. Exporting a role includes its links without copying another
+agent's state values.
 
 Use `inspect` as the repair surface:
 
@@ -377,7 +406,7 @@ name with `--context ctx_...`. The receipt identifies the agent, not a past
 state version; an explicit agent must match that receipt's owner.
 
 Keep changing project decisions in one named, scoped state; give other roles
-scoped retrieval pointers instead of copying values into their bases. Keep
+scoped `state link` subscriptions so fresh loads receive the current version. Keep
 bases project-neutral and check applicability before carrying a previous
 project's decisions into a new one. Capsules display resolved metadata and
 state CAS recipes so a handoff need not start with help lookups.

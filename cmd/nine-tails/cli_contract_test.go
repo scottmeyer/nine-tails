@@ -587,8 +587,8 @@ func TestPureCommandGroupsRejectUnknownChildrenAndBareShowsHelp(t *testing.T) {
 		child    string
 		helpHash string
 	}{
-		// State help now advertises the context-qualified read shorthand.
-		"state":   {child: "get", helpHash: "d2752cf2ad545cee64440575572cce7c4799165fda22cf41ef5c689fa3c2db7d"},
+		// State help advertises reads, CAS writes, and reusable subscriptions.
+		"state":   {child: "get", helpHash: "e83fcb444397df31df3805cc7b0946d5c2df1229dd6320283935075dd7ba2945"},
 		"context": {child: "list", helpHash: "b66f989a979e7856a46f76b357fda88876442930cc387a71112883cfbcf6e0a6"},
 		"tool":    {child: "add", helpHash: "e7da017ff2f59b4490cbdb911f4380611ee2b70322f38636e5335b00e4d6ea81"},
 		"agent":   {child: "add", helpHash: "dcc6fe5421d3756a8668c2004d056d623864d61d45a215b3cf2fb4ce9831127a"},
@@ -699,6 +699,7 @@ func TestPureCommandGroupCompletionMatchesBaseline(t *testing.T) {
 	const completionErr = "Completion ended with directive: ShellCompDirectiveNoFileComp\n"
 	groups := map[string]string{
 		"state": "get\tPrint the current state document\n" +
+			"link\tSurface another agent's current state on future loads\n" +
 			"put\tReplace state with compare-and-swap (--expect none to create)\n:4\n",
 		"context": "gc\tDelete old unpinned receipts that no active record references as origin\n" +
 			"list\tList receipts, newest first\n" +

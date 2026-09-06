@@ -55,7 +55,10 @@ records:
       a valid reflection outcome.
 
       Keep changing project decisions in one named, scoped state; other roles
-      should carry a retrieval pointer rather than duplicate mutable values.
+      can subscribe with `nine-tails state link <role>/<alias> <owner>/<name>
+      --expect none --meta repo-id=<repo>` so their next loads receive current
+      data. Never duplicate mutable values. Link replacement uses its current
+      ID and complete scope; omitted link metadata means unqualified.
       Set scope explicitly when creating state. Ordinary state updates preserve
       existing metadata; --meta replaces the whole set and --clear-meta removes it.
       Preserve the distinction between confirmed facts, proposals and unknowns.

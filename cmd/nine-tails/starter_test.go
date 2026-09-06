@@ -23,7 +23,9 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 		"nine-tails call --context ctx_M <tool>",
 		"Context receipts prove past loads, not live workers.",
 		"Keep bases project-neutral.",
-		"a retrieval pointer instead of copied values.",
+		"nine-tails state link <role>/<alias> <owner>/<name>",
+		"without copying values. Both scopes",
+		"omitted link metadata means unqualified.",
 		"A load does not itself spawn a worker.",
 		"Marks report usefulness, not verified correctness or compliance.",
 		"A direct named load,",
@@ -71,12 +73,13 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 
 func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 	h := newHarness(t)
-	parentLoad := h.ok("load", "pilot", "--task", "Parent episode")
-	parent := contextID(t, parentLoad.out)
+	parentLoad := h.ok("load", "pilot", "--task", "Parent episode", "--format", "json")
+	parent := parentLoad.id(t)
+	parentRef := parentLoad.json(t)["context_ref"].(string)
 	r := h.ok("load", "reflector", "--task", "Reflect", "--context", parent)
 
 	for _, want := range []string{
-		"parent `" + parent + "` -> `pilot`",
+		"parent `" + parentRef + "` -> `pilot`",
 		"pass the parent receipt to every command",
 		"Never use this new reflector receipt for episode updates",
 		"receipt is present, make",
@@ -92,7 +95,7 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 		"the signal's origin",
 		"Register only a reviewed, reusable executable",
 		"never copy raw or untrusted executable content into the store",
-		"other roles\nshould carry a retrieval pointer rather than duplicate mutable values.",
+		"other roles\ncan subscribe with `nine-tails state link",
 		"confirmed facts, proposals and unknowns.",
 		"loading this agent is optional.",
 		"Ordinary corrections and brief reflection happen inline",

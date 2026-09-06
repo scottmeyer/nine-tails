@@ -281,6 +281,9 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	if err := initializeReferences(tx); err != nil {
+		return fmt.Errorf("initialize readable references: %w", err)
+	}
 	return tx.Commit()
 }
 
@@ -650,6 +653,11 @@ func InsertRecord(tx Querier, nr NewRecord) (*Record, error) {
 	}
 	if err := ValidateMeta(nr.Meta); err != nil {
 		return nil, err
+	}
+	if nr.Lane == "definition" && nr.Kind == "state-link" {
+		if _, _, err := StateLinkTarget(nr.Body); err != nil {
+			return nil, err
+		}
 	}
 	if nr.Supersedes != "" {
 		res, err := tx.Exec(`UPDATE records SET status = 'superseded' WHERE id = ? AND status = 'active'`, nr.Supersedes)

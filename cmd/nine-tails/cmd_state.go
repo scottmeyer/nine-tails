@@ -43,9 +43,11 @@ into capsules, never compiled, and replaced with compare-and-swap:
   state get  <agent>/<name>
   state get  <name> --context ctx_N           (agent taken from the context)
   state put  <agent>/<name> --expect none|<current-id> [--stdin]
-  state put  <name> --context ctx_N ...        (agent taken from the context)`,
+  state put  <name> --context ctx_N ...        (agent taken from the context)
+  state link <agent>/<alias> <owner>/<name> --expect none|<link-id>
+State links surface selected shared state on future loads without copying it.`,
 	}
-	c.AddCommand(newStateGetCmd(a), newStatePutCmd(a))
+	c.AddCommand(newStateGetCmd(a), newStatePutCmd(a), newStateLinkCmd(a))
 	return commandGroup(c)
 }
 

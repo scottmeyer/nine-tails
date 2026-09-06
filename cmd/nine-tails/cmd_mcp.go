@@ -44,7 +44,7 @@ type mcpTool struct {
 func mcpCatalog() []mcpTool {
 	str := func(d string) mcpProperty { return mcpProperty{Type: "string", Description: d} }
 	obj := func(d string) mcpProperty { return mcpProperty{Type: "object", Description: d} }
-	context := str("Exact ctx_ receipt returned by nt_load; identifies the agent and applicability scope.")
+	context := str("Receipt ID or local @N reference returned by nt_load; identifies the agent and applicability scope.")
 	meta := obj("Applicability metadata: keys map to strings or arrays of strings. On lessons use only true scope, never copy ambient metadata automatically.")
 	loadMeta := obj("Ambient metadata: supplied keys replace the parent's values; unspecified keys inherit. Strings or arrays of strings; repeated values collapse. Omit or use {} to inherit unchanged.")
 	def := func(n, d string, required []string, p map[string]mcpProperty) mcpTool {
@@ -56,7 +56,7 @@ func mcpCatalog() []mcpTool {
 		def("nt_inspect", "Retrieve an agent, exact record, or receipt. Use to recover full recalled evidence or inspect existing guidance before correcting it.", []string{"target"}, map[string]mcpProperty{"target": str("Agent name or exact record/receipt id."), "query": str("Search phrase."), "lane": str("Optional lane: guidance or recall."), "include": str("Optional comma-separated sections, e.g. base,brief,journal,tools.")}),
 		def("nt_tools", "Discover executable capabilities applicable to a loaded agent. Returns descriptions, declared inputs and exact nt_call arguments; does not change the MCP tool list.", []string{"context"}, map[string]mcpProperty{"context": context, "query": str("Optional name or description substring.")}),
 		def("nt_call", "Run a discovered agent tool with its current definition and receipt scope. Inspect nt_tools first. Execution uses the server launch directory and the tool's declared timeout.", []string{"context", "tool"}, map[string]mcpProperty{"context": context, "tool": str("Exact tool name from nt_tools."), "input": obj("Tool input object; omitted means {}.")}),
-		def("nt_state", "Read or update small named project state. Updates require the current state record id (or none for creation). Omitted metadata preserves existing scope.", []string{"name"}, map[string]mcpProperty{"name": str("Qualified agent/name, or bare state name with context."), "context": context, "body": str("YAML body; omit to read."), "expect": str("Required for updates: current state_ id or none."), "meta": meta}),
+		def("nt_state", "Read/update named state, or subscribe to state with target. State updates preserve omitted scope; links use exactly the supplied scope. Writes require expect; linking never writes the target.", []string{"name"}, map[string]mcpProperty{"name": str("Qualified agent/name, or bare state/link name with context."), "context": context, "body": str("YAML body for state update; omit to read."), "target": str("Qualified owner/state for a one-hop subscription; mutually exclusive with body."), "expect": str("Required for writes: current state/link id, or none."), "meta": meta}),
 		def("nt_close", "Finish a receipt without rating every instruction. Save useful corrections first. Closure is bookkeeping, not a prerequisite for learning.", []string{"context"}, map[string]mcpProperty{"context": context}),
 	}
 }
@@ -238,6 +238,19 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 }
 
 func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
+	for _, key := range []string{"context", "supersedes", "expect", "target"} {
+		if key == "target" && name != "nt_inspect" {
+			continue
+		}
+		value, _ := v[key].(string)
+		if strings.HasPrefix(value, "@") {
+			resolved, err := a.resolveReference(value)
+			if err != nil {
+				return err.Error(), true
+			}
+			v[key] = resolved
+		}
+	}
 	get := func(k string) string { s, _ := v[k].(string); return s }
 	for _, key := range []string{"agent", "target", "tool", "name"} {
 		if strings.HasPrefix(get(key), "-") {
@@ -245,7 +258,7 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		}
 	}
 	if ctx := get("context"); ctx != "" && (!strings.HasPrefix(ctx, "ctx_") || !cli.IsID(ctx)) {
-		return "context must be an exact ctx_ receipt id.", true
+		return "context must identify a context receipt (ctx_ ID or its @N reference).", true
 	}
 	var argv []string
 	body := ""
@@ -283,7 +296,15 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		argv = []string{"call", get("tool"), "--stdin"}
 		body = string(raw)
 	case "nt_state":
-		if _, write := v["body"]; write {
+		if _, link := v["target"]; link {
+			if get("target") == "" || get("expect") == "" {
+				return "State links require a qualified target and expect (current link id, or none).", true
+			}
+			if _, write := v["body"]; write {
+				return "State link target and state body are mutually exclusive.", true
+			}
+			argv = []string{"state", "link", get("name"), get("target"), "--expect", get("expect"), "--format", "json"}
+		} else if _, write := v["body"]; write {
 			if get("expect") == "" {
 				return "State updates require expect (current state_ id, or none).", true
 			}
@@ -305,7 +326,7 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		argv = append(argv, "--context", get("context"))
 	}
 	if raw, ok := v["meta"].(map[string]any); ok {
-		if name == "nt_state" && len(raw) == 0 {
+		if name == "nt_state" && get("target") == "" && len(raw) == 0 {
 			argv = append(argv, "--clear-meta")
 		}
 		keys := make([]string, 0, len(raw))

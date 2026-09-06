@@ -10,6 +10,7 @@ func TestRepositoryAgentPackImportsIntoFreshStore(t *testing.T) {
 	h := newHarness(t)
 	initialPilot := h.ok("load", "pilot", "--task", "initialize", "--meta", "repo-id=nine-tails", "--meta", "harness=test")
 	initialPilotID := contextID(t, initialPilot.out)
+	initialPilotRef := h.ok("inspect", initialPilotID, "--format", "json").json(t)["ref"].(string)
 
 	pack := filepath.Join("..", "..", "agents")
 	for _, name := range []string{
@@ -42,7 +43,7 @@ func TestRepositoryAgentPackImportsIntoFreshStore(t *testing.T) {
 	if !strings.Contains(builder, "# nine-tails Builder") || !strings.Contains(builder, "## Capsule protocol") {
 		t.Fatalf("builder pack did not produce a guided capsule:\n%s", builder)
 	}
-	if !strings.Contains(builder, "parent `"+initialPilotID+"` -> `pilot`") {
+	if !strings.Contains(builder, "parent `"+initialPilotRef+"` -> `pilot`") {
 		t.Fatalf("builder did not inherit the original pre-catalog pilot receipt:\n%s", builder)
 	}
 }

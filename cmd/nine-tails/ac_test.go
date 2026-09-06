@@ -534,7 +534,7 @@ func TestAC17(t *testing.T) {
 		t.Fatalf("future signal loaded early:\n%s", r.out)
 	}
 	h.now = h.now.Add(time.Hour)
-	if r := h.ok("load", "signaled"); !strings.Contains(r.out, "[signal="+sig+"] Recheck — CI result") {
+	if r := h.ok("load", "signaled"); !strings.Contains(r.out, "[signal="+referenceFor(t, h, sig)+"] Recheck — CI result") {
 		t.Fatalf("due signal did not appear:\n%s", r.out)
 	}
 	rows := tickRows(t, h.ok("tick", "--claim", "--lease", "1m"))

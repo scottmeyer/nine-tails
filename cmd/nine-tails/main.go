@@ -95,10 +95,12 @@ call is the exception because its stdout belongs exclusively to the tool.
 
 A ctx_... id is a context receipt created by load and passed to --context.
 Immutable record ids such as base_..., rec_..., state_..., and tool_... are
-inspected, disabled, or used for compare-and-swap; they are not context ids.`,
-		Version:       version,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+inspected, disabled, or used for compare-and-swap; they are not context ids.
+Use refs to find readable local @N handles; commands keep the same kind checks.`,
+		Version:           version,
+		SilenceUsage:      true,
+		SilenceErrors:     true,
+		PersistentPreRunE: a.resolveCommandReferences,
 	}
 	root.SetOut(a.stdout)
 	root.SetErr(a.stderr)
@@ -107,6 +109,7 @@ inspected, disabled, or used for compare-and-swap; they are not context ids.`,
 
 	everyday := []*cobra.Command{
 		newLoadCmd(a),
+		newRefsCmd(a),
 		newNoteCmd(a, "note", "guidance", "note", "Add reusable operating guidance"),
 		newNoteCmd(a, "avoid", "guidance", "avoid", "Teach behavior the agent should avoid"),
 		newNoteCmd(a, "prefer", "guidance", "prefer", "Teach behavior the agent should prefer"),

@@ -66,7 +66,7 @@ func TestSignalLifecycle(t *testing.T) {
 
 	// Not due yet: absent from load and from tick.
 	r = h.ok("load", "pr-review")
-	if strings.Contains(r.out, dueHeader) || strings.Contains(r.out, sig) {
+	if strings.Contains(r.out, dueHeader) || strings.Contains(r.out, "signal="+referenceFor(t, h, sig)) {
 		t.Errorf("future signal must not render before --at:\n%s", r.out)
 	}
 	r = h.ok("tick")
@@ -96,7 +96,7 @@ func TestSignalLifecycle(t *testing.T) {
 	// Advance past --at: rendered in load and pending in tick.
 	h.now = h.now.Add(time.Hour)
 	r = h.ok("load", "pr-review")
-	want := dueHeader + "\n\n- [signal=" + sig + " pr=1842] Recheck PR — CI should be done.\n"
+	want := dueHeader + "\n\n- [signal=" + referenceFor(t, h, sig) + " pr=1842] Recheck PR — CI should be done.\n"
 	if !strings.Contains(r.out, want) {
 		t.Errorf("due signal should render as %q:\n%s", want, r.out)
 	}
@@ -124,7 +124,7 @@ func TestSignalLifecycle(t *testing.T) {
 
 	// While leased: load shows state=leased; tick shows nothing; claim again is empty.
 	r = h.ok("load", "pr-review")
-	if !strings.Contains(r.out, "- [signal="+sig+" state=leased pr=1842] Recheck PR — CI should be done.\n") {
+	if !strings.Contains(r.out, "- [signal="+referenceFor(t, h, sig)+" state=leased pr=1842] Recheck PR — CI should be done.\n") {
 		t.Errorf("leased signal should render state=leased:\n%s", r.out)
 	}
 	for _, args := range [][]string{{"tick"}, {"tick", "--claim"}} {
@@ -265,7 +265,7 @@ func TestSignalExcerptAndBodies(t *testing.T) {
 	big := r.id(t)
 	r = h.ok("load", "a")
 	excerpt := strings.TrimSpace(long)[:300]
-	want := "- [signal=" + big + "] Big — " + excerpt + "… (truncated; inspect with `nine-tails inspect " + big + "`)\n"
+	want := "- [signal=" + referenceFor(t, h, big) + "] Big — " + excerpt + "… (truncated; inspect with `nine-tails inspect " + referenceFor(t, h, big) + "`)\n"
 	if !strings.Contains(r.out, want) {
 		t.Errorf("long body should be excerpted:\nwant %q\nin:\n%s", want, r.out)
 	}
@@ -278,7 +278,7 @@ func TestSignalExcerptAndBodies(t *testing.T) {
 	r = h.ok("signal", "a", "--subject", "Ping")
 	ping := r.id(t)
 	r = h.ok("load", "a")
-	if !strings.Contains(r.out, "- [signal="+ping+"] Ping\n") {
+	if !strings.Contains(r.out, "- [signal="+referenceFor(t, h, ping)+"] Ping\n") {
 		t.Errorf("empty-body signal should render as its subject:\n%s", r.out)
 	}
 
@@ -303,7 +303,7 @@ func TestSignalExcerptAndBodies(t *testing.T) {
 	if strings.Contains(r.out, other) {
 		t.Errorf("a signal with a disjoint repo-id must be excluded:\n%s", r.out)
 	}
-	if !strings.Contains(r.out, ping) {
+	if !strings.Contains(r.out, "signal="+referenceFor(t, h, ping)) {
 		t.Errorf("unscoped signals stay visible:\n%s", r.out)
 	}
 }
