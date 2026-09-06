@@ -452,7 +452,9 @@ and `state put`, `<agent>` is optional when `--context` is given and defaults
 to the context's agent. Rule: with `--context`, if two or more positionals are
 given the first is the agent (and must match the context's agent, else exit 2
 `nine-tails: ctx_72 belongs to pr-review, not evidence-reviewer`); if one is
-given it is the TEXT; with `--stdin` there are no positionals. `signal` takes
+given it is the TEXT; with `--stdin`, zero positionals is canonical and one
+explicit matching agent is accepted as an owner assertion, not TEXT. Two or
+more positionals are invalid; a different explicit agent exits 2. `signal` takes
 an optional agent and defaults to `shared`: a signal is a signal, not a
 message, and every agent that loads sees a shared one (§7 rule 7). Name an
 agent only when a wake-up must start that agent.

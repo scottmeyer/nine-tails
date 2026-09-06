@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -158,18 +162,74 @@ func TestErrorsGoToStderrAndJSON(t *testing.T) {
 	}
 }
 
-func TestContextAndStdinRejectPositionalAgent(t *testing.T) {
+func TestContextAndStdinAcceptsOnlyMatchingExplicitAgent(t *testing.T) {
+	for _, command := range [][]string{{"note"}, {"avoid"}, {"prefer"}, {"remember"}, {"append", "--lane", "guidance"}, {"append", "--lane", "recall"}} {
+		t.Run(strings.Join(command, "-"), func(t *testing.T) {
+			h := newHarness(t)
+			h.ok("base", "a", "Base.")
+			h.ok("base", "b", "Other.")
+			ctx := contextID(t, h.ok("load", "a").out)
+			body := "Lead with evidence."
+			args := append(append([]string{}, command...), "a", "--context", localRef(t, h, ctx), "--stdin", "--meta", "repo-id=original", "--format", "json")
+			rec := h.okIn(body, args...).json(t)
+			if rec["agent"] != "a" || rec["origin_context"] != ctx || rec["body"] != body {
+				t.Fatalf("matching explicit agent changed stdin/origin semantics: %#v", rec)
+			}
+			correctionArgs := append(append([]string{}, command...), "a", "--context", ctx, "--stdin", "--supersedes", rec["id"].(string), "--format", "json")
+			corrected := h.okIn("Corrected body.", correctionArgs...).json(t)
+			if corrected["body"] != "Corrected body." || corrected["origin_context"] != ctx || !reflect.DeepEqual(corrected["meta"], map[string]any{"repo-id": []any{"original"}}) {
+				t.Fatalf("matching-agent stdin correction changed body, origin, or omitted scope: %#v", corrected)
+			}
+
+			before := h.ok("inspect", "a", "--format", "json").out
+			for _, bad := range [][]string{{"b"}, {"a", "not-text"}} {
+				badArgs := append(append([]string{}, command...), bad...)
+				badArgs = append(badArgs, "--context", ctx, "--stdin")
+				r := h.runIn("must not persist", badArgs...)
+				if r.code != 2 {
+					t.Fatalf("%v accepted: %#v", bad, r)
+				}
+			}
+			if after := h.ok("inspect", "a", "--format", "json").out; after != before {
+				t.Fatalf("rejected context/stdin invocation wrote a record:\nbefore=%s\nafter=%s", before, after)
+			}
+		})
+	}
+}
+
+func TestContextAndStdinExtraArgsPreflightBeforeLocalReferenceResolution(t *testing.T) {
+	for _, invalidConfig := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid_config_%t", invalidConfig), func(t *testing.T) {
+			h := newHarness(t)
+			if invalidConfig {
+				if err := os.WriteFile(filepath.Join(h.home, "config.yaml"), []byte("not: [valid"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := h.runIn("must not persist", "note", "a", "not-text", "--context", "@123", "--stdin")
+			if r.code != 2 || !strings.Contains(r.err, "at most one matching") || strings.Contains(r.err, "config") || strings.Contains(r.err, "reference") {
+				t.Fatalf("extra args were masked by local-reference resolution: %#v", r)
+			}
+			if _, err := os.Stat(filepath.Join(h.home, "nine-tails.db")); !os.IsNotExist(err) {
+				t.Fatalf("syntax preflight opened the store: %v", err)
+			}
+			if !invalidConfig {
+				entries, err := os.ReadDir(h.home)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("syntax preflight touched absent home: %v %v", entries, err)
+				}
+			}
+		})
+	}
+}
+
+func TestContextTextAfterDashKeepsLeadingDash(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "a", "Base.")
 	ctx := contextID(t, h.ok("load", "a").out)
-
-	r := h.runIn("Lead with evidence.\n", "prefer", "a", "--context", ctx, "--stdin")
-	if r.code != 2 || !strings.Contains(r.err, "do not pass positional arguments") {
-		t.Fatalf("positional agent with --context and --stdin: code=%d stderr=%q", r.code, r.err)
-	}
-	r = h.ok("inspect", "a", "--lane", "guidance", "--format", "json")
-	if strings.Contains(r.out, "Lead with evidence.") {
-		t.Fatalf("rejected append was persisted: %s", r.out)
+	rec := h.ok("note", "a", "--context", ctx, "--format", "json", "--", "-leading-text").json(t)
+	if rec["agent"] != "a" || rec["origin_context"] != ctx || rec["body"] != "-leading-text" {
+		t.Fatalf("context text after -- changed: %#v", rec)
 	}
 }
 

@@ -24,15 +24,26 @@ func (o *appendOpts) bind(c *cobra.Command) {
 	c.Flags().StringArrayVar(&o.meta, "meta", nil, "applicability metadata key=value (repeatable); replaces complete scope on correction, omission preserves it")
 	c.Flags().BoolVar(&o.clearMeta, "clear-meta", false, "explicitly remove all metadata (mutually exclusive with --meta)")
 	c.Flags().StringVar(&o.supersedes, "supersedes", "", "replace this active record of the same agent and lane; omitted --meta preserves scope, and without TEXT its body is kept")
-	c.Flags().StringVar(&o.context, "context", "", "originating context receipt id (ctx_..., not a record id); also supplies the agent when <agent> is omitted")
+	c.Flags().StringVar(&o.context, "context", "", "originating context receipt id (ctx_..., not a record id); supplies the agent, and --stdin permits one matching <agent>")
 	c.Flags().BoolVar(&o.stdin, "stdin", false, "read the body from stdin instead of the argument")
 	c.Flags().StringVar(&o.format, "format", "id", "id (one line) | json | yaml")
 }
 
+// argsPreflight catches the one syntax error introduced by the optional
+// explicit owner form before PersistentPreRunE resolves a local --context
+// reference and opens a store. Matching the one owner still needs the receipt.
+func (o *appendOpts) argsPreflight(_ *cobra.Command, args []string) error {
+	if o.context != "" && o.stdin && len(args) > 1 {
+		return cli.Invalid("with --context and --stdin, pass at most one matching <agent>")
+	}
+	return nil
+}
+
 // resolveAgentAndText applies the "--context implies the agent" rule
 // (DESIGN §6): with --context, two or more positionals mean the first is the
-// agent (which must match); one positional is the text; with --stdin there
-// are none. Without --context the first positional is always the agent.
+// agent (which must match); one positional is the text. With --stdin, zero
+// positionals is canonical and one matching explicit agent is accepted; it is
+// not text. Without --context the first positional is always the agent.
 func (a *app) resolveAgentAndText(ctxID string, stdin, textOptional bool, args []string) (agent string, text []string, err error) {
 	if ctxID == "" {
 		if len(args) == 0 {
@@ -40,12 +51,22 @@ func (a *app) resolveAgentAndText(ctxID string, stdin, textOptional bool, args [
 		}
 		return args[0], args[1:], nil
 	}
-	if stdin && len(args) > 0 {
-		return "", nil, cli.Invalid("with --context and --stdin, do not pass positional arguments")
-	}
 	ctxAgent, err := a.contextAgent(ctxID)
 	if err != nil {
 		return "", nil, err
+	}
+	if stdin {
+		switch len(args) {
+		case 0:
+			return ctxAgent, nil, nil
+		case 1:
+			if args[0] != ctxAgent {
+				return "", nil, cli.Invalid("%s belongs to %s, not %s", ctxID, ctxAgent, args[0])
+			}
+			return ctxAgent, nil, nil
+		default:
+			return "", nil, cli.Invalid("with --context and --stdin, pass at most one matching <agent>")
+		}
 	}
 	switch {
 	case len(args) == 0 && (stdin || textOptional):
@@ -158,14 +179,14 @@ func newAppendCmd(a *app) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "append [<agent>] [--supersedes <record-id>] [--] [TEXT]",
 		Short: "Add a generic immutable record to an agent",
+		Args:  o.argsPreflight,
 		Long: `Add a record. Lanes control mechanical treatment: guidance is rendered as
 current instructions; recall is retrieved by task on load or by explicit lookup.
 Unknown kinds are allowed. --lane defaults to recall, so unknown
 material never silently becomes always-on guidance. Definitions, state and
 signals have their own commands (put, base, state put, tool add, agent add,
-signal). With --context the <agent> may be omitted.
-
-With --supersedes, omitted --meta preserves the prior scope. Explicit --meta
+signal). With --context the <agent> may be omitted; with --stdin, one matching
+explicit agent is also accepted. With --supersedes, omitted --meta preserves the prior scope. Explicit --meta
 replaces the complete set; --clear-meta explicitly removes it. Without TEXT
 or --stdin, the prior body is kept. New records are unscoped unless --meta
 is supplied; --context never copies ambient scope into a new record.`,
@@ -207,6 +228,7 @@ func newNoteCmd(a *app, verb, lane, kind, short string) *cobra.Command {
 	c := &cobra.Command{
 		Use:     verb + " [<agent>] [--supersedes <record-id>] [--] [TEXT]",
 		Short:   short,
+		Args:    o.argsPreflight,
 		Long:    long,
 		Example: example,
 		RunE: func(cmd *cobra.Command, args []string) error {

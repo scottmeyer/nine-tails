@@ -1071,6 +1071,13 @@ lore remember pr-review "GitHub may omit large patch bodies."
 formatting hint to the compiler. `remember` chooses the `recall` lane. There is
 no promotion or approval stage.
 
+With `--context`, append operations take the receipt owner by default. For
+`--stdin`, zero positionals is canonical, and one matching explicit agent MAY
+be supplied as an owner assertion; it is never interpreted as body text. Two
+or more positionals, or a different explicit agent, are invalid without a
+write. This preserves existing stdin body handling and lets wrappers state their intended
+owner without duplicating the receipt lookup.
+
 `--supersedes <record-id>` replaces an active record of the same agent and
 lane. Without new text or stdin, the successor keeps the prior body. Omitted
 `--meta` preserves the predecessor's complete metadata set; explicit `--meta`
