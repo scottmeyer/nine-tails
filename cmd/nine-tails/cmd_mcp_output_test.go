@@ -93,3 +93,14 @@ func TestMCPToolSuccessStreamsAndFailureDetails(t *testing.T) {
 		})
 	}
 }
+
+func TestMCPStderrOnlyFailureHasNoArtificialLeadingNewline(t *testing.T) {
+	h := newHarness(t)
+	r := h.okIn(mcpHello+`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_close","arguments":{"context":"ctx_00000000000000000000000000"}}}
+`, "mcp")
+	result := mcpResponses(t, r.out)[1]["result"].(map[string]any)
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	if result["isError"] != true || strings.HasPrefix(text, "\n") || !strings.HasPrefix(text, "nine-tails: not found:") {
+		t.Fatalf("stderr-only failure composition changed: %q", text)
+	}
+}

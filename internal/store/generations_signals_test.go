@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -589,5 +590,112 @@ func TestContextsAndGC(t *testing.T) {
 	}
 	if _, err := GetContext(s.DB, ctx.ID); err != nil {
 		t.Errorf("referenced context must survive: %v", err)
+	}
+	var marked *Context
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		marked, err = CreateContext(tx, "a", "", "marked", 10, nil, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Legacy stores can contain marks for an eligible receipt and for a receipt
+	// that an older GC already removed. Dry-run changes neither; a real pass
+	// removes both while retaining marks on protected receipts.
+	if _, err := s.DB.Exec(`INSERT INTO context_marks(context_id, record_id, mark, created_at) VALUES
+		(?, 'rec_live', 'used', ?), (?, 'rec_marked', 'used', ?),
+		('ctx_already_collected', 'rec_old', 'used', ?)`, ctx.ID, Now(), marked.ID, Now(), Now()); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := GCContexts(s, time.Now().Add(time.Hour), true); err != nil || len(deleted) != 1 || deleted[0] != marked.ID {
+		t.Fatalf("marked dry run = %v, %v", deleted, err)
+	}
+	var marks int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM context_marks`).Scan(&marks); err != nil || marks != 3 {
+		t.Fatalf("dry run changed legacy marks: %d, %v", marks, err)
+	}
+	if _, err := GCContexts(s, time.Now().Add(time.Hour), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM context_marks`).Scan(&marks); err != nil || marks != 1 {
+		t.Fatalf("legacy mark cleanup left %d rows: %v", marks, err)
+	}
+}
+
+func TestClaimDueAcrossStoresReturnsSignalOnce(t *testing.T) {
+	home := t.TempDir()
+	one, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer one.Close()
+	two, err := Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer two.Close()
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	if err := one.Tx(func(tx *sql.Tx) error {
+		_, _, err := CreateSignal(tx, "a", "once", nil, now, "", "")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	counts := make(chan int, 2)
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, s := range []*Store{one, two} {
+		wg.Add(1)
+		go func(s *Store) {
+			defer wg.Done()
+			<-start
+			var claimed []*Signal
+			err := s.Tx(func(tx *sql.Tx) error {
+				var err error
+				claimed, err = ClaimDue(tx, "a", now, time.Minute)
+				return err
+			})
+			errs <- err
+			counts <- len(claimed)
+		}(s)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	close(counts)
+	total := 0
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for count := range counts {
+		total += count
+	}
+	if total != 1 {
+		t.Fatalf("concurrent claims returned signal %d times, want 1", total)
+	}
+}
+
+func TestGCContextsBeyondSQLiteVariableLimit(t *testing.T) {
+	s := openTest(t)
+	const count = 33000
+	if _, err := s.DB.Exec(`WITH RECURSIVE n(i) AS (
+		SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?
+	) INSERT INTO contexts(id, agent, estimated_tokens, created_at, pinned)
+	SELECT printf('ctx_bulk_%06d', i), 'a', 0, '2020-01-01T00:00:00Z', 0 FROM n`, count); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := GCContexts(s, time.Now(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != count {
+		t.Fatalf("deleted %d contexts, want %d", len(deleted), count)
+	}
+	var remaining int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM contexts`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("remaining contexts = %d, %v", remaining, err)
 	}
 }

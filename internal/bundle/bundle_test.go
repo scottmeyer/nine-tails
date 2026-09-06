@@ -730,6 +730,25 @@ func TestReadDocumentRejectsEnvelopeAliasCollisionsAndNonStringBodies(t *testing
 	}
 }
 
+func TestReadDocumentRejectsEmptyInvalidMetadataAndKeyCollisions(t *testing.T) {
+	for _, meta := range []string{`{"bad key": []}`, `{"bad key": null}`} {
+		raw := "nine_tails_export: 1\nagent: a\nrecords:\n  - body: x\n    meta: " + meta + "\n"
+		if _, err := ReadDocument([]byte(raw)); !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "metadata key") {
+			t.Errorf("invalid empty metadata key %s was accepted: %v", meta, err)
+		}
+	}
+	raw := "nine_tails_export: 1\nagent: a\nrecords:\n  - body: x\n    meta:\n      2: numeric\n      2.0: string\n      1: numeric\n      1.0: string\n"
+	for i := 0; i < 5; i++ {
+		if _, err := ReadDocument([]byte(raw)); !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), `multiple mapping keys normalize to "1"`) {
+			t.Fatalf("normalized metadata key collision was accepted or unstable: %v", err)
+		}
+	}
+	unique, err := ReadDocument([]byte("nine_tails_export: 1\nagent: a\nrecords:\n  - body: x\n    meta:\n      2: scalar\n"))
+	if err != nil || len(unique.Records) != 1 || unique.Records[0].Meta["2"][0] != "scalar" {
+		t.Fatalf("unique scalar metadata key was not preserved: doc=%#v err=%v", unique, err)
+	}
+}
+
 func TestImportRejectsInvalidUTF8DocumentValues(t *testing.T) {
 	dst := openStore(t)
 	invalid := string([]byte{0xff})
@@ -986,11 +1005,7 @@ func TestImportRejectsBadMetaKeys(t *testing.T) {
 		}
 	}
 	// The same rule through a parsed document, whose keys arrive verbatim.
-	rdoc, err := ReadDocument([]byte("nine_tails_export: 1\nagent: m\nrecords:\n  - lane: guidance\n    kind: prefer\n    body: pref\n    meta:\n      \"bad key\": v1\n      \"k=v\": v2\n      \"br[x]\": v3\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Import(dst, rdoc, nil, ImportOptions{}); !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), `metadata key "bad key"`) {
+	if _, err := ReadDocument([]byte("nine_tails_export: 1\nagent: m\nrecords:\n  - lane: guidance\n    kind: prefer\n    body: pref\n    meta:\n      \"bad key\": v1\n      \"k=v\": v2\n      \"br[x]\": v3\n")); !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), `metadata key "bad key"`) {
 		t.Errorf("parsed document: %v", err)
 	}
 	if n := len(find(t, dst, store.Filter{Status: "*"})); n != before {

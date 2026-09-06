@@ -581,8 +581,9 @@ pairs and MUST be applied before the limit. Its structured form MUST include
 both canonical and local identifiers. A missing/collected entity MUST NOT
 appear in the inventory even though its old alias remains reserved.
 
-A short reference in an existing-ID CLI or MCP argument MUST resolve before
-normal validation. Resolution MUST NOT relax type, scope, ownership, lease or
+A short reference in an existing-ID CLI or MCP argument MUST resolve after
+syntax-only preflight and before checks requiring a canonical ID. Resolution
+MUST NOT relax type, scope, ownership, lease or
 compare-and-swap checks. It MUST NOT rewrite stored content, tool inputs,
 names, metadata or lease tokens. Canonical IDs MUST remain valid and existing
 mutation envelopes MUST remain compatible. A capsule MUST expose `context_ref`
@@ -649,6 +650,12 @@ lore import pr-review.lore.tar
 
 Plain YAML export must report omitted artifacts rather than imply the result is
 self-contained.
+
+Import MUST validate metadata keys even when their values are null or empty
+lists. If an implementation accepts scalar YAML keys by converting them to
+strings, it MUST reject collisions in that conversion before any write, with a
+deterministic diagnostic. Distinct source keys MUST NOT silently overwrite one
+another.
 
 ## 9. Context Metadata and Receipts
 
@@ -753,6 +760,11 @@ Context garbage collection must not delete records or artifacts. A future
 compaction may retain the classification information needed for measurement
 and then release old origin references, but that optimization is not required
 for v0.
+
+Collecting a receipt MUST atomically remove its metadata, rendered-record links,
+and historical marks. A non-dry pass MAY also remove orphaned historical marks
+left by earlier versions. Reserved local references MUST remain reserved, and
+dry runs MUST NOT delete receipt data or orphaned marks.
 
 ## 10. Context Capsule
 
@@ -1846,6 +1858,14 @@ next input assembly, including when its sources have been compiled. Its own
 brief items and generation accounting MUST NOT replace or suppress these
 original method sources; edit the sources to change or retire learned method.
 
+A configured compiler's timeout MUST bound subprocess completion and inherited
+pipe waits. On platforms with process groups, cancellation and parent
+interruption MUST reach that group, and completion MUST clean remaining group
+members. A successful direct exit MUST NOT become a launch failure because a
+descendant retained an output pipe. Failed or interrupted compilation MUST NOT
+install a generation. Implementations MUST state any platform limits on
+descendant cleanup.
+
 ### 12.8 Briefs are replaceable caches
 
 Raw entries remain inspectable after compilation. A later agent may rebuild the
@@ -2312,6 +2332,10 @@ that inherits the environment must not displace the bound session. Outside
 that live binding, the installed gate exits successfully and emits no bytes
 before it decodes lifecycle input or opens Lore's config/store.
 
+A JSON capability marker MUST contain exactly one value followed only by
+whitespace. Trailing values or malformed suffixes MUST fail admission, and
+mutation paths MUST reject them without rewriting the marker.
+
 If a harness changes session identifiers for clear/resume without a preceding
 transition reason, its lifecycle JSON may be insufficient to distinguish a
 root transition from the same transition in an inheriting nested process. An
@@ -2613,6 +2637,11 @@ It must not depend on connection-local current-agent state or turn a tool call
 into a change to the advertised list. This transport adds no daemon, network
 service, or harness requirement. Its concrete contract may live in a separate
 transport document such as [docs/mcp.md](docs/mcp.md).
+
+For MCP 2025-11-25, request IDs MUST be strings or mathematically integral
+numbers and MUST be echoed without numeric rounding. Syntax-only argument
+errors MUST be reported before local-reference lookup or store access. Failed
+operations MUST report failure even when the underlying command emits no text.
 
 ## 21. Acceptance Criteria for v0
 

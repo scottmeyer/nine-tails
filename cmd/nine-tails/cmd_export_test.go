@@ -224,6 +224,30 @@ func TestImportStdinAndTwiceSupersedesBase(t *testing.T) {
 	}
 }
 
+func TestImportMalformedDocumentDoesNotCreateStore(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		doc  string
+	}{
+		{"empty invalid metadata key", "nine_tails_export: 1\nagent: a\nrecords:\n  - body: x\n    meta: {\"bad key\": []}\n"},
+		{"null invalid metadata key", "nine_tails_export: 1\nagent: a\nrecords:\n  - body: x\n    meta: {\"bad key\": null}\n"},
+		{"mapping key collision", "nine_tails_export: 1\nagent: a\nrecords:\n  - body: x\n    meta:\n      1: a\n      1.0: b\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			r := h.runIn(tc.doc, "import", "--stdin")
+			if r.code != 2 || !strings.HasPrefix(r.err, "nine-tails: ") {
+				t.Fatalf("malformed import result: %#v", r)
+			}
+			for _, name := range []string{"nine-tails.db", "artifacts", "exports"} {
+				if _, err := os.Stat(filepath.Join(h.home, name)); !os.IsNotExist(err) {
+					t.Fatalf("malformed import created %s: %v", name, err)
+				}
+			}
+		})
+	}
+}
+
 func TestImportRejectsBadInput(t *testing.T) {
 	h := newHarness(t)
 	r := h.runIn("hello: world\n", "import", "--stdin")

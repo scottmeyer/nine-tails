@@ -2,6 +2,10 @@
 
 `nine-tails mcp` is an optional local stdio adapter. A host launches the process and consumes newline-delimited JSON-RPC. It adds no network listener, model loop, scheduler, or separate knowledge store. Protocol negotiation supports MCP 2025-11-25; clients requesting another revision receive that supported revision and may disconnect.
 
+Request IDs follow that revision's [string-or-integer requirement](https://modelcontextprotocol.io/specification/2025-11-25/basic/index).
+Fractional values are invalid requests. Integral decimal/exponent forms and
+large integers retain their exact input representation in replies.
+
 Configure any compatible MCP client with:
 
 ```json
@@ -47,6 +51,9 @@ diagnostics, including first-use seeding and skipped state links, go to server
 stderr. A successful load therefore remains parseable JSON, and tool output
 keeps its whitespace or empty body. Failed operations still return useful
 error details and leave the connection available for subsequent calls.
+Malformed arguments are rejected before local-reference lookup or store access.
+Failure text joins nonempty stdout and stderr with one newline; an otherwise
+empty failure receives an explicit failure message.
 
 Forward the whole `nt_load` result to the working model. Its `instructions`
 field excludes referenced state, recall, library navigation and signals;

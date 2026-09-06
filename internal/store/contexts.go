@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -249,10 +248,9 @@ func PinContext(q Querier, id string, pinned bool) error {
 func GCContexts(s *Store, cutoff time.Time, dryRun bool) ([]string, error) {
 	var ids []string
 	err := s.Tx(func(tx *sql.Tx) error {
-		rows, err := tx.Query(`SELECT id FROM contexts c
-			WHERE pinned = 0 AND created_at < ?
-			AND NOT EXISTS (SELECT 1 FROM records r WHERE r.origin_context_id = c.id AND r.status = 'active')
-			ORDER BY rowid`, FormatTime(cutoff))
+		const eligible = `pinned = 0 AND created_at < ?
+			AND NOT EXISTS (SELECT 1 FROM records r WHERE r.origin_context_id = contexts.id AND r.status = 'active')`
+		rows, err := tx.Query(`SELECT id FROM contexts WHERE `+eligible+` ORDER BY rowid`, FormatTime(cutoff))
 		if err != nil {
 			return err
 		}
@@ -264,24 +262,31 @@ func GCContexts(s *Store, cutoff time.Time, dryRun bool) ([]string, error) {
 			}
 			ids = append(ids, id)
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
 		rows.Close()
-		if dryRun || len(ids) == 0 {
+		if dryRun {
 			return nil
 		}
-		ph := strings.Repeat("?,", len(ids))
-		ph = ph[:len(ph)-1]
-		args := make([]any, len(ids))
-		for i, id := range ids {
-			args[i] = id
-		}
-		for _, stmt := range []string{
-			`DELETE FROM context_records WHERE context_id IN (` + ph + `)`,
-			`DELETE FROM context_metadata WHERE context_id IN (` + ph + `)`,
-			`DELETE FROM contexts WHERE id IN (` + ph + `)`,
-		} {
-			if _, err := tx.Exec(stmt, args...); err != nil {
-				return err
+		if len(ids) > 0 {
+			for _, stmt := range []string{
+				`DELETE FROM context_records WHERE context_id IN (SELECT id FROM contexts WHERE ` + eligible + `)`,
+				`DELETE FROM context_metadata WHERE context_id IN (SELECT id FROM contexts WHERE ` + eligible + `)`,
+				`DELETE FROM context_marks WHERE context_id IN (SELECT id FROM contexts WHERE ` + eligible + `)`,
+				`DELETE FROM contexts WHERE ` + eligible,
+			} {
+				if _, err := tx.Exec(stmt, FormatTime(cutoff)); err != nil {
+					return err
+				}
 			}
+		}
+		// Older releases collected contexts without their legacy mark rows.
+		// Remove those unreachable rows whenever a real GC pass runs.
+		if _, err := tx.Exec(`DELETE FROM context_marks
+			WHERE NOT EXISTS (SELECT 1 FROM contexts WHERE contexts.id = context_marks.context_id)`); err != nil {
+			return err
 		}
 		return nil
 	})

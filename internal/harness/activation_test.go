@@ -394,6 +394,46 @@ func TestProbeRejectsForgedExpiredAndWrongHarnessMarkers(t *testing.T) {
 	}
 }
 
+func TestActivationRejectsTrailingJSONWithoutRewritingMarker(t *testing.T) {
+	run, capability := activateForTest(t, Claude)
+	original, err := os.ReadFile(run.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		extra     string
+		wantProbe bool
+	}{
+		{name: "trailing object", extra: `{"extra":true}`},
+		{name: "trailing garbage", extra: "garbage"},
+		{name: "whitespace", extra: " \n\t", wantProbe: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := append(append([]byte(nil), original...), []byte(tc.extra)...)
+			if err := os.WriteFile(run.Path(), marker, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, ok := Probe(Claude)
+			if ok != tc.wantProbe {
+				t.Fatalf("Probe=%v, want %v", ok, tc.wantProbe)
+			}
+			if !tc.wantProbe {
+				if _, err := capability.Admit(Event{Name: "SessionStart", SessionID: "root", Source: "startup"}); err == nil {
+					t.Fatal("mutation path accepted malformed marker")
+				}
+			}
+			after, err := os.ReadFile(run.Path())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(marker) {
+				t.Fatal("marker was rewritten")
+			}
+		})
+	}
+}
+
 func TestBeginRunRejectsRuntimeSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink setup requires privileges on Windows")

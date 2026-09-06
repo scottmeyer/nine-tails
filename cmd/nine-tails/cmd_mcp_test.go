@@ -67,6 +67,56 @@ func TestMCPStableCatalogAndProtocolErrors(t *testing.T) {
 	}
 }
 
+func TestMCPRejectsFractionalIDsButPreservesExactIntegerLiterals(t *testing.T) {
+	h := newHarness(t)
+	r := h.okIn(`{"jsonrpc":"2.0","id":1.5,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+{"jsonrpc":"2.0","id":900719925474099312345678901234567890,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+`, "mcp")
+	responses := mcpResponses(t, r.out)
+	if responses[0]["error"].(map[string]any)["code"] != float64(-32600) {
+		t.Fatalf("fractional id accepted: %s", r.out)
+	}
+	if !strings.Contains(r.out, `"id":900719925474099312345678901234567890`) {
+		t.Fatalf("large integer id changed: %s", r.out)
+	}
+	for _, literal := range []string{"1.0", "1e2", "1.20e1", "100e-2", "1200e-2", "1e999999999999999999999", "-0", "0e-999999999999999999999"} {
+		if !validIntegerJSONNumber(literal) {
+			t.Fatalf("integer literal rejected: %s", literal)
+		}
+	}
+	for _, literal := range []string{"1e-2", "1.5", "1.01e1", "1e-999999999999999999999"} {
+		if validIntegerJSONNumber(literal) {
+			t.Fatalf("fractional literal accepted: %s", literal)
+		}
+	}
+}
+
+func TestMCPPreflightRejectsSyntaxBeforeResolvingLocalReferences(t *testing.T) {
+	for _, tc := range []struct{ name, arguments string }{
+		{"nt_load", `{"agent":"-bad","context":"@1"}`},
+		{"nt_load", `{"agent":"a","context":"@1","meta":{"bad key":"x"}}`},
+		{"nt_load", `{"agent":"a","context":"@1","recall":["bad"]}`},
+		{"nt_call", `{"tool":"-bad","context":"@1"}`},
+		{"nt_call", `{"tool":"bad tool","context":"@1"}`},
+		{"nt_learn", `{"body":"x","supersedes":"bad","context":"@1"}`},
+		{"nt_state", `{"name":"state","body":"x","context":"@1"}`},
+		{"nt_state", `{"name":"bad name","target":"owner/state","expect":"none","context":"@1"}`},
+		{"nt_state", `{"name":"state","expect":"none","context":"@1"}`},
+		{"nt_state", `{"name":"state","meta":{},"context":"@1"}`},
+	} {
+		h := newHarness(t)
+		r := h.okIn(mcpHello+fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":%q,"arguments":%s}}
+`, tc.name, tc.arguments), "mcp")
+		result := mcpResponses(t, r.out)[1]["result"].(map[string]any)
+		if result["isError"] != true || strings.Contains(result["content"].([]any)[0].(map[string]any)["text"].(string), "@1") {
+			t.Fatalf("syntax was masked by reference resolution: %s", r.out)
+		}
+		if _, err := os.Stat(filepath.Join(h.home, "nine-tails.db")); !os.IsNotExist(err) {
+			t.Fatalf("preflight opened store: %v", err)
+		}
+	}
+}
+
 func TestMCPLearningUsesReceiptsAndExistingCLI(t *testing.T) {
 	h := newHarness(t)
 	h.ok("base", "writer", "Write useful prose.")

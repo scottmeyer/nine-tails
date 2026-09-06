@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -210,11 +211,58 @@ func validRPCID(raw json.RawMessage) bool {
 	if dec.Decode(&v) != nil {
 		return false
 	}
-	switch v.(type) {
-	case string, json.Number:
+	switch v := v.(type) {
+	case string:
 		return true
+	case json.Number:
+		return validIntegerJSONNumber(v.String())
 	}
 	return false
+}
+
+// JSON-RPC permits numeric IDs, while MCP requires those numeric IDs to be
+// integers. Work from the literal token rather than float64 so 1e2 remains an
+// integer, large IDs stay exact, and a
+// hostile exponent never asks us to allocate an equally large integer.
+func validIntegerJSONNumber(number string) bool {
+	mantissa, exponent, negativeExponent := number, "0", false
+	if i := strings.IndexAny(mantissa, "eE"); i >= 0 {
+		exponent, mantissa = mantissa[i+1:], mantissa[:i]
+		if exponent[0] == '+' || exponent[0] == '-' {
+			negativeExponent = exponent[0] == '-'
+			exponent = exponent[1:]
+		}
+	}
+	mantissa = strings.TrimPrefix(mantissa, "-")
+	parts := strings.Split(mantissa, ".")
+	fractional := 0
+	if len(parts) == 2 {
+		fractional = len(parts[1])
+	}
+	digits := strings.ReplaceAll(mantissa, ".", "")
+	if strings.Trim(digits, "0") == "" {
+		return true
+	}
+	zeros := len(digits) - len(strings.TrimRight(digits, "0"))
+	exponent = strings.TrimLeft(exponent, "0")
+	if exponent == "" {
+		exponent = "0"
+	}
+	if negativeExponent {
+		// fractional + abs(exponent) must be covered by trailing zeroes.
+		need := zeros - fractional
+		return need >= 0 && decimalAtMost(exponent, need)
+	}
+	if !decimalAtMost(exponent, fractional) {
+		return true
+	}
+	exp, _ := strconv.Atoi(exponent) // bounded above by fractional digit count
+	return zeros >= fractional-exp
+}
+
+func decimalAtMost(decimal string, n int) bool {
+	limit := strconv.Itoa(n)
+	return len(decimal) < len(limit) || len(decimal) == len(limit) && decimal <= limit
 }
 
 func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, error) {
@@ -380,6 +428,51 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 
 func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 	get := func(k string) string { s, _ := v[k].(string); return s }
+	// Reject syntax that does not require store data before resolving local
+	// references: @N resolution opens the store and must not mask it.
+	if agent := get("agent"); agent != "" {
+		if err := store.ValidAgentName(agent); err != nil {
+			return err.Error(), true
+		}
+	}
+	if toolName := get("tool"); toolName != "" {
+		if err := store.ValidName("tool", toolName); err != nil {
+			return err.Error(), true
+		}
+	}
+	for _, key := range []string{"agent", "target", "tool", "name", "forget"} {
+		if strings.HasPrefix(get(key), "-") {
+			return key + " must be a name or identifier, not a flag.", true
+		}
+	}
+	if err := validateMCPReferenceSyntax(name, v, get); err != nil {
+		return err.Error(), true
+	}
+	metaArgs, err := mcpMetaArgs(name, v, get)
+	if err != nil {
+		return err.Error(), true
+	}
+	if name == "nt_state" {
+		_, target := v["target"]
+		_, body := v["body"]
+		if target && (get("target") == "" || get("expect") == "") {
+			return "State links require a qualified target and expect (current link id, or none).", true
+		}
+		if target && body {
+			return "State link target and state body are mutually exclusive.", true
+		}
+		if !target && body && get("expect") == "" {
+			return "State updates require expect (current state_ id, or none).", true
+		}
+		if !target && !body {
+			if _, supplied := v["meta"]; supplied {
+				return "Metadata applies only to state updates.", true
+			}
+			if _, supplied := v["expect"]; supplied {
+				return "expect applies only to state updates.", true
+			}
+		}
+	}
 	if name == "nt_inspect" && v["page"] == true {
 		var args []string
 		if target := get("target"); target != "" {
@@ -406,11 +499,6 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 				return err.Error(), true
 			}
 			v[key] = resolved
-		}
-	}
-	for _, key := range []string{"agent", "target", "tool", "name", "forget"} {
-		if strings.HasPrefix(get(key), "-") {
-			return key + " must be a name or identifier, not a flag.", true
 		}
 	}
 	if ctx := get("context"); ctx != "" && (!strings.HasPrefix(ctx, "ctx_") || !cli.IsID(ctx)) {
@@ -502,26 +590,11 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		body = string(raw)
 	case "nt_state":
 		if _, link := v["target"]; link {
-			if get("target") == "" || get("expect") == "" {
-				return "State links require a qualified target and expect (current link id, or none).", true
-			}
-			if _, write := v["body"]; write {
-				return "State link target and state body are mutually exclusive.", true
-			}
 			argv = []string{"state", "link", get("name"), get("target"), "--expect", get("expect"), "--format", "json"}
 		} else if _, write := v["body"]; write {
-			if get("expect") == "" {
-				return "State updates require expect (current state_ id, or none).", true
-			}
 			argv = []string{"state", "put", get("name"), "--stdin", "--expect", get("expect"), "--format", "json"}
 			body = get("body")
 		} else {
-			if _, ok := v["meta"]; ok {
-				return "Metadata applies only to state updates.", true
-			}
-			if _, ok := v["expect"]; ok {
-				return "expect applies only to state updates.", true
-			}
 			argv = []string{"state", "get", get("name"), "--format", "json"}
 		}
 	case "nt_close":
@@ -530,38 +603,7 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 	if get("context") != "" && name != "nt_close" {
 		argv = append(argv, "--context", get("context"))
 	}
-	if raw, ok := v["meta"].(map[string]any); ok {
-		if ((name == "nt_state" && get("target") == "") || name == "nt_learn") && len(raw) == 0 {
-			argv = append(argv, "--clear-meta")
-		}
-		keys := make([]string, 0, len(raw))
-		for k := range raw {
-			if err := store.ValidateMeta(store.Meta{k: []string{}}); err != nil {
-				return err.Error(), true
-			}
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			switch x := raw[k].(type) {
-			case string:
-				argv = append(argv, "--meta", k+"="+x)
-			case []any:
-				if len(x) == 0 {
-					return "Metadata values must not be empty arrays.", true
-				}
-				for _, e := range x {
-					s, ok := e.(string)
-					if !ok {
-						return "Metadata values must be strings or arrays of strings.", true
-					}
-					argv = append(argv, "--meta", k+"="+s)
-				}
-			default:
-				return "Metadata values must be strings or arrays of strings.", true
-			}
-		}
-	}
+	argv = append(argv, metaArgs...)
 	var stdout, stderr bytes.Buffer
 	home := a.home
 	if a.homeFlag != "" {
@@ -580,12 +622,147 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 	}
 	text := strings.TrimSpace(stdout.String())
 	if stderr.Len() > 0 {
-		text += "\n" + strings.TrimSpace(stderr.String())
+		diagnostic := strings.TrimSpace(stderr.String())
+		if text != "" && diagnostic != "" {
+			text += "\n"
+		}
+		text += diagnostic
 	}
 	if text == "" {
-		text = "Completed."
+		text = "Failed."
 	}
 	return text, status != 0
+}
+
+// validateMCPReferenceSyntax covers only lexical shape. It deliberately does
+// not look up entities or enforce their stored type/ownership; that belongs to
+// the command after a syntactically valid local reference has been resolved.
+func validateMCPReferenceSyntax(name string, v map[string]any, get func(string) string) error {
+	contextID := get("context")
+	if contextID != "" {
+		if err := validateMCPRefOrID(contextID, func(id string) bool {
+			return strings.HasPrefix(id, "ctx_") && cli.IsID(id)
+		}); err != nil {
+			return fmt.Errorf("context must identify a context receipt (ctx_ ID or its @N reference): %w", err)
+		}
+	}
+	if supersedes := get("supersedes"); supersedes != "" {
+		if err := validateMCPRefOrID(supersedes, cli.IsID); err != nil {
+			return fmt.Errorf("supersedes must identify a record ID or @N reference: %w", err)
+		}
+	}
+	if forget := get("forget"); forget != "" {
+		if err := validateMCPRefOrID(forget, cli.IsID); err != nil {
+			return fmt.Errorf("forget must identify a record ID or @N reference: %w", err)
+		}
+	}
+	for _, key := range []string{"recall", "sources"} {
+		if values, supplied := v[key].([]any); supplied {
+			for _, value := range values {
+				if err := validateMCPRefOrID(value.(string), cli.IsID); err != nil {
+					return fmt.Errorf("%s must contain record IDs or @N references: %w", key, err)
+				}
+			}
+		}
+	}
+	if name != "nt_state" {
+		return nil
+	}
+	_, target := v["target"]
+	_, body := v["body"]
+	if _, _, err := mcpStateTargetSyntax(get("name"), contextID); err != nil {
+		return err
+	}
+	if target {
+		if _, _, err := store.StateLinkTarget(get("target")); err != nil {
+			return err
+		}
+	}
+	if !target && !body {
+		return nil
+	}
+	expect := get("expect")
+	if expect == "none" {
+		return nil
+	}
+	valid := cli.IsID
+	if !target {
+		valid = func(id string) bool { return strings.HasPrefix(id, "state_") && store.IsID(id) }
+	}
+	if err := validateMCPRefOrID(expect, valid); err != nil {
+		return fmt.Errorf("expect must identify the current state or link ID (or none): %w", err)
+	}
+	return nil
+}
+
+func validateMCPRefOrID(value string, validID func(string) bool) error {
+	if strings.HasPrefix(value, "@") {
+		return store.ValidateReference(value)
+	}
+	if value == "" || !validID(value) {
+		return fmt.Errorf("invalid identifier %q", value)
+	}
+	return nil
+}
+
+func mcpStateTargetSyntax(target, contextID string) (agent, state string, err error) {
+	if strings.Contains(target, "/") {
+		agent, state, err = cli.SplitAgentName(target)
+		if err != nil {
+			return "", "", err
+		}
+		if err := store.ValidAgentName(agent); err != nil {
+			return "", "", err
+		}
+	} else {
+		if contextID == "" {
+			return "", "", cli.Invalid("expected <agent>/<name>, or a bare <name> with --context")
+		}
+		state = target
+	}
+	if err := store.ValidRecordName("state", state); err != nil {
+		return "", "", err
+	}
+	return agent, state, nil
+}
+
+func mcpMetaArgs(name string, v map[string]any, get func(string) string) ([]string, error) {
+	raw, present := v["meta"].(map[string]any)
+	if !present {
+		return nil, nil
+	}
+	args := []string{}
+	if ((name == "nt_state" && get("target") == "") || name == "nt_learn") && len(raw) == 0 {
+		args = append(args, "--clear-meta")
+	}
+	keys := make([]string, 0, len(raw))
+	for key := range raw {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := store.ValidateMeta(store.Meta{key: []string{}}); err != nil {
+			return nil, err
+		}
+		switch values := raw[key].(type) {
+		case string:
+			args = append(args, "--meta", key+"="+values)
+		case []any:
+			if len(values) == 0 {
+				return nil, fmt.Errorf("Metadata values must not be empty arrays.")
+			}
+			for _, value := range values {
+				s, ok := value.(string)
+				if !ok {
+					return nil, fmt.Errorf("Metadata values must be strings or arrays of strings.")
+				}
+				args = append(args, "--meta", key+"="+s)
+			}
+		default:
+			return nil, fmt.Errorf("Metadata values must be strings or arrays of strings.")
+		}
+	}
+	return args, nil
 }
 
 func (a *app) mcpAgentTools(contextID, query string) (string, bool) {

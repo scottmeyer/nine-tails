@@ -122,9 +122,6 @@ Signal records are skipped with a warning. Prints one new id per line
 					return cli.Invalid("cannot read %s: %v", name, err)
 				}
 			}
-			if err := a.open(); err != nil {
-				return err
-			}
 			var doc *bundle.Document
 			var arts map[string]bundle.Artifact
 			if bundle.IsTar(name, data) {
@@ -133,6 +130,9 @@ Signal records are skipped with a warning. Prints one new id per line
 				doc, err = bundle.ReadDocument(data)
 			}
 			if err != nil {
+				return err
+			}
+			if err := a.open(); err != nil {
 				return err
 			}
 			warn := func(f string, args ...any) {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -300,6 +301,7 @@ func (a *app) runCompiler(argv []string, input []byte, timeout time.Duration, ag
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	configureCompilerProcess(cmd)
 	cmd.Stdin = bytes.NewReader(input)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -307,16 +309,59 @@ func (a *app) runCompiler(argv []string, input []byte, timeout time.Duration, ag
 	cmd.Stderr = &stderr
 	cmd.Env = append(os.Environ(), "NINE_TAILS_HOME="+a.home, "NINE_TAILS_AGENT="+agent)
 	cmd.WaitDelay = time.Second
-	err := cmd.Run()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, compilerSignals...)
+	defer signal.Stop(signals)
+	if err := cmd.Start(); err != nil {
+		return nil, stderr.Bytes(), cli.ToolFailed("cannot start compiler %s: %v", argv[0], err)
+	}
+	done := make(chan struct{})
+	forwarded := make(chan os.Signal, 1)
+	go func() {
+		var first os.Signal
+		for {
+			select {
+			case sig := <-signals:
+				if first == nil {
+					first = sig
+					forwarded <- sig
+					forwardCompilerSignal(cmd, sig)
+				} else {
+					_ = terminateCompilerProcess(cmd)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	// A direct compiler can exit while descendants retain its output pipes.
+	// WaitDelay closes those pipes; terminate the process group regardless of
+	// the direct exit status so successful and failing descendants cannot linger.
+	_ = terminateCompilerProcess(cmd)
+	if errors.Is(err, exec.ErrWaitDelay) {
+		if cmd.ProcessState != nil && cmd.ProcessState.Success() {
+			err = nil
+		}
+	}
+	select {
+	case sig := <-forwarded:
+		return nil, stderr.Bytes(), cli.Errorf(compilerSignalExitCode(sig), "compiler %s interrupted by %v", argv[0], sig)
+	default:
+	}
 	if err == nil {
 		return stdout.Bytes(), stderr.Bytes(), nil
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return nil, stderr.Bytes(), cli.ToolFailed("compiler %s timed out after %s", argv[0], timeout)
 	}
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil {
+		return nil, stderr.Bytes(), cli.ToolFailed("compiler %s exited with status %d", argv[0], cmd.ProcessState.ExitCode())
+	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
 		return nil, stderr.Bytes(), cli.ToolFailed("compiler %s exited with status %d", argv[0], ee.ExitCode())
 	}
-	return nil, stderr.Bytes(), cli.ToolFailed("cannot start compiler %s: %v", argv[0], err)
+	return nil, stderr.Bytes(), cli.ToolFailed("compiler %s failed: %v", argv[0], err)
 }

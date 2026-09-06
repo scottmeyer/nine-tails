@@ -270,8 +270,19 @@ func ClaimDue(tx Querier, agent string, now time.Time, lease time.Duration) ([]*
 		if err != nil {
 			return nil, err
 		}
-		if _, err := tx.Exec(`UPDATE signal_delivery SET state = 'leased', lease_token = ?, leased_until = ? WHERE record_id = ?`, token, until, s.Record.ID); err != nil {
+		res, err := tx.Exec(`UPDATE signal_delivery SET state = 'leased', lease_token = ?, leased_until = ?
+			WHERE record_id = ? AND available_at <= ?
+			AND (state = 'pending' OR (state = 'leased' AND leased_until <= ?))`,
+			token, until, s.Record.ID, FormatTime(now), FormatTime(now))
+		if err != nil {
 			return nil, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if n != 1 {
+			continue
 		}
 		s.Delivery.State = "leased"
 		s.Delivery.LeaseToken = token

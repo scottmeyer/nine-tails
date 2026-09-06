@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -608,11 +607,21 @@ func ReadDocument(data []byte) (*Document, error) {
 				}
 			}
 			if mm, ok := m["meta"]; ok && mm != nil {
-				metaMap, ok := asMapRaw(mm)
+				metaMap, ok, mapErr := asMapRaw(mm)
+				if mapErr != nil {
+					return nil, fmt.Errorf("%w: records[%d].meta: %v", store.ErrInvalid, i, mapErr)
+				}
 				if !ok {
 					return nil, fmt.Errorf("%w: records[%d].meta must be a mapping", store.ErrInvalid, i)
 				}
 				for _, k := range sortedKeys(metaMap) {
+					if err := store.ValidateMeta(store.Meta{k: nil}); err != nil {
+						label := fmt.Sprintf("records[%d]", i)
+						if r.ID != "" {
+							label = r.ID
+						}
+						return nil, fmt.Errorf("%s: %w", label, err)
+					}
 					switch vs := metaMap[k].(type) {
 					case []any:
 						for j, x := range vs {
@@ -693,7 +702,10 @@ func describe(v any) string {
 // asMap converts a decoded mapping to map[string]any with envelope keys
 // normalized from kebab-case to snake_case.
 func asMap(v any) (map[string]any, bool, error) {
-	raw, ok := asMapRaw(v)
+	raw, ok, err := asMapRaw(v)
+	if err != nil {
+		return nil, true, err
+	}
 	if !ok {
 		return nil, false, nil
 	}
@@ -723,18 +735,31 @@ func envelopeString(m map[string]any, key, label string) (string, error) {
 }
 
 // asMapRaw converts a decoded mapping to map[string]any, keys verbatim.
-func asMapRaw(v any) (map[string]any, bool) {
+func asMapRaw(v any) (map[string]any, bool, error) {
 	switch m := v.(type) {
 	case map[string]any:
-		return m, true
+		return m, true, nil
 	case map[any]any:
 		out := make(map[string]any, len(m))
+		counts := make(map[string]int, len(m))
 		for k, x := range m {
-			out[fmt.Sprint(k)] = x
+			key := fmt.Sprint(k)
+			counts[key]++
+			out[key] = x
 		}
-		return out, true
+		keys := make([]string, 0, len(counts))
+		for key := range counts {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if counts[key] > 1 {
+				return nil, true, fmt.Errorf("multiple mapping keys normalize to %q", key)
+			}
+		}
+		return out, true, nil
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 func asString(v any) string {
@@ -945,10 +970,8 @@ func Import(s *store.Store, doc *Document, arts map[string]Artifact, o ImportOpt
 			if meta == nil {
 				meta = store.Meta{}
 			}
-			for _, k := range store.SortedKeys(meta) {
-				if err := validMetaKey(k); err != nil {
-					return fmt.Errorf("%s: %w", label, err)
-				}
+			if err := store.ValidateMeta(meta); err != nil {
+				return fmt.Errorf("%s: %w", label, err)
 			}
 			if r.ID != "" {
 				meta.Add("imported-from", r.ID)
@@ -1155,18 +1178,6 @@ func cleanupArtifactRoots(roots []string) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// validMetaKey applies store.ParseMeta's key rule (DESIGN §3) to a key that
-// arrived through a document mapping rather than a k=v flag.
-func validMetaKey(k string) error {
-	if k == "" {
-		return fmt.Errorf("%w: metadata key must not be empty", store.ErrInvalid)
-	}
-	if strings.IndexFunc(k, unicode.IsSpace) >= 0 || strings.ContainsAny(k, "[]=") {
-		return fmt.Errorf("%w: metadata key %q may not contain whitespace, '=', '[' or ']'", store.ErrInvalid, k)
-	}
-	return nil
 }
 
 // validateState mirrors state put (DESIGN §8): valid YAML of any shape and

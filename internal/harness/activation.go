@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -447,8 +448,16 @@ func readState(path string) (runState, error) {
 		return runState{}, err
 	}
 	defer f.Close()
+	decoder := json.NewDecoder(f)
 	var state runState
-	if err := json.NewDecoder(f).Decode(&state); err != nil {
+	if err := decoder.Decode(&state); err != nil {
+		return runState{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return runState{}, fmt.Errorf("invalid run state file: multiple JSON values")
+		}
 		return runState{}, err
 	}
 	return state, nil

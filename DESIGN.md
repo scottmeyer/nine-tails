@@ -1204,7 +1204,16 @@ output cannot install unsupported items. Scope lint itself never blocks install.
 config snippet) with the compile-input JSON on stdin and expect the output
 document on stdout → `brief put`. The compiler inherits the environment plus
 `NINE_TAILS_HOME` and `NINE_TAILS_AGENT`. `compile` additionally checks that
-the echoed `input_entries` equals its own document's list. Warnings go to
+the echoed `input_entries` equals its own document's list. On Unix the compiler
+runs in its own process group: timeout kills that group, parent INT/TERM/HUP is
+forwarded, and a second interruption kills it. After the direct process exits,
+remaining group members are killed; inherited output pipes can delay completion
+by at most one additional second. A successful direct exit remains successful
+when only that pipe wait expires; a nonzero exit keeps its status in the error.
+Interruption returns the shell-conventional signal exit code without installing
+a brief. Platforms without process groups retain direct-process cancellation
+and the bounded pipe wait, without descendant cleanup. Compiler stdout/stderr
+are buffered without a byte quota. Warnings go to
 stderr. `instructions` combines the `brief-compiler` agent's active base (or
 the built-in editorial method) with the always-present mechanical contract in
 `internal/compile/instructions.go`. A custom base cannot remove that contract.
@@ -1259,6 +1268,8 @@ coordinator retires a stale broadcast with `tick --claim --agent shared` and
 asc, rowid asc; expired leases shown as `state: pending` with empty lease
 fields. Without `--claim`: read-only. With `--claim`: in one transaction set
 state=leased, lease_token=`lease_<ULID>`, leased_until=now+lease (default 5m).
+Each lease update repeats the due/claimable predicate and returns a signal
+only when that update affected its row; `BEGIN IMMEDIATE` remains required.
 Output: JSON array of `{id, agent, subject, body, meta, available_at, state,
 lease_token, leased_until}`; `[]` when empty.
 
@@ -1427,13 +1438,19 @@ them — export reports this. Contexts, generations and delivery rows are never
 exported. A document body is already the stored envelope body, so import does
 not apply §3 newline normalization a second time; this keeps export/import
 lossless. Structured, non-scalar metadata values are rejected rather than
-stringified.
+stringified. Metadata key grammar is checked before dropping null or empty-list
+values. Scalar YAML keys retain their existing string conversion when unique;
+multiple keys that convert to the same string are rejected deterministically
+before any envelope normalization or store access.
 
 ## 14. Context GC (spec §9.2)
 
 `context gc` deletes contexts where `pinned = 0`, `created_at` older than the
 retention, and no active record has `origin_context_id` = that context.
-Children are unaffected. Never touches records.
+Receipt-owned metadata, rendered-record links, and historical marks are deleted
+in the same transaction. A real pass also removes orphaned historical marks
+left by earlier versions; dry runs only report eligible receipts. Children,
+records, artifacts, and reserved local-reference aliases are unaffected.
 
 ## 15. Harness adapters (spec §17.2)
 
@@ -1510,6 +1527,9 @@ reuse of the wrapper PID within that 24-hour window can make its marker appear
 live again. That descendant remains inside the explicitly activated process
 tree, but PID alone is not a process-birth proof. A live but idle run must
 receive a lifecycle event at least once per 24 hours to renew its capability.
+The marker must contain exactly one JSON value followed only by whitespace.
+Trailing values or malformed suffixes make it inactive; state operations reject
+it without rewriting the file.
 
 On Unix, `runtime/` and marker permissions are enforced as 0700 and 0600. Go's
 Windows file modes do not expose ACL privacy, so Windows validates ordinary
@@ -1641,6 +1661,12 @@ parseable JSON payload where applicable and raw tool whitespace or empty output.
 Forward successful diagnostics to server stderr; do not append them to the
 payload. Failed operations retain explanatory output and error status. Bootstrap
 and skipped-record notices do not corrupt success or end the connection.
+The pinned MCP revision requires string or integer request IDs. Numeric literals
+are checked for exact integrality and echoed unchanged, including large values
+and integral decimal/exponent forms. Syntax-only argument validation precedes
+local-reference resolution; a malformed argument cannot create a store or be
+masked by a missing receipt. Error text joins nonempty output streams with one
+newline and never reports an empty failure as a successful completion.
 
 ## 18. Optional closure and historical marks
 
