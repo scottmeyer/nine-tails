@@ -108,3 +108,31 @@ func TestMCPInspectPageArgumentsValidateBeforeStore(t *testing.T) {
 		t.Fatalf("invalid page arguments opened store: %v", err)
 	}
 }
+
+func TestMCPInspectPageSyntaxBeforeReferencesAndStore(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"page": true, "target": "rec_123"},
+		{"page": true, "target": "bad name"},
+		{"page": true, "target": "@123"},
+		{"page": true, "context": "rec_123"},
+		{"page": true, "context": "a"},
+		{"page": true, "context": "@0"},
+		{"page": true, "context": "@123", "after": "ctx_123"},
+		{"page": true, "context": "@123", "after": "@0"},
+	} {
+		h := newHarness(t)
+		h.home = filepath.Join(h.home, "unopened")
+		response := mcpInspectResponse(t, h, args)
+		result, ok := response["result"].(map[string]any)
+		if !ok || result["isError"] != true {
+			t.Fatalf("invalid page syntax escaped CLI preflight: %+v => %+v", args, response)
+		}
+		body := result["content"].([]any)[0].(map[string]any)["text"].(string)
+		if body == "" || strings.Contains(body, "not found") {
+			t.Fatalf("reference resolution masked page syntax: %+v => %s", args, body)
+		}
+		if _, err := os.Stat(h.home); !os.IsNotExist(err) {
+			t.Fatalf("page syntax opened a store: %v", err)
+		}
+	}
+}

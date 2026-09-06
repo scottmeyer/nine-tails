@@ -27,6 +27,16 @@ the agent's existing records. Correct or consolidate the existing rule if it
 already covers the case. Do not accumulate a new contradictory paragraph and
 expect the next agent to resolve it again.
 
+## Handing work to another invocation
+
+Keep a changing handoff in the role's named state and update it with CAS.
+Record the stable repository identity, commit or version, repository-relative
+implementation and contract paths, completed validation, and remaining work.
+The next invocation binds that repository identity to its selected checkout,
+resolves the stored paths from that repository's root, and verifies the version
+and artifacts before relying on them. Missing or renamed artifacts need fresh
+resolution; an old absolute checkout path never selects the next workspace.
+
 ## Consolidation is semantic work
 
 Read complete sources, including their kind, scope, conditions and exceptions.
@@ -82,6 +92,8 @@ there is no arbitrary record-count ceiling. The continuation follows the last
 returned entry, so the first omitted entry appears on the next page. Reading
 full evidence uses ordinary `inspect <ref>`. Browsing never reloads the persona
 or creates a receipt.
+Page syntax errors are rejected before reference lookup or store access, so
+an incompatible flag is still invalid input when the supplied receipt is unknown.
 
 Pages are a live index, newest first. A retired cursor record still anchors its
 original position; it is never redirected to a replacement. Keep scope and

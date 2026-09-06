@@ -3,7 +3,9 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/scottmeyer/nine-tails/internal/cli"
 	"github.com/scottmeyer/nine-tails/internal/store"
@@ -31,16 +33,48 @@ type libraryPage struct {
 	Next       *libraryNext   `json:"next" yaml:"next"`
 }
 
-// Page a live index rather than materializing the entire history. The cursor
-// is the last included record, so the row that exceeded the soft target is
-// still returned by the next page. Exact inspection opens its complete body.
-func (a *app) inspectLibrary(args []string, contextID, query, after, format string) error {
+// Validate raw page syntax before the inherited hook resolves local handles.
+// Existence, ownership and resolved record kinds still require the store.
+func validateLibraryArguments(args []string, contextID, query, after, format string) error {
 	if len(args) == 0 && contextID == "" {
 		return cli.Invalid("--page requires an agent or --context")
+	}
+	if len(args) != 0 {
+		if store.IsID(args[0]) || strings.HasPrefix(args[0], "@") {
+			return cli.Invalid("--page wants an agent or --context, not a record ID")
+		}
+		if err := store.ValidAgentName(args[0]); err != nil {
+			return err
+		}
 	}
 	if format != "json" && format != "yaml" {
 		return cli.Invalid("unknown format %q (json|yaml)", format)
 	}
+	if strings.HasPrefix(contextID, "@") {
+		if err := store.ValidateReference(contextID); err != nil {
+			return err
+		}
+	} else if contextID != "" && (!strings.HasPrefix(contextID, "ctx_") || !store.IsID(contextID)) {
+		return cli.Invalid("--context must identify a context receipt (ctx_ ID or its @N reference)")
+	}
+	if strings.HasPrefix(after, "@") {
+		if err := store.ValidateReference(after); err != nil {
+			return err
+		}
+	} else if after != "" && (!store.IsID(after) || strings.HasPrefix(after, "ctx_") || strings.HasPrefix(after, "gen_")) {
+		return fmt.Errorf("%w: recall cursor %q must identify a recall record", store.ErrInvalid, after)
+	}
+	if !utf8.ValidString(query) {
+		return fmt.Errorf("%w: recall query must be valid UTF-8", store.ErrInvalid)
+	}
+	return nil
+}
+
+// Page a live index rather than materializing the entire history. The cursor
+// is the last included record, so the row that exceeded the soft target is
+// still returned by the next page. Exact inspection opens its complete body.
+func (a *app) inspectLibrary(args []string, contextID, query, after, format string) error {
+	// A syntactically valid @N can resolve to a non-context entity.
 	if contextID != "" && (!strings.HasPrefix(contextID, "ctx_") || !store.IsID(contextID)) {
 		return cli.Invalid("--context must identify a context receipt (ctx_ ID or its @N reference)")
 	}
@@ -51,9 +85,6 @@ func (a *app) inspectLibrary(args []string, contextID, query, after, format stri
 	err := a.st.Tx(func(tx *sql.Tx) error {
 		meta := store.Meta{}
 		if len(args) != 0 {
-			if store.IsID(args[0]) {
-				return cli.Invalid("--page wants an agent or --context, not a record ID")
-			}
 			page.Agent = args[0]
 		}
 		if contextID != "" {

@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -138,5 +140,108 @@ func TestLibraryRejectsAmbiguousInputs(t *testing.T) {
 	}
 	if page := decodeLibrary(t, h.ok("inspect", "--page", "--context", ctx)); len(page.Entries) != 0 || page.Next != nil {
 		t.Fatalf("empty library: %+v", page)
+	}
+}
+
+func TestLibrarySyntaxPreflightBeforeReferencesAndStore(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"missing target", nil, "inspect requires a target"},
+		{"missing page selector", []string{"--page"}, "--page requires an agent or --context"},
+		{"extra target", []string{"a", "b", "--page", "--context", "@123"}, "accepts at most 1 arg(s)"},
+		{"record target", []string{"rec_123", "--page"}, "--page wants an agent or --context, not a record ID"},
+		{"context target", []string{"ctx_123", "--page"}, "--page wants an agent or --context, not a record ID"},
+		{"reference target", []string{"@123", "--page"}, "--page wants an agent or --context, not a record ID"},
+		{"invalid agent", []string{"bad name", "--page"}, "agent name \"bad name\" must match"},
+		{"reserved agent", []string{"none", "--page"}, "reserved name"},
+		{"context without page", []string{"@123", "--context", "@456"}, "--context and --after require --page"},
+		{"cursor without page", []string{"@123", "--after", "@456"}, "--context and --after require --page"},
+		{"page false", []string{"@123", "--page=false", "--context", "@456"}, "--context and --after require --page"},
+		{"empty context", []string{"a", "--page", "--context="}, "--context and --after must be nonempty"},
+		{"plain context", []string{"a", "--page", "--context", "a"}, "--context must identify a context receipt"},
+		{"record context", []string{"a", "--page", "--context", "rec_123"}, "--context must identify a context receipt"},
+		{"generation context", []string{"a", "--page", "--context", "gen_123"}, "--context must identify a context receipt"},
+		{"malformed context", []string{"a", "--page", "--context", "ctx_bad"}, "--context must identify a context receipt"},
+		{"malformed context ref", []string{"a", "--page", "--context", "@0"}, "reference \"@0\" must be @ followed by a positive integer"},
+		{"empty cursor", []string{"--page", "--context", "@123", "--after="}, "--context and --after must be nonempty"},
+		{"plain cursor", []string{"--page", "--context", "@123", "--after", "memory"}, "must identify a recall record"},
+		{"context cursor", []string{"--page", "--context", "@123", "--after", "ctx_123"}, "must identify a recall record"},
+		{"generation cursor", []string{"--page", "--context", "@123", "--after", "gen_123"}, "must identify a recall record"},
+		{"malformed cursor ref", []string{"--page", "--context", "@123", "--after", "@0"}, "reference \"@0\" must be @ followed by a positive integer"},
+		{"non-recall lane", []string{"--page", "--context", "@123", "--lane", "guidance"}, "--lane must be recall"},
+		{"empty lane", []string{"--page", "--context", "@123", "--lane="}, "--lane must be recall"},
+		{"invalid query text", []string{"--page", "--context", "@123", "--query", string([]byte{0xff})}, "recall query must be valid UTF-8"},
+	}
+	for _, flag := range []string{"include", "kind", "name", "coverage", "lint", "all"} {
+		value := ""
+		if flag == "all" {
+			value = "false"
+		}
+		tests = append(tests, struct {
+			name string
+			args []string
+			want string
+		}{"incompatible " + flag, []string{"--page", "--context", "@123", "--" + flag + "=" + value}, "--page cannot be combined with --" + flag})
+	}
+	for _, tc := range tests {
+		for _, format := range []string{"", "json"} {
+			t.Run(tc.name+"/"+format, func(t *testing.T) {
+				h := newHarness(t)
+				h.home = filepath.Join(h.home, "unopened")
+				args := append([]string{"inspect"}, tc.args...)
+				if format != "" {
+					args = append(args, "--format", format)
+				}
+				r := h.run(args...)
+				if r.code != 2 || !strings.HasPrefix(r.err, "nine-tails: ") || !strings.Contains(r.err, tc.want) {
+					t.Fatalf("page syntax must win before resolution: %+v", r)
+				}
+				if format == "json" {
+					v := r.json(t)
+					if v["code"] != float64(2) || r.err != "nine-tails: "+v["error"].(string)+"\n" {
+						t.Fatalf("page error envelope disagrees with stderr: %+v", r)
+					}
+				} else if r.out != "" {
+					t.Fatalf("default error wrote stdout: %+v", r)
+				}
+				if _, err := os.Stat(h.home); !os.IsNotExist(err) {
+					t.Fatalf("page syntax opened home before rejecting input: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestLibrarySyntaxPreflightBeforeConfig(t *testing.T) {
+	h := newHarness(t)
+	if err := os.WriteFile(filepath.Join(h.home, "config.yaml"), []byte("[invalid config"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"inspect", "rec_123", "--page", "--format", "json"},
+		{"inspect", "--page", "--context", "@123", "--all", "--format", "json"},
+	} {
+		r := h.run(args...)
+		if r.code != 2 || !strings.Contains(r.err, "--page ") || strings.Contains(r.err, "config") || r.json(t)["code"] != float64(2) {
+			t.Fatalf("config masked page syntax: %+v", r)
+		}
+	}
+	if files, err := os.ReadDir(h.home); err != nil || len(files) != 1 || files[0].Name() != "config.yaml" {
+		t.Fatalf("page preflight changed the store home: %+v %v", files, err)
+	}
+}
+
+func TestLibraryInvalidFormatBeforeReferenceResolution(t *testing.T) {
+	h := newHarness(t)
+	h.home = filepath.Join(h.home, "unopened")
+	r := h.run("inspect", "--page", "--context", "@123", "--format", "bogus")
+	if r.code != 2 || r.out != "" || r.err != "nine-tails: unknown format \"bogus\" (json|yaml)\n" {
+		t.Fatalf("reference resolution masked page format: %+v", r)
+	}
+	if _, err := os.Stat(h.home); !os.IsNotExist(err) {
+		t.Fatalf("invalid page format created home: %v", err)
 	}
 }

@@ -73,6 +73,9 @@ full-record inspection paths and a nullable `next` with its last-returned
 target/context/query. Page mode accepts only recall, and rejects include;
 `context` and `after` are invalid outside page mode. Ordinary full inspection
 still requires `target`.
+Page syntax is checked before local reference resolution or store access.
+Incompatible arguments remain protocol errors; invalid selector, context, or
+cursor syntax is an operation failure with `isError`, as with other tool errors.
 
 This is a live chronological catalog, not load's lexical ranking or a saved
 snapshot. A retired cursor retains its position; restart for newer entries or
@@ -103,6 +106,11 @@ scope, which governs its capsules, tool discovery, and calls. This invocation
 inheritance rule does not copy ambient scope onto lessons or new state.
 
 Scripts run from the MCP server's launch directory. Launch the server in the project where its scripts should operate, or use a separate server process per working directory. A receipt carries applicability, not a filesystem working directory or authorization grant. Tools keep their declared execution timeouts. This first adapter processes requests sequentially and treats cancellation notifications as advisory; it does not implement HTTP transport, progressive output, or server-initiated model calls.
+
+Bind `repo-id` to the checkout selected for this invocation. Portable handoffs
+store repository identity, repository-relative artifact paths, and a commit or
+version; resolve and verify them in that checkout before use. Historical paths
+in state or recall do not change the MCP server's launch directory.
 
 The authoritative learning operations remain the CLI/store functions. The adapter never infers permissions, copies transcripts into memory, or changes the user's host configuration.
 

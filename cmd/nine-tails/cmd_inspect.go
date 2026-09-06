@@ -195,8 +195,12 @@ the agent explicitly. Follow the returned continuation without changing its
 agent, context or query; this is a live index, not a saved snapshot. Newer
 entries appear when you restart, and retired records disappear. Paging does
 not load the persona again or turn library entries into instructions.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		// Cobra validates Args before inherited reference resolution. Page
+		// syntax must fail without opening config or resolving any @N handle.
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+				return err
+			}
 			if page {
 				for _, flag := range []string{"include", "kind", "name", "all", "coverage", "lint"} {
 					if cmd.Flags().Changed(flag) {
@@ -209,13 +213,19 @@ not load the persona again or turn library entries into instructions.`,
 				if cmd.Flags().Changed("context") && pageContext == "" || cmd.Flags().Changed("after") && after == "" {
 					return cli.Invalid("--context and --after must be nonempty when supplied")
 				}
-				return a.inspectLibrary(args, pageContext, query, after, format)
+				return validateLibraryArguments(args, pageContext, query, after, format)
 			}
 			if cmd.Flags().Changed("context") || cmd.Flags().Changed("after") {
 				return cli.Invalid("--context and --after require --page")
 			}
 			if len(args) != 1 {
 				return cli.Invalid("inspect requires a target, or --page with --context")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if page {
+				return a.inspectLibrary(args, pageContext, query, after, format)
 			}
 			if err := a.open(); err != nil {
 				return err

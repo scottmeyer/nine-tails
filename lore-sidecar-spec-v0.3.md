@@ -869,6 +869,11 @@ advertised tool supplies an immutable inspection path and receipt-specific
 JSON call template, with required inputs and argv placeholders to fill.
 Resolved nonempty context metadata is visible below the marker, labeled as
 provenance rather than automatic write scope. The identity pair appears once.
+The protocol binds repository identity to the checkout selected by the current
+invocation and requires resolving and verifying stored artifact paths and
+versions there before use. Durable handoffs pair repository identity with
+repository-relative paths and versions; historical checkout paths do not select
+a workspace. This is model guidance, not automatic filesystem routing.
 State/tool protocol recipes MUST be conditional on actually delivered
 capabilities; a general delegation recipe remains available. State recipes include
 the selected agent, receipt, YAML stdin, and CAS expectation; they explain
@@ -1167,6 +1172,9 @@ Require an agent or context; when both are supplied the owner MUST match.
 A context applies ordinary scope-conflict filtering. Page mode MUST NOT hide
 standing guidance, load the persona again, or create a receipt. Full records
 remain available through exact inspection.
+Page argument combinations and syntax MUST be validated before resolving local
+references or opening the store. Existence, resolved identity kinds, ownership,
+and cursor lane checks still require lookup.
 
 Apply scope, owner, lane, status and literal case-insensitive substring matching
 before packing newest-first results. Use immutable creation and insertion order,

@@ -365,6 +365,18 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 }
 
 func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
+	get := func(k string) string { s, _ := v[k].(string); return s }
+	if name == "nt_inspect" && v["page"] == true {
+		var args []string
+		if target := get("target"); target != "" {
+			args = []string{target}
+		}
+		// This adapter also resolves handles before CLI dispatch. Reuse the
+		// page preflight before either resolver can open a store.
+		if err := validateLibraryArguments(args, get("context"), get("query"), get("after"), "json"); err != nil {
+			return err.Error(), true
+		}
+	}
 	for _, key := range []string{"context", "supersedes", "expect", "target"} {
 		if key == "target" && name != "nt_inspect" {
 			continue
@@ -378,7 +390,6 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 			v[key] = resolved
 		}
 	}
-	get := func(k string) string { s, _ := v[k].(string); return s }
 	for _, key := range []string{"agent", "target", "tool", "name", "forget"} {
 		if strings.HasPrefix(get(key), "-") {
 			return key + " must be a name or identifier, not a flag.", true
