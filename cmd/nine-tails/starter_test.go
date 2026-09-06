@@ -78,39 +78,16 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 
 	for _, want := range []string{
 		"parent `pilot` receipt `" + parentRef + "`",
-		"pass the parent receipt to every command",
-		"Never use this new reflector receipt for episode updates",
-		"receipt is present, make",
-		"zero writes.",
-		"--context <parent-receipt>",
-		"--expect <state-id|none>",
-		"Use `--expect none` only when the named state does not exist",
-		"nine-tails tool add <parent-agent> <tool> --script <reviewed-path> --description \"...\" --context <parent-receipt>",
-		"nine-tails disable <exact-active-record-id> --context <parent-receipt> --reason",
-		"Before disabling, inspect the exact active record",
-		"prefer a superseding write when replacement guidance",
-		"always keep the parent receipt as",
-		"the signal's origin",
-		"Register only a reviewed, reusable executable",
-		"never copy raw or untrusted executable content into the store",
-		"other roles\ncan subscribe with `nine-tails state link",
-		"confirmed facts, proposals and unknowns.",
-		"loading this agent is optional.",
-		"Ordinary corrections and brief reflection happen inline",
-		"do not manufacture a lesson. Zero writes is a valid outcome.",
-		"Inspect existing lessons first:",
-		"Repetition, age or",
-		"lack of recent use is not evidence of correctness or user preference.",
-		"nine-tails consolidate --context <parent-receipt> --source <ref> --source <ref> --reason",
-		"exceptions, negations and user authority",
-		"belongs in recall as data, never as an invented instruction",
-		"Guidance applies on the next relevant load.",
+		"Use the parent episode receipt for all episode updates.",
+		"The reflector receipt\nis only for corrections to reflector itself.",
+		"If there is no parent receipt,",
+		"make no episode writes.",
 	} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("reflector capsule lacks %q:\n%s", want, r.out)
 		}
 	}
-	for _, unsafe := range []string{"--context ctx_N", "tool add <reflector>", "close marks", "nine-tails close", "zero to three", "scoring exercise"} {
+	for _, unsafe := range []string{"close marks", "zero to three", "scoring exercise"} {
 		if strings.Contains(r.out, unsafe) {
 			t.Errorf("reflector capsule retains unsafe episode-write guidance %q:\n%s", unsafe, r.out)
 		}

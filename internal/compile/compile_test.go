@@ -697,10 +697,11 @@ func TestBuildInput(t *testing.T) {
 		t.Errorf("no origin expected: %+v", in.Entries[1])
 	}
 
-	// a brief-compiler agent's base replaces the built-in instructions
+	// A brief-compiler base replaces only the editorial method; the fixed
+	// contract remains present.
 	insert(t, s, store.NewRecord{Agent: "brief-compiler", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Custom instructions."})
 	in, _ = BuildInput(s.DB, "a")
-	if in.Instructions != "Custom instructions." {
+	if !strings.HasPrefix(in.Instructions, "Custom instructions.\n\n") || !strings.Contains(in.Instructions, "Output contract.") || strings.Contains(in.Instructions, DefaultEditorialMethod) {
 		t.Errorf("instructions: %q", in.Instructions)
 	}
 
@@ -721,6 +722,136 @@ func TestBuildInput(t *testing.T) {
 	if srcs := in.ActiveGeneration.Items[0].Sources; len(srcs) != 1 || srcs[0].ID != e1.ID || srcs[0].Body != e1.Body || srcs[0].Kind != e1.Kind || !reflect.DeepEqual(srcs[0].Meta, e1.Meta) {
 		t.Errorf("item sources: %+v", srcs)
 	}
+}
+
+func TestBuildInputIncludesCurrentCompilerGuidanceWithoutTargetAccounting(t *testing.T) {
+	s := openTest(t)
+	targetBase := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Target."})
+	target := guidance(t, s, "a", "Target guidance.", nil, "")
+	compilerBase := insert(t, s, store.NewRecord{Agent: "brief-compiler", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Edit deliberately."})
+	_ = compilerBase
+	old := guidance(t, s, "brief-compiler", "Old method.", store.Meta{"repo-id": {"one"}}, "")
+	var corrected *store.Record
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		corrected, err = store.ReplaceRecord(tx, old.ID, store.NewRecord{Agent: "brief-compiler", Lane: "guidance", Kind: "prefer", Body: "Current method.", Meta: store.Meta{"repo-id": {"one"}}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	disabled := guidance(t, s, "brief-compiler", "Disabled method.", nil, "")
+	disableContext := receipt(t, s, "brief-compiler", nil)
+	if err := s.Tx(func(tx *sql.Tx) error {
+		_, err := store.RetireRecord(tx, disabled.ID, disableContext.ID, "No longer useful.")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	compiledSource := guidance(t, s, "brief-compiler", "Broad detailed method.", nil, "")
+	res, err := install(t, s, "brief-compiler", "none", compilerBase.ID,
+		"input_entries: ["+corrected.ID+", "+compiledSource.ID+"]\n"+
+			"items: [{key: distilled, body: Narrowed derived method., meta: {phase: review}}]\n"+
+			"entries: [{id: "+corrected.ID+", disposition: deferred}, {id: "+compiledSource.ID+", disposition: represented, items: [distilled]}]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	beforeRecords := countRows(t, s, "records")
+	beforeContexts := countRows(t, s, "contexts")
+	in, err := BuildInput(s.DB, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := in.InputEntries; !reflect.DeepEqual(got, []string{target.ID}) {
+		t.Fatalf("compiler guidance contaminated target accounting: %v", got)
+	}
+	if len(in.EditorialGuidance) != 2 {
+		t.Fatalf("editorial guidance: %+v", in.EditorialGuidance)
+	}
+	if in.EditorialGuidance[0].ID != corrected.ID || in.EditorialGuidance[0].Body != "Current method." ||
+		!reflect.DeepEqual(in.EditorialGuidance[0].Meta, store.Meta{"repo-id": {"one"}}) {
+		t.Errorf("corrected editorial guidance: %+v", in.EditorialGuidance[0])
+	}
+	if in.EditorialGuidance[1].ID != compiledSource.ID || in.EditorialGuidance[1].Kind != "prefer" ||
+		in.EditorialGuidance[1].Body != "Broad detailed method." || len(in.EditorialGuidance[1].Meta) != 0 {
+		t.Errorf("compiled source lost its original body or broad scope: %+v", in.EditorialGuidance[1])
+	}
+	for _, g := range in.EditorialGuidance {
+		if g.ID == old.ID || g.ID == disabled.ID || g.ID == res.Items[0] {
+			t.Errorf("obsolete or derived compiler guidance surfaced: %+v", g)
+		}
+	}
+	if countRows(t, s, "records") != beforeRecords || countRows(t, s, "contexts") != beforeContexts {
+		t.Fatal("compile-input wrote to the store")
+	}
+
+	// Changing a compiled source invalidates its derived item. Only the current
+	// source returns as learned editorial guidance; retiring that successor then
+	// removes it altogether.
+	var compiledCorrection *store.Record
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		compiledCorrection, err = store.ReplaceRecord(tx, compiledSource.ID, store.NewRecord{
+			Agent: "brief-compiler", Lane: "guidance", Kind: "prefer", Body: "Corrected detailed method.", Meta: nil,
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	in, err = BuildInput(s.DB, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range in.EditorialGuidance {
+		if g.ID == res.Items[0] || g.ID == compiledSource.ID {
+			t.Fatalf("stale compiled method revived after correction: %+v", in.EditorialGuidance)
+		}
+	}
+	if !containsSource(in.EditorialGuidance, compiledCorrection.ID) {
+		t.Fatalf("current compiler correction missing: %+v", in.EditorialGuidance)
+	}
+	if err := s.Tx(func(tx *sql.Tx) error {
+		_, err := store.RetireRecord(tx, compiledCorrection.ID, disableContext.ID, "Method withdrawn.")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	in, err = BuildInput(s.DB, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsSource(in.EditorialGuidance, compiledCorrection.ID) {
+		t.Fatalf("retired compiler correction revived: %+v", in.EditorialGuidance)
+	}
+	_ = targetBase
+}
+
+func containsSource(records []SourceView, id string) bool {
+	for _, record := range records {
+		if record.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestInstructionsReturnsDatabaseErrors(t *testing.T) {
+	s := openTest(t)
+	if err := s.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Instructions(s.DB); err == nil {
+		t.Fatal("expected closed database error")
+	}
+}
+
+func countRows(t *testing.T, s *store.Store, table string) int {
+	t.Helper()
+	var n int
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // An origin context that carried no metadata (or rendered nothing) still

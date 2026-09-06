@@ -21,14 +21,15 @@ import (
 
 // Input is the compile-input document handed to the compiler.
 type Input struct {
-	Agent            string          `json:"agent" yaml:"agent"`
-	Instructions     string          `json:"instructions" yaml:"instructions"`
-	ExpectGeneration string          `json:"expect_generation" yaml:"expect_generation"` // gen_N or "none"
-	ExpectBase       string          `json:"expect_base" yaml:"expect_base"`
-	Base             BaseView        `json:"base" yaml:"base"`
-	ActiveGeneration *GenerationView `json:"active_generation" yaml:"active_generation"` // null when none
-	InputEntries     []string        `json:"input_entries" yaml:"input_entries"`         // exactly the ids in Entries
-	Entries          []Entry         `json:"entries" yaml:"entries"`                     // RecentGuidance, oldest first
+	Agent             string          `json:"agent" yaml:"agent"`
+	Instructions      string          `json:"instructions" yaml:"instructions"`
+	EditorialGuidance []SourceView    `json:"editorial_guidance" yaml:"editorial_guidance"`
+	ExpectGeneration  string          `json:"expect_generation" yaml:"expect_generation"` // gen_N or "none"
+	ExpectBase        string          `json:"expect_base" yaml:"expect_base"`
+	Base              BaseView        `json:"base" yaml:"base"`
+	ActiveGeneration  *GenerationView `json:"active_generation" yaml:"active_generation"` // null when none
+	InputEntries      []string        `json:"input_entries" yaml:"input_entries"`         // exactly the ids in Entries
+	Entries           []Entry         `json:"entries" yaml:"entries"`                     // RecentGuidance, oldest first
 }
 
 // BaseView is the active base as the compiler sees it.
@@ -103,13 +104,38 @@ func (e Entry) MarshalYAML() (any, error) {
 	return e.envelope(), nil
 }
 
-// Instructions returns the active base of the `brief-compiler` agent when
-// there is one, else the built-in default.
-func Instructions(q store.Querier) string {
-	if r, err := store.ActiveNamed(q, "brief-compiler", "definition", "agent-base", "base"); err == nil {
-		return r.Body
+// Instructions returns the customizable editorial method followed by the
+// always-present mechanical and output contract.
+func Instructions(q store.Querier) (string, error) {
+	method := DefaultEditorialMethod
+	r, err := store.ActiveNamed(q, "brief-compiler", "definition", "agent-base", "base")
+	switch {
+	case err == nil:
+		method = r.Body
+	case !errors.Is(err, store.ErrNotFound):
+		return "", err
 	}
-	return DefaultInstructions
+	return method + "\n\n" + MechanicalContract, nil
+}
+
+// editorialGuidance returns the compiler role's active original guidance
+// sources across all explicit scopes. A compiled item is only a derived cache:
+// it must not replace a source here because its prose or scope may be narrower.
+// Ordinary record correction, consolidation, and retirement provide the
+// authoritative lifecycle.
+func editorialGuidance(q store.Querier) ([]SourceView, error) {
+	out := []SourceView{}
+	records, err := store.ListRecords(q, store.Filter{Agent: "brief-compiler", Lane: "guidance"})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range records {
+		if r.Kind == "brief-item" {
+			continue
+		}
+		out = append(out, SourceView{ID: r.ID, Kind: r.Kind, Body: r.Body, Meta: r.Meta})
+	}
+	return out, nil
 }
 
 // BuildInput assembles the compile-input document for agent.
@@ -128,8 +154,16 @@ func BuildInput(q store.Querier, agent string) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
+	instructions, err := Instructions(q)
+	if err != nil {
+		return nil, err
+	}
+	editorial, err := editorialGuidance(q)
+	if err != nil {
+		return nil, err
+	}
 	in := &Input{
-		Agent: agent, Instructions: Instructions(q),
+		Agent: agent, Instructions: instructions, EditorialGuidance: editorial,
 		ExpectGeneration: "none", ExpectBase: base.ID,
 		Base:         BaseView{ID: base.ID, Body: base.Body},
 		InputEntries: []string{}, Entries: []Entry{},

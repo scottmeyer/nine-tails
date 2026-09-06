@@ -34,8 +34,9 @@ the compiler instructions, the active base, the active generation's items and
 every recent guidance entry (with what its origin context rendered), plus the
 expect_generation / expect_base ids that "brief put" needs for compare-and-swap.
 Feed the output to a model and hand its reply to "brief put --stdin".
-The instructions are the built-in default unless an agent named
-		"brief-compiler" has a base, in which case that base is used verbatim.`,
+The editorial method is the built-in default unless an agent named
+		"brief-compiler" has a base. Its current learned guidance is included with
+explicit scope. The fixed mechanical and output contract is always present.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := a.open(); err != nil {

@@ -1069,17 +1069,31 @@ of its represented sources, so repeated condensation need not reconstruct
 evidence from prior summaries. Capsule selection uses contextual source
 fallback (§7) even when global generation accounting says represented.
 
-Default compiler instructions keep independently changeable rules in separate
-items, with necessary conditions attached. Compiler input contains source
-content and provenance, never practice tallies. Explicit corrections and
-evidence govern consolidation; repeated exposure is not evidence of truth.
+The reflector and compiler are independent editors of knowledge. They extract
+the future decision, useful action, and necessary conditions from prose; they
+do not turn an episode into a personal challenge or preserve every incidental
+claim. Remove narrative, obsolete status, and redundant explanation while
+retaining explicit user intent, uncertainty, and meaningful exceptions. A
+single incident does not establish a universal preference. Independently
+changeable rules remain separate. Compiler input contains source content and
+provenance, never practice tallies; repeated exposure is not evidence of truth.
+
+Source cleanup and brief projection use the existing operations. The reflector
+corrects or consolidates sources that have useful successors, and deliberately
+retires material with no future use through `disable --context --reason` after
+inspection. Low use or age alone cannot revoke a preference. The compiler
+removes unnecessary prose from representations, but cannot retire a source by
+omitting it: `deferred` still renders the original guidance. Clean up unwanted
+sources before building a new brief. There is no second suppression lifecycle.
 
 `compile-input <agent>` (default json):
 
 ```yaml
 agent: pr-review
-instructions: |            # built-in default compiler instructions (§12.7) + output contract
+instructions: |            # custom or default editorial method + fixed mechanical contract
   ...
+editorial_guidance:        # brief-compiler's learned method, distinct from target evidence
+  - {id: rec_10, kind: note, body: "...", meta: {...}}
 expect_generation: gen_11  # or "none"
 expect_base: base_4
 base: {id: base_4, body: "..."}
@@ -1181,9 +1195,19 @@ config snippet) with the compile-input JSON on stdin and expect the output
 document on stdout → `brief put`. The compiler inherits the environment plus
 `NINE_TAILS_HOME` and `NINE_TAILS_AGENT`. `compile` additionally checks that
 the echoed `input_entries` equals its own document's list. Warnings go to
-stderr. `instructions` comes from the `brief-compiler` agent's active base
-when that agent exists, else the built-in text in
-`internal/compile/instructions.go`; either way `compile-input` shows it.
+stderr. `instructions` combines the `brief-compiler` agent's active base (or
+the built-in editorial method) with the always-present mechanical contract in
+`internal/compile/instructions.go`. A custom base cannot remove that contract.
+`editorial_guidance` supplies the compiler role's current guidance, with full
+source bodies, identities, kinds, and explicit scopes, separately from the
+target agent's accounting. Learned method is not evidence of target preferences.
+Scoped method applies only where target source evidence establishes its scope;
+missing target facets do not make scoped method global. Current source lifecycle
+applies even when the compiler role has its own brief. Method sources are read
+directly from the active journal; the compiler's own derived items and their
+accounting cannot change these source bodies or scope. Input assembly is
+read-only, creates no context receipt, and does not recursively compile or load
+the editor. Storage errors propagate rather than silently falling back to defaults.
 
 Further pins: there is no `--budget`; the instructions ask for a concise
 brief and nothing measures it. Metadata

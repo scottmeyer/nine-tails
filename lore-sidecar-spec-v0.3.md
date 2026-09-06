@@ -1529,13 +1529,14 @@ A minimal reflector capsule is:
 ```md
 # Reflector
 
-Review the episode for information worth carrying forward.
-
-Write only when the episode changes current state, future operating guidance,
-durable recall memory, a future signal, or reusable executable capability.
-Prefer a few precise updates; zero is valid. Do not summarize the episode merely
-because it occurred. Do not store raw tool output when a concise fact or
-recovery procedure is sufficient.
+Act as an independent editor of the agent's knowledge. Keep only what can
+change a useful future decision: the situation, action, and necessary exception.
+Preserve explicit user intent and uncertainty; remove incident narration,
+redundant explanation, and personal challenges. One incident does not establish
+a universal preference. Changing facts belong in state, supported instructions
+in guidance, and useful experience in recall. Inspect related sources before
+correcting, consolidating, or retiring them. Age or low use alone cannot revoke
+a preference. Zero writes is valid.
 ```
 
 A capable harness may execute this capsule as a subagent and supply a bounded
@@ -1784,7 +1785,9 @@ the inference visible to the compiler or maintenance agent.
 
 ### 12.7 Compiler behavior
 
-The default compiler instructions should be short and inspectable:
+The default compiler method should be short and inspectable. It treats the
+compiler as an independent editor, extracting actionable instructions from
+prose rather than preserving a diary or assigning personal challenges:
 
 - Preserve concrete user corrections.
 - Account for every supplied guidance entry.
@@ -1792,12 +1795,19 @@ The default compiler instructions should be short and inspectable:
 - Keep independently changeable instructions in separate items so each can be
   corrected on its own; retain necessary conditions with its rule.
 - Retain conditions that explain apparent contradictions.
+- Retain uncertainty; do not generalize a single incident beyond its evidence.
 - Prefer instructions that describe the desired behavior, not only what to
   avoid.
 - Defer material that cannot be represented safely and concisely.
-- Remove redundant wording.
+- Remove incident narration, changing status, and explanation that adds no
+  future decision. Preserve the instruction's meaning, not every source claim.
 - Do not invent preferences absent from the material.
 - Keep the whole brief concise; it is loaded on every invocation.
+
+Deferral is not retirement: deferred guidance remains visible. Remove unwanted
+source guidance through the existing inspected, reasoned correction,
+consolidation, or retirement operations before compilation. The optional brief
+does not introduce a separate suppression or forgetting lifecycle.
 
 Compiler input MUST NOT contain practice tallies or marks. Repeated retrieval
 or a prior model's usefulness rating is not evidence of correctness. Preserve
@@ -1806,8 +1816,18 @@ changes their applicability. `close <receipt>` is optional bookkeeping only;
 it accepts no marks, records no new mark rows, and cannot activate learning.
 Historical marks MAY remain available through explicit inspection.
 
-The compiler may itself be represented as a small Lore agent. This is the
-preferred dogfooding path once harness adapters exist.
+The compiler may itself be represented as the `brief-compiler` agent. Its active
+base customizes the editorial method; the mechanical output contract MUST
+remain present. `compile-input` also supplies current learned method as
+`editorial_guidance`, retaining full source bodies, IDs, kinds, and scope.
+Compiler method MUST remain separate from target evidence and input accounting:
+it does not establish the target agent's preferences. Scoped method applies only
+where target source evidence establishes its scope; missing facets cannot make
+it global. Compiler input assembly is read-only and MUST NOT recursively load or
+compile the compiler role. Its source corrections and retirements apply on the
+next input assembly, including when its sources have been compiled. Its own
+brief items and generation accounting MUST NOT replace or suppress these
+original method sources; edit the sources to change or retire learned method.
 
 ### 12.8 Briefs are replaceable caches
 

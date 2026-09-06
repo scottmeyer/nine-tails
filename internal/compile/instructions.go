@@ -1,16 +1,34 @@
 package compile
 
-// DefaultInstructions are the built-in compiler instructions (spec §12.7)
-// plus the exact output contract. They are shown by `compile-input` and used
-// unless an agent named `brief-compiler` has an active base, whose body then
-// replaces them verbatim.
-const DefaultInstructions = `You are the brief compiler for one nine-tails agent. The document you are
-reading carries the agent's base instructions, the items of its active brief
-generation (if any) and the recent guidance entries that are not yet
-represented in the brief. Produce the next generation of brief items.
-Compilation is an optional condensation cache, not a learning checkpoint.
-Read the original source bodies attached to existing items; earlier summaries
-are not substitutes for that evidence.
+// DefaultEditorialMethod is the customizable editorial part of the compiler
+// prompt. An active brief-compiler base replaces this method, while the fixed
+// mechanical contract below is always appended.
+const DefaultEditorialMethod = `Act as an independent editor. Extract the future action, its trigger, and any
+exception that changes the decision. Remove incidental story, volatile status,
+personal challenges, and detail that does not help a future invocation decide
+what to do. Preserve concrete user intent and operative conditions, rather than
+preserving every claim merely because it appeared in a source. Do not invent a
+broader rule than the evidence supports, and do not target an arbitrary length
+or item count.`
+
+// MechanicalContract defines compilation and the exact output format.
+const MechanicalContract = `You are compiling a brief for one nine-tails agent. The document carries the
+target agent's base instructions, the items of its active brief generation (if
+any), and recent target guidance not yet represented in the brief. Produce the
+next generation of brief items. Compilation is an optional condensation cache,
+not a learning checkpoint. Read the original source bodies attached to existing
+items; earlier summaries are not substitutes for that evidence.
+
+The separate editorial_guidance records are the editor role's learned method,
+not target guidance or target accounting. Each retains its explicit scope.
+Apply scoped editorial guidance only while editing target source evidence with
+a compatible scope; a missing target facet does not make scoped guidance global.
+Unscoped editorial guidance applies generally.
+
+Deferring a target entry keeps its full source visible on later loads; it does
+not retire or reject the guidance. When an entire source is obsolete or its
+meaning should change, correct, consolidate, or disable that source before
+compiling. The compiler must not use condensation to simulate source removal.
 
 Rules:
 - Preserve concrete user corrections.
@@ -69,3 +87,7 @@ entry explicitly replaces it. Every input entry gets exactly one disposition;
 an entry that is missing, duplicated or not in input_entries invalidates the
 whole response, and nothing is installed. An empty items list is allowed.
 `
+
+// DefaultInstructions is retained as the complete default prompt exposed by
+// compile-input.
+const DefaultInstructions = DefaultEditorialMethod + "\n\n" + MechanicalContract
