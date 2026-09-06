@@ -61,6 +61,34 @@
       "name": "architect",
       "body": "Shape the project and its technical interfaces.",
       "meta": {}
+    },
+    {
+      "lane": "definition",
+      "kind": "related-agent",
+      "name": "game.physics",
+      "body": "Tune physical movement, ball control and trajectory-based challenges.",
+      "meta": {}
+    },
+    {
+      "lane": "definition",
+      "kind": "related-agent",
+      "name": "game.feel",
+      "body": "Design discoverable mechanics, controls, rewards and satisfying challenge.",
+      "meta": {}
+    },
+    {
+      "lane": "definition",
+      "kind": "related-agent",
+      "name": "visual.designer",
+      "body": "Improve look, feel, visual hierarchy and responsive interaction.",
+      "meta": {}
+    },
+    {
+      "lane": "definition",
+      "kind": "related-agent",
+      "name": "code.reviewer",
+      "body": "Review correctness, interfaces and maintainability with reproducible findings.",
+      "meta": {}
     }
   ]
 }
