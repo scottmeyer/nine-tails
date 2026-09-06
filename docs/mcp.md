@@ -8,7 +8,33 @@ Configure any compatible MCP client with:
 {"mcpServers":{"nine-tails":{"command":"/absolute/path/to/nine-tails","args":["mcp"]}}}
 ```
 
-Use the absolute built binary path, or an executable available to the host. The default store is `~/.nine-tails`; an explicit `--home` selects another store. No global client configuration is changed by installation. A running host must connect the server before these operations appear in its native tool menu.
+Use the absolute built binary path, or an executable available to the host. The default store is `~/.nine-tails`; an explicit `--home` selects the store. Installing the binary alone does not change global client configuration. A running host must connect the server before these operations appear in its native tool menu.
+
+For an installed binary at `~/.nine-tails/bin/nine-tails`, register it with Codex:
+
+```sh
+codex mcp add nine-tails -- "$HOME/.nine-tails/bin/nine-tails" --home "$HOME/.nine-tails" mcp
+codex mcp get nine-tails --json
+```
+
+This explicitly binds the executable and shared store without depending on a
+checkout path. The desktop app and CLI share the host's configuration. Refresh
+the desktop connection in **Settings → MCP servers → nine-tails → Restart**,
+or start a fresh CLI session. Verify that `nt_load`, `nt_learn`, `nt_inspect`
+and the other tools appear; an enabled config entry alone is not proof that
+the current conversation connected. See the
+[official Codex MCP setup](https://learn.chatgpt.com/docs/extend/mcp).
+
+Once connected, prefer the native tools for ordinary work. If a capsule is
+already loaded, reuse its receipt through MCP; connecting is not a reason to
+load the agent again. Forward the whole load result, including data sections.
+Use the checkout binary and isolated stores to verify code changes; an existing
+MCP process keeps its installed executable until the connection is restarted.
+
+Agent-owned scripts execute in the MCP process's launch directory. A different
+`repo-id` on a load does not change that directory. Inspect capabilities before
+calling them and resolve their repository inputs explicitly; load, learning,
+inspection and named-state operations use the selected store independently.
 
 When the server uses a nondefault home, generated CLI recipes in capsules and
 library pages carry its absolute, shell-quoted `--home` selection. Copying a
