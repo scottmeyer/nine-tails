@@ -227,6 +227,7 @@ records the concrete changes and remaining limits.
 | Correct existing guidance | Add `--supersedes <ref>` to the write | Replaces the rule while preserving scope and history |
 | Combine like instructions | `consolidate --source <ref> --source <ref>` | One replacement with original sources and a reason |
 | Useful experience or a fact | `remember` | Relevant excerpts surface on load as data; full records remain searchable with `inspect --query` |
+| Consult a large learning history | `inspect --page --context <receipt>` | Compact memory previews with full-record links and a next-page command |
 | Small current working state | `state put` | Replaces a named YAML state using compare-and-swap |
 | Shared state in a role's next capsule | `state link` | Subscribes to current named state without copying its values |
 | A reminder or external event | `signal` | Appears when due and can be leased by a scheduler |
@@ -298,9 +299,16 @@ agent's next load, select memories against the actual task with repeatable
 omitting selection keeps the normal automatic path. MCP accepts `recall: []`
 for none. Excerpts retain whole words and short headings. No search/reload
 ceremony is required for an ordinary session. Automatic recall reports omitted
-keyword matches with an inspection hint. If the complete capsule exceeds an
+keyword matches with an inspection hint. If the complete capsule exceeds a
 harness-supplied transport ceiling, the load fails without silently
 dropping selected memories or recording an incomplete receipt.
+
+An agent with memories also receives a compact library pointer. During work,
+use `inspect --page --context <receipt>` to browse or add `--query "passing"`
+to search. Follow the returned `next.inspect` command until finished; open any
+entry with its own inspection link. Pages use a size target and have no fixed
+record count. This is a live recall library; standing instructions stay in the
+capsule, and browsing creates no new persona or receipt.
 
 Data goes to stdout and diagnostics to stderr. Core data commands are
 non-interactive; `hooks run` is the explicit interactive supervisor. Commands

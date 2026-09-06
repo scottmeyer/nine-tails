@@ -171,9 +171,10 @@ type signalRecordView struct {
 
 func newInspectCmd(a *app) *cobra.Command {
 	var include, lane, kind, name, query, coverage, lint, format string
-	var all bool
+	var pageContext, after string
+	var all, page bool
 	c := &cobra.Command{
-		Use:   "inspect <agent | record-id | ctx-id | gen-id>",
+		Use:   "inspect [agent | record-id | ctx-id | gen-id]",
 		Short: "Return raw or filtered agent state (the repair surface)",
 		Long: `Everything an agent needs to explain or repair another agent.
   inspect pr-review                              full dump (active records)
@@ -183,9 +184,39 @@ func newInspectCmd(a *app) *cobra.Command {
   inspect pr-review --coverage covered-unrendered entries with that classification
   inspect pr-review --lint condition-loss         brief items that dropped source scope
   inspect rec_41 | ctx_72 | gen_12                one thing by id
-Add --all to include superseded and disabled records.`,
-		Args: cobra.ExactArgs(1),
+  inspect --page --context @42                   compact memory library page
+  inspect architect --page --query "passing"     search a role's memory library
+Add --all to include superseded and disabled records in ordinary inspection.
+
+--page browses active recall newest first, under a soft size target, with full
+record inspection links and a continuation after the last returned entry.
+Pass --context to use the loaded agent and its scope. Without a context, name
+the agent explicitly. Follow the returned continuation without changing its
+agent, context or query; this is a live index, not a saved snapshot. Newer
+entries appear when you restart, and retired records disappear. Paging does
+not load the persona again or turn library entries into instructions.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if page {
+				for _, flag := range []string{"include", "kind", "name", "all", "coverage", "lint"} {
+					if cmd.Flags().Changed(flag) {
+						return cli.Invalid("--page cannot be combined with --%s", flag)
+					}
+				}
+				if cmd.Flags().Changed("lane") && lane != "recall" {
+					return cli.Invalid("--page browses recall; --lane must be recall when supplied")
+				}
+				if cmd.Flags().Changed("context") && pageContext == "" || cmd.Flags().Changed("after") && after == "" {
+					return cli.Invalid("--context and --after must be nonempty when supplied")
+				}
+				return a.inspectLibrary(args, pageContext, query, after, format)
+			}
+			if cmd.Flags().Changed("context") || cmd.Flags().Changed("after") {
+				return cli.Invalid("--context and --after require --page")
+			}
+			if len(args) != 1 {
+				return cli.Invalid("inspect requires a target, or --page with --context")
+			}
 			if err := a.open(); err != nil {
 				return err
 			}
@@ -280,6 +311,9 @@ Add --all to include superseded and disabled records.`,
 	c.Flags().StringVar(&coverage, "coverage", "", "list entries with this coverage: novel|covered-unrendered|covered-rendered|refinement|unknown")
 	c.Flags().StringVar(&lint, "lint", "", "run a lint: condition-loss")
 	c.Flags().BoolVar(&all, "all", false, "include superseded and disabled records")
+	c.Flags().BoolVar(&page, "page", false, "browse or search a compact page of active recall; follow next to continue")
+	c.Flags().StringVar(&pageContext, "context", "", "with --page, use this receipt's agent and applicability scope")
+	c.Flags().StringVar(&after, "after", "", "with --page, continue after the last returned record ID or @ref")
 	c.Flags().StringVar(&format, "format", "json", "json|yaml")
 	return c
 }

@@ -64,6 +64,21 @@ Wrong owner, lane, scope or invalid body rejects the whole load;
 inactive IDs conflict and are never silently redirected. Only the selected
 evidence is recorded on the receipt. `task`/`query` still focuses the excerpts.
 
+When memories exist, `nt_load` also includes `library: {count, inspect}`. Browse
+without reloading the agent using `nt_inspect({"page":true,"context":"@42"})`,
+optionally adding `query`. Alternatively supply an agent `target`; a supplied
+context must own it and supplies scope. Pages contain bounded previews, exact
+full-record inspection paths and a nullable `next` with its last-returned
+`after` reference. Continue with `nt_inspect` using that `after` and the same
+target/context/query. Page mode accepts only recall, and rejects include;
+`context` and `after` are invalid outside page mode. Ordinary full inspection
+still requires `target`.
+
+This is a live chronological catalog, not load's lexical ranking or a saved
+snapshot. A retired cursor retains its position; restart for newer entries or
+changed filters. Page previews and inventory counts are data, never delivered
+standing instructions, and browsing does not create a receipt.
+
 To include shared facts automatically in future loads, use
 `nt_state({"name":"game.engineer/project","target":"workshop/soccer-chess","expect":"none","meta":{"repo-id":"soccer-chess"}})`.
 `target` selects an immutable state-link definition and is mutually exclusive

@@ -810,10 +810,18 @@ with `[` in a record with no meta is emitted as `\[` so it cannot be mistaken
 for a bracket.
 
 JSON output: spec §10.1 shape — `context_id, context_ref, agent, task, parent_context,
-metadata, instructions, state[], state_links[], tools[], agents[], recall[], recall_more, recall_next?, signals[],
+metadata, instructions, state[], state_links[], tools[], agents[], recall[], recall_more, recall_next?, library?, signals[],
 rendered_record_ids, estimated_tokens, uncompiled_adjustments, skipped[]`.
+An optional `library: {count, inspect}` gives the size of the active same-agent
+recall library under resolved context scope and an exact paged inspection
+recipe. It appears only when that count is positive, independently of task,
+query or explicit recall selections. Its Markdown line is data, outside
+instructions. The inventory count does not claim that those records were
+delivered; it adds no record IDs to the receipt. The count reflects load time;
+later inspection reads the live library.
+
 `instructions` is byte-identical to markdown before the referenced-state,
-recall and signal data sections. Existing owned state remains in that string,
+recall, library and signal data sections. Existing owned state remains in that string,
 explicitly labeled data by the protocol. `state[]` = `{id, ref, agent, name, format,
 body, references?}` includes each delivered state body once, with its actual
 owner and optional successful link IDs. `state_links[]` = `{id, ref, name, target,
@@ -1124,6 +1132,52 @@ envelope). Unknown id → 3; otherwise → 7. `load` includes live-leased signal
 (with `state=leased` in the bracket) because awareness is not delivery.
 
 ## 12. Inspect (spec §18)
+
+### Paged memory library
+
+`inspect [<agent>] --page [--context <receipt>] [--query <text>]
+[--after <record-id|@ref>] [--format json|yaml]` returns a compact live recall
+index. Supply an agent or a context; when both are present their owners must
+agree. A context applies its resolved metadata using ordinary conflict
+semantics. Without one, the named agent's active recall is an unscoped inventory.
+No load or receipt is created. The mode accepts an optional `--lane recall`
+but rejects other lanes, include, kind, name, all, coverage and lint. Context
+and after options require page mode and must be nonempty when supplied.
+
+Apply owner, active status, recall lane, scope and literal Unicode
+case-insensitive substring query before page packing. Search matches body,
+name and metadata values, consistent with ordinary inspection; it does not
+reuse load's lexical ranking. Order newest first by created_at and rowid.
+Use an additive `(agent,lane,status,created_at)` SQLite index and stream bounded
+previews; do not materialize the full corpus. Unicode substring search can
+still scan eligible text, using a deterministic registered SQLite scalar.
+
+The page includes `agent`, `order: newest-first`, optional context ID/ref,
+query, entries and nullable next. Entries contain ID, local ref, bounded name
+and kind labels (80 runes), recorded time, a whole-word excerpt (160 runes,
+including an omission marker), truncation status, and full-record inspect
+command. Pack entries up to a soft 4,096-byte target using indented JSON entry
+cost. Always include the first eligible entry to guarantee progress. There is
+no record-count limit. Response metadata and continuation add modest overhead;
+this target is not a hard transport ceiling.
+
+`next: {after, inspect}` points after the **last returned** record and supplies
+an exact continuation recipe retaining owner, context and query. A null next
+means no eligible remainder. Query arguments are shell-quoted as literal data.
+After resolves the original record's position, including when it is now
+disabled or superseded; never forward it to a successor. The cursor must be
+recall owned by this agent. It is a live traversal: later retirements disappear
+and new entries before the cursor appear on restart. Keep filters unchanged
+while traversing; changing them starts a new query. There is no snapshot token
+or hidden paging session. Invalid combinations/owners/cursor types → 2;
+unknown records, agents or contexts → 3. Each page reads in one transaction.
+
+Load's `recall_next` is its first omitted lexical match, not a page cursor.
+Its direct record inspection remains valid; a catalog traversal starts its
+own page and never skips that match by treating it as an exclusive cursor.
+All previews are data. Paged lookup never evicts or demotes standing guidance.
+
+### Full inspection and repair
 
 `inspect <agent>`: JSON `{agent, base, state[], brief{generation, items[],
 inputs[]}, journal[], tools[], agents[], signals[]}`; `--include` restricts

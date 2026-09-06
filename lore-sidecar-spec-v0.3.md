@@ -1156,6 +1156,34 @@ removes explicit guidance. Retrieval is a deterministic lexical scan, requiring
 no model call, embedding service, or additional dependency. It does not infer
 synonyms; agents can override the query or inspect when lexical matches miss.
 
+When a role has active recall under the load's scope, its capsule SHOULD expose
+a compact memory-library count and paged inspection recipe as data. This count
+does not imply delivery of those records and MUST NOT add their IDs to the
+receipt. It remains available with an empty query or no selected recall.
+
+`inspect [<agent>] --page [--context <receipt>] [--query <text>]
+[--after <record-id>]` is a compact live index of active same-agent recall.
+Require an agent or context; when both are supplied the owner MUST match.
+A context applies ordinary scope-conflict filtering. Page mode MUST NOT hide
+standing guidance, load the persona again, or create a receipt. Full records
+remain available through exact inspection.
+
+Apply scope, owner, lane, status and literal case-insensitive substring matching
+before packing newest-first results. Use immutable creation and insertion order,
+not opaque ID order or lexical relevance. Page size is a soft byte target with
+guaranteed progress, not a record-count ceiling. Each entry has a short bounded
+preview and an exact full-record inspection path. Expose a continuation after
+the last RETURNED entry when eligible records remain; no remaining records means
+no continuation. Preserve cursor position when its record is later superseded
+or disabled. Do not silently forward it to a replacement. Cursors from another
+owner or lane are invalid.
+
+This catalog is live, not a historical snapshot. Callers keep agent, scope and
+query unchanged while following continuation; restart to change filters or see
+newer entries before the cursor. A load's first omitted lexical match is not
+an exclusive chronological page cursor. Implementations MUST keep those
+different orderings and semantics explicit.
+
 Core also offers basic lexical and metadata inspection:
 
 ```bash

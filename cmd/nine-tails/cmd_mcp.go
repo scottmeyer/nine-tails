@@ -74,10 +74,20 @@ func mcpCatalog() []mcpTool {
 		"forget":     {Type: "string", MinLength: 1, Description: "Exact record ID or local @N to retire without a successor. Requires reason; mutually exclusive with body, kind, sources, supersedes, meta and clear_meta."},
 	})
 	learn.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"body"}}, {Required: []string{"supersedes"}}, {Required: []string{"forget"}}}
+	inspect := def("nt_inspect", "Retrieve an agent, exact record or receipt. During work, use page:true with the current context to browse its scoped recall library; query is a substring filter and after continues a prior page. Read a record's exact reference for full evidence before relying on it.", []string{}, map[string]mcpProperty{
+		"target":  {Type: "string", MinLength: 1, Description: "Agent name or exact record/receipt id. Optional on a library page when context supplies the agent; with both, the agent must match."},
+		"page":    {Type: "boolean", Description: "Browse a compact recall index page. Requires context or a target agent; after advances the cursor. Does not load the agent or add recalled evidence to a receipt."},
+		"context": {Type: "string", MinLength: 1, Description: "Current receipt ID or @N supplying the page's agent and applicability scope; page mode only."},
+		"after":   {Type: "string", MinLength: 1, Description: "Exact record cursor ID or @N returned by the previous page; page mode only."},
+		"query":   str("Case-insensitive substring filter; omitted or empty lists without a text filter."),
+		"lane":    str("Optional guidance/recall filter for ordinary inspection; page mode accepts only recall."),
+		"include": str("Optional comma-separated sections for ordinary inspection, e.g. base,brief,journal,tools; not valid in page mode."),
+	})
+	inspect.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"target"}}, {Required: []string{"page", "context"}}}
 	return []mcpTool{
 		def("nt_load", "Adopt a named agent's role, current guidance, relevant experience, state and capabilities. Apply the returned capsule to the current task; keep its receipt for learning and calls.", []string{"agent"}, map[string]mcpProperty{"agent": str("Named agent; use workshop or pilot for discovery."), "task": str("Concise non-sensitive purpose, durably recorded; do not copy the whole prompt."), "context": context, "query": str("Optional recall search/excerpt focus override; empty disables automatic recall."), "recall": refs("Exact recall IDs or local @N handles selected after inspection, in order, with no count cap. Replaces lexical results; [] selects none. Omission uses a soft size budget for lexical matches with recall_more and recall_next when more remain. Same agent, active recall and applicable scope required."), "meta": loadMeta}),
 		learn,
-		def("nt_inspect", "Retrieve an agent, exact record, or receipt. Use to recover full recalled evidence or inspect existing guidance before correcting it.", []string{"target"}, map[string]mcpProperty{"target": str("Agent name or exact record/receipt id."), "query": str("Search phrase."), "lane": str("Optional lane: guidance or recall."), "include": str("Optional comma-separated sections, e.g. base,brief,journal,tools.")}),
+		inspect,
 		def("nt_tools", "Discover executable capabilities applicable to a loaded agent. Returns descriptions, declared inputs and exact nt_call arguments; does not change the MCP tool list.", []string{"context"}, map[string]mcpProperty{"context": context, "query": str("Optional name or description substring.")}),
 		def("nt_call", "Run a discovered agent tool with its current definition and receipt scope. Inspect nt_tools first. Execution uses the server launch directory and the tool's declared timeout.", []string{"context", "tool"}, map[string]mcpProperty{"context": context, "tool": str("Exact tool name from nt_tools."), "input": obj("Tool input object; omitted means {}.")}),
 		def("nt_state", "Read/update named state, or subscribe to state with target. State updates preserve omitted scope; links use exactly the supplied scope. Writes require expect; linking never writes the target.", []string{"name"}, map[string]mcpProperty{"name": str("Qualified agent/name, or bare state/link name with context."), "context": context, "body": str("YAML body for state update; omit to read."), "target": str("Qualified owner/state for a one-hop subscription; mutually exclusive with body."), "expect": str("Required for writes: current state/link id, or none."), "meta": meta}),
@@ -283,7 +293,9 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 	}
 	if len(spec.InputSchema.AnyOf) > 0 {
 		matched := false
+		var alternatives []string
 		for _, alternative := range spec.InputSchema.AnyOf {
+			alternatives = append(alternatives, strings.Join(alternative.Required, " and "))
 			present := true
 			for _, key := range alternative.Required {
 				_, found := args[key]
@@ -292,7 +304,26 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 			matched = matched || present
 		}
 		if !matched {
-			return nil, fmt.Errorf("body, supersedes or forget is required")
+			return nil, fmt.Errorf("required: %s", strings.Join(alternatives, " or "))
+		}
+	}
+	if name == "nt_inspect" {
+		if args["page"] == true {
+			if _, supplied := args["include"]; supplied {
+				return nil, fmt.Errorf("page and include are mutually exclusive")
+			}
+			if lane, supplied := args["lane"]; supplied && lane != "recall" {
+				return nil, fmt.Errorf("page mode only supports the recall lane")
+			}
+		} else {
+			if _, supplied := args["target"]; !supplied {
+				return nil, fmt.Errorf("target is required for ordinary inspection")
+			}
+			for _, key := range []string{"context", "after"} {
+				if _, supplied := args[key]; supplied {
+					return nil, fmt.Errorf("%s requires page mode", key)
+				}
+			}
 		}
 	}
 	if name == "nt_learn" {
@@ -418,8 +449,14 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 			argv = append(argv, "--clear-meta")
 		}
 	case "nt_inspect":
-		argv = []string{"inspect", get("target"), "--format", "json"}
-		for _, k := range []string{"query", "lane", "include"} {
+		argv = []string{"inspect", "--format", "json"}
+		if get("target") != "" {
+			argv = append(argv, get("target"))
+		}
+		if v["page"] == true {
+			argv = append(argv, "--page")
+		}
+		for _, k := range []string{"query", "lane", "include", "after"} {
 			if _, ok := v[k]; ok {
 				argv = append(argv, "--"+k, get(k))
 			}

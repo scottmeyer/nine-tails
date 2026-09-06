@@ -98,6 +98,7 @@ type Capsule struct {
 	Recall          []RecallView    `json:"recall" yaml:"recall"`
 	RecallMore      int             `json:"recall_more" yaml:"recall_more"`
 	RecallNext      *RecallNextView `json:"recall_next,omitempty" yaml:"recall_next,omitempty"`
+	Library         *LibraryView    `json:"library,omitempty" yaml:"library,omitempty"`
 	RenderedIDs     []string        `json:"rendered_record_ids" yaml:"rendered_record_ids"`
 	EstimatedTokens int             `json:"estimated_tokens" yaml:"estimated_tokens"`
 	// UncompiledAdjustments counts the recent guidance entries rendered: what
@@ -105,7 +106,7 @@ type Capsule struct {
 	UncompiledAdjustments int       `json:"uncompiled_adjustments" yaml:"uncompiled_adjustments"`
 	Skipped               []Skipped `json:"skipped" yaml:"skipped"`
 
-	// Markdown is the full document (instructions + recall + signals).
+	// Markdown is the full document (instructions + recall + library + signals).
 	Markdown string `json:"-" yaml:"-"`
 	rendered []store.ContextRecord
 }
@@ -402,6 +403,9 @@ func load(tx *sql.Tx, req Request) (*Capsule, error) {
 	}
 	if c.RecallNext != nil {
 		fmt.Fprintf(&md, "\n%d additional keyword matches; inspect next with `%s`.\n", c.RecallMore, c.RecallNext.Inspect)
+	}
+	if err := writeLibrary(tx, c, &md); err != nil {
+		return nil, err
 	}
 	writeSection(hdrSignals, "signals", sigCands)
 	for _, cd := range sigCands {

@@ -65,6 +65,34 @@ Age, absence from recent tasks, and repeated exposure are not evidence that a
 conditional preference became wrong. Retirement preserves history and a reason;
 it does not revive an earlier instruction automatically.
 
+## Consulting a growing library
+
+The capsule includes a memory-library count and a browse recipe when memories
+exist, even when the current task retrieves none. The agent can consult that
+library during work:
+
+```sh
+nine-tails inspect --page --context @42
+nine-tails inspect --page --context @42 --query "passing lanes"
+```
+
+Each page contains short previews, full-record inspection links and a
+`next.inspect` continuation command. Follow it to retrieve additional pages;
+there is no arbitrary record-count ceiling. The continuation follows the last
+returned entry, so the first omitted entry appears on the next page. Reading
+full evidence uses ordinary `inspect <ref>`. Browsing never reloads the persona
+or creates a receipt.
+
+Pages are a live index, newest first. A retired cursor record still anchors its
+original position; it is never redirected to a replacement. Keep scope and
+query fixed while paging. Restart to change the query or include newer entries
+before the cursor. Library substring search and load's keyword ranking are
+different lookups; a load's next omitted match is not a library page cursor.
+
+Standing instructions remain immediately applicable. This library is for
+situational evidence and experience, not an excuse to quietly hide a user rule
+because the agent has accumulated many of them.
+
 ## What this iteration removed
 
 Marks no longer participate in learning. `close` accepts only a receipt and

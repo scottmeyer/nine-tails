@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS records (
     supersedes_id     TEXT
 );
 CREATE INDEX IF NOT EXISTS records_agent_lane_kind ON records(agent, lane, kind, status);
+CREATE INDEX IF NOT EXISTS records_agent_lane_status_created ON records(agent, lane, status, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS records_active_name ON records(agent, lane, kind, name)
     WHERE name IS NOT NULL AND status = 'active';
 
