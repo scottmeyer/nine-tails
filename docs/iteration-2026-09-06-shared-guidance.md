@@ -65,6 +65,18 @@ received the shared direction after its copied local preference was retired.
 This supports successful delivery and aligned subsequent work, not a general
 ranking of models or proof that the memory caused the change.
 
+The subsequent corner/offside work supplied less reassuring evidence about
+application and verification. Review caught a restart-only restriction applied
+to an entire mode, a boundary regression in older challenges, and an invalid
+selected action after rewind. One UI test could pass without reaching its
+assertions. A purported public offside route actually depended on a modified
+test fixture; a default-state probe intercepted instead, confirming Luna's
+follow-up report. The user authorized Sol for the remaining repairs. These
+observations support keeping strong review and checking the supplied task's
+acceptance criteria; they do not show that another layer of standing guidance
+would have prevented the mistakes. This was ordinary product work, not a
+controlled model comparison.
+
 Ravel completed four fresh exploratory rounds and one corrected follow-up.
 He kept one evolving state, made a return note, chose independent new work,
 then reopened the source when a later adaptation needed details absent from its
