@@ -1139,6 +1139,15 @@ agent; every `equivalent_records` id exists (any status); item keys are valid
 names, unique, with non-empty bodies. An empty `items` list is allowed.
 Entries not in `input_entries` (appended during the compile) are untouched.
 
+Every emitted item must have at least one active ordinary guidance source owned
+by the target agent. Sources come from this response's `represented` rows or
+the source links inherited from the active generation's same-key item, resolved
+through ordinary record successors. Base text and `equivalent_records` do not
+establish source support. This validates provenance, not semantic fidelity.
+Reject an unsupported item with exit 2 before installation. Existing legacy or
+imported source-free items are not eagerly changed; their next compilation must
+omit them or ground their supported meaning in ordinary guidance first.
+
 Coverage, computed by nine-tails:
 
 ```
@@ -1187,7 +1196,8 @@ for each item with ≥1 source:
         V = intersection of those value sets; if V non-empty and item lacks K → WEAK
 ```
 
-Items with zero sources produce no warnings. The lint never blocks install.
+Historical items with zero sources produce no scope warnings. New compiler
+output cannot install unsupported items. Scope lint itself never blocks install.
 
 `compile <agent>`: compile-input → run the compiler (`--compiler` flag, else
 `NINE_TAILS_COMPILER` env, else `config.compiler.argv`; none → exit 2 with the
@@ -1214,8 +1224,18 @@ brief and nothing measures it. Metadata
 keys in compiler output are validated by the §3 key rule, not the name regex.
 A duplicate inside `input_entries` is a validation problem. `brief put` on a
 nonexistent agent → 3. `brief put --stdin` is mandatory. `--dry-run` prints
-the plan (`dry_run: true`, provisional ids, inputs with coverage) and rolls
-back, so no id is consumed. Non-dry-run JSON is exactly
+the plan (`dry_run: true`, provisional ids, inputs with coverage,
+`proposed_items`, and `remaining_guidance`) and rolls back, so no id is consumed.
+Each proposed item contains its provisional ID, key, complete body, scope, and
+full current source views (ID, kind, body, scope), including inherited sources.
+Remaining guidance contains complete source views for entries still recent
+under the proposed generation's global accounting: deferred or unmentioned
+entries and sources restored when part of their representation is dropped.
+Both arrays are present even when empty. This review is assembled inside the
+install transaction before rollback; it creates no receipt. It is not a scoped
+capsule preview: a real load can also restore source guidance when a brief item
+is inapplicable or unusable. There is no size quota or claimed capsule saving.
+Non-dry-run JSON is exactly
 `{generation, items, warnings}`.
 
 ## 11. Signals (spec §15)

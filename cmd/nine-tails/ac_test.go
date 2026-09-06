@@ -194,7 +194,9 @@ func TestAC07(t *testing.T) {
 func TestAC08(t *testing.T) {
 	h := newHarness(t)
 	base := h.ok("base", "briefed", "Base.").id(t)
-	doc := `input_entries: []
+	oneSource := h.ok("prefer", "briefed", "--meta", "repo=one", "Evidence for the repo-one brief.").id(t)
+	twoSource := h.ok("prefer", "briefed", "--meta", "repo=two", "Evidence for the repo-two brief.").id(t)
+	doc := fmt.Sprintf(`input_entries: [%s, %s]
 items:
   - key: repo-one
     body: One-scoped brief survives a burst of recent guidance.
@@ -202,8 +204,11 @@ items:
   - key: repo-two
     body: Two-scoped brief is independently selectable.
     meta: {repo: two}
-entries: []
-`
+
+entries:
+  - {id: %s, disposition: represented, items: [repo-one]}
+  - {id: %s, disposition: represented, items: [repo-two]}
+`, oneSource, twoSource, oneSource, twoSource)
 	h.okIn(doc, "brief", "put", "briefed", "--expect-generation", "none", "--expect-base", base, "--stdin")
 	for i := 0; i < 16; i++ {
 		h.ok("prefer", "briefed", fmt.Sprintf("Recent burst %02d %s", i, strings.Repeat("noise ", 12)))

@@ -33,6 +33,9 @@ compiling. The compiler must not use condensation to simulate source removal.
 Rules:
 - Preserve concrete user corrections.
 - Account for every supplied guidance entry.
+- Emit an item only when a represented input entry supports it or when it
+  reuses an active item key with inherited guidance sources. The base and
+  equivalent_records are not item sources.
 - Merge equivalent entries and retain their source relationships.
 - Keep independently changeable instructions in separate items so each can be
   corrected on its own; keep a rule's necessary conditions with it.

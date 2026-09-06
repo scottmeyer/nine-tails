@@ -171,27 +171,9 @@ func BuildInput(q store.Querier, agent string) (*Input, error) {
 	gen, err := store.ActiveGeneration(q, agent)
 	switch {
 	case err == nil:
-		items, err := store.GenerationItems(q, gen.ID)
+		gv, err := readGenerationView(q, gen.ID)
 		if err != nil {
 			return nil, err
-		}
-		gv := &GenerationView{ID: gen.ID, Items: []ItemView{}}
-		for _, it := range items {
-			// The same view the lint takes: a replaced source is judged by
-			// its latest successor, so a retag changes the evidence at once.
-			srcIDs, err := currentSources(q, gen.ID, it.ID)
-			if err != nil {
-				return nil, err
-			}
-			sources := []SourceView{}
-			for _, id := range srcIDs {
-				src, err := store.GetRecord(q, id)
-				if err != nil {
-					return nil, err
-				}
-				sources = append(sources, SourceView{ID: id, Kind: src.Kind, Body: src.Body, Meta: src.Meta})
-			}
-			gv.Items = append(gv.Items, ItemView{ID: it.ID, Key: it.Name, Body: it.Body, Meta: it.Meta, Sources: sources})
 		}
 		in.ActiveGeneration = gv
 		in.ExpectGeneration = gen.ID
@@ -558,6 +540,10 @@ type Plan struct {
 func Validate(q store.Querier, agent string, out *Output) (*Plan, error) {
 	problems := append([]string(nil), out.Problems...)
 	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+	inheritedSources, err := inheritedActiveSources(q, agent)
+	if err != nil {
+		return nil, err
+	}
 
 	if !out.HasInputEntries {
 		add("input_entries is missing (echo the input's input_entries unchanged)")
@@ -699,6 +685,11 @@ func Validate(q store.Querier, agent string, out *Output) (*Plan, error) {
 		inputs = append(inputs, store.BriefInput{EntryID: e.ID, Disposition: e.Disposition, Coverage: cov,
 			Successor: e.Successor, Items: e.Items, Equivalents: e.Equivalents})
 	}
+	for _, it := range out.Items {
+		if it.Key != "" && len(sources[it.Key]) == 0 && len(inheritedSources[it.Key]) == 0 {
+			add("item %s has no active guidance source; represent an input entry or omit the item", it.Key)
+		}
+	}
 	if len(problems) > 0 {
 		return nil, invalid(problems)
 	}
@@ -707,6 +698,50 @@ func Validate(q store.Querier, agent string, out *Output) (*Plan, error) {
 		plan.Items = append(plan.Items, store.NewItem{Key: it.Key, Body: it.Body, Meta: it.Meta, Sources: sources[it.Key]})
 	}
 	return plan, nil
+}
+
+// inheritedActiveSources returns the evidence that a same-key item may carry
+// into the next generation. Only current ordinary guidance owned by the target
+// counts: a legacy source-free item, foreign record, base, brief item, or stale
+// source cannot authorize another derived instruction.
+func inheritedActiveSources(q store.Querier, agent string) (map[string][]string, error) {
+	out := map[string][]string{}
+	gen, err := store.ActiveGeneration(q, agent)
+	if errors.Is(err, store.ErrNotFound) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items, err := store.GenerationItems(q, gen.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		ids, err := store.ItemSources(q, gen.ID, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		seen := map[string]bool{}
+		for _, id := range ids {
+			current, err := store.LatestSuccessor(q, id)
+			if err != nil {
+				return nil, err
+			}
+			if seen[current] {
+				continue
+			}
+			seen[current] = true
+			record, err := store.GetRecord(q, current)
+			if err != nil {
+				return nil, err
+			}
+			if record.Agent == agent && record.Lane == "guidance" && record.Kind != "brief-item" && record.Status == "active" {
+				out[item.Name] = append(out[item.Name], current)
+			}
+		}
+	}
+	return out, nil
 }
 
 // Coverage classifies one entry (spec §12.5, DESIGN §10): the compiler
@@ -800,6 +835,7 @@ type Result struct {
 	Warnings   []Warning          `json:"warnings" yaml:"warnings"`
 	Inputs     []store.BriefInput `json:"inputs,omitempty" yaml:"inputs,omitempty"`
 	DryRun     bool               `json:"dry_run,omitempty" yaml:"dry_run,omitempty"`
+	Preview    *Preview           `json:"-" yaml:"-"`
 }
 
 // Install runs the whole install path inside the caller's transaction:

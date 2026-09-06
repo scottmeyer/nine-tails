@@ -19,6 +19,25 @@ For a manual or custom-model workflow, use `compile-input` followed by
 `brief put`. Compiler output is validated for complete dispositions and
 installed with compare-and-swap protection.
 
+Review the wording before installation with `brief put ... --dry-run`. Its
+`proposed_items` include complete instructions, scopes, and original source
+bodies. `remaining_guidance` shows the full entries that will remain recent,
+including deferred guidance and anything restored by dropping a partial
+representation. These are global accounting results; an individual load can
+also restore sources when a summary does not apply to its scope.
+
+Every proposed item needs a guidance source, assigned in this response or
+inherited from a same-key active item. A base duplicate or an equivalence hint
+does not provide that support. Previously imported or legacy items without
+sources remain readable, but their next compilation must omit them or first
+save supported meaning as ordinary guidance. Source links prevent unsupported
+items; reviewers still need to check whether the new wording is faithful.
+
+For example, if two items jointly represent one source, dropping either item
+without reaccounting for the source restores its complete original text. A
+shorter item list can therefore leave more raw guidance in circulation. Review
+`remaining_guidance` alongside the proposed items before judging the change.
+
 Original lessons remain authoritative. Compiler input includes the original
 source bodies behind existing summaries. If a compiled representation is
 inapplicable or cannot render on a load, the eligible source guidance returns

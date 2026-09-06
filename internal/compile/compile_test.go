@@ -314,6 +314,7 @@ func TestValidateReportsParseProblemsToo(t *testing.T) {
 		"entry rec_88 is missing from entries",
 		"entry " + e2.ID + " is represented but lists no items",
 		"entry " + e3.ID + " cannot supersede itself",
+		"item Bad_Key has no active guidance source; represent an input entry or omit the item",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("problems:\n  got  %q\n  want %q", got, want)
@@ -489,6 +490,160 @@ func TestValidatePlanSources(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsItemsWithoutActiveGuidanceSources(t *testing.T) {
+	s := openTest(t)
+	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base rule."})
+	e := guidance(t, s, "a", "Evidence.", nil, "")
+	out, err := Parse([]byte("input_entries: [" + e.ID + "]\nitems: [{key: invented, body: Base rule again.}]\nentries: [{id: " + e.ID + ", disposition: deferred, equivalent_records: [" + base.ID + "]}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Validate(s.DB, "a", out)
+	mustContain(t, problems(t, err), "item invented has no active guidance source; represent an input entry or omit the item")
+}
+
+func TestValidateAcceptsInheritedActiveSourcesAndRejectsLegacyOrphans(t *testing.T) {
+	s := openTest(t)
+	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
+	source := guidance(t, s, "a", "Supported guidance.", nil, "")
+	var generation *store.Generation
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		generation, _, err = store.InstallGeneration(tx, "a", "", []store.NewItem{
+			{Key: "supported", Body: "Old supported item.", Sources: []string{source.ID}},
+			{Key: "legacy", Body: "Old source-free item."},
+		}, []store.BriefInput{{EntryID: source.ID, Disposition: "represented", Coverage: "unknown", Items: []string{"supported"}}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Parse([]byte("input_entries: []\nitems: [{key: supported, body: Revised supported item.}, {key: legacy, body: Revised orphan.}]\nentries: []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Validate(s.DB, "a", out)
+	got := problems(t, err)
+	mustContain(t, got, "item legacy has no active guidance source; represent an input entry or omit the item")
+	for _, problem := range got {
+		if strings.Contains(problem, "item supported has no active guidance source") {
+			t.Fatalf("same-key active source was not inherited: %v", got)
+		}
+	}
+
+	// Failed installation is atomic and leaves the active generation intact.
+	if _, err := install(t, s, "a", generation.ID, base.ID, "input_entries: []\nitems: [{key: legacy, body: Still orphaned.}]\nentries: []\n"); cli.CodeOf(err) != cli.ExitInvalid {
+		t.Fatalf("source-free install: %v", err)
+	}
+	active, err := store.ActiveGeneration(s.DB, "a")
+	if err != nil || active.ID != generation.ID {
+		t.Fatalf("failed install changed generation: %+v %v", active, err)
+	}
+}
+
+func TestValidateInheritanceFollowsUnchangedSourceCorrection(t *testing.T) {
+	s := openTest(t)
+	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
+	source := guidance(t, s, "a", "Stable guidance.", store.Meta{"repo-id": {"r"}}, "")
+	first, err := install(t, s, "a", "none", base.ID, "input_entries: ["+source.ID+"]\nitems: [{key: stable, body: Stable item., meta: {repo-id: r}}]\nentries: [{id: "+source.ID+", disposition: represented, items: [stable]}]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var successor *store.Record
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		successor, err = store.ReplaceRecord(tx, source.ID, store.NewRecord{
+			Agent: "a", Lane: "guidance", Kind: "prefer", Body: source.Body, Meta: source.Meta.Clone(),
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.ActiveGeneration(s.DB, "a")
+	if err != nil || active.ID != first.Generation {
+		t.Fatalf("unchanged correction invalidated generation: %+v %v", active, err)
+	}
+	second, err := install(t, s, "a", first.Generation, base.ID, "input_entries: []\nitems: [{key: stable, body: Revised stable item., meta: {repo-id: r}}]\nentries: []\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := BuildInput(s.DB, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.ActiveGeneration == nil || in.ActiveGeneration.ID != second.Generation || len(in.ActiveGeneration.Items) != 1 ||
+		len(in.ActiveGeneration.Items[0].Sources) != 1 || in.ActiveGeneration.Items[0].Sources[0].ID != successor.ID {
+		t.Fatalf("inherited sources did not resolve to current successor: %+v", in.ActiveGeneration)
+	}
+}
+
+func TestValidateInheritedSourceMustRemainCurrent(t *testing.T) {
+	s := openTest(t)
+	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
+	source := guidance(t, s, "a", "Old guidance.", nil, "")
+	first, err := install(t, s, "a", "none", base.ID, "input_entries: ["+source.ID+"]\nitems: [{key: supported, body: Supported item.}]\nentries: [{id: "+source.ID+", disposition: represented, items: [supported]}]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tx(func(tx *sql.Tx) error {
+		_, err := store.ReplaceRecord(tx, source.ID, store.NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "Current guidance."})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.ActiveGeneration(s.DB, "a")
+	if err != nil || active.ID == first.Generation {
+		t.Fatalf("source correction did not invalidate derived generation: %+v %v", active, err)
+	}
+	out, err := Parse([]byte("input_entries: []\nitems: [{key: supported, body: Cannot inherit stale evidence.}]\nentries: []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Validate(s.DB, "a", out)
+	mustContain(t, problems(t, err), "item supported has no active guidance source; represent an input entry or omit the item")
+}
+
+func TestValidateRejectsInheritedNonGuidanceAndForeignSources(t *testing.T) {
+	s := openTest(t)
+	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
+	foreign := guidance(t, s, "other", "Foreign guidance.", nil, "")
+	brief := insert(t, s, store.NewRecord{Agent: "a", Lane: "guidance", Kind: "brief-item", Name: "standalone", Body: "Derived text."})
+	if err := s.Tx(func(tx *sql.Tx) error {
+		_, _, err := store.InstallGeneration(tx, "a", "", []store.NewItem{{
+			Key: "unsupported", Body: "Unsupported item.", Sources: []string{base.ID, foreign.ID, brief.ID},
+		}}, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Parse([]byte("input_entries: []\nitems: [{key: unsupported, body: Still unsupported.}]\nentries: []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Validate(s.DB, "a", out)
+	mustContain(t, problems(t, err), "item unsupported has no active guidance source; represent an input entry or omit the item")
+}
+
+func TestValidatePropagatesInheritedSourceQueryErrors(t *testing.T) {
+	s := openTest(t)
+	source := guidance(t, s, "a", "Guidance.", nil, "")
+	if err := s.Tx(func(tx *sql.Tx) error {
+		_, _, err := store.InstallGeneration(tx, "a", "", []store.NewItem{{Key: "supported", Body: "Item.", Sources: []string{source.ID}}}, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec("DROP TABLE brief_item_sources"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Parse([]byte("input_entries: []\nitems: [{key: supported, body: Revised.}]\nentries: []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Validate(s.DB, "a", out); err == nil || cli.CodeOf(err) == cli.ExitInvalid {
+		t.Fatalf("expected database error, got %v", err)
+	}
+}
+
 func TestCoverage(t *testing.T) {
 	s := openTest(t)
 	base := insert(t, s, store.NewRecord{Agent: "a", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Base."})
@@ -549,7 +704,6 @@ func TestLintAfterInstall(t *testing.T) {
 		"items:\n" +
 		"  - {key: common, body: both carry r1}\n" + // sources e1, e2: repo-id ∩ = r1, item lacks it → strong
 		"  - {key: disjoint, body: r1 vs r3}\n" + // sources e1, e3: disjoint values → nothing
-		"  - {key: orphan, body: no sources}\n" + // no sources → nothing
 		"entries:\n" +
 		"  - {id: " + e1.ID + ", disposition: represented, items: [common, disjoint]}\n" +
 		"  - {id: " + e2.ID + ", disposition: represented, items: [common]}\n" +
@@ -559,7 +713,7 @@ func TestLintAfterInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Items) != 3 {
+	if len(res.Items) != 2 {
 		t.Fatalf("items: %v", res.Items)
 	}
 	if len(res.Warnings) != 1 {

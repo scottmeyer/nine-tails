@@ -35,7 +35,7 @@ every recent guidance entry (with what its origin context rendered), plus the
 expect_generation / expect_base ids that "brief put" needs for compare-and-swap.
 Feed the output to a model and hand its reply to "brief put --stdin".
 The editorial method is the built-in default unless an agent named
-		"brief-compiler" has a base. Its current learned guidance is included with
+"brief-compiler" has a base. Its current learned guidance is included with
 explicit scope. The fixed mechanical and output contract is always present.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,7 +82,8 @@ equivalents real), compute coverage, and install it in one transaction if the
 expected generation and base are still active. Source entries are never
 consumed. Condition-loss warnings go to stderr and never block the install.
 Prints the new generation id; --format json prints {generation, items, warnings}.
-		--dry-run runs everything, rolls back, and prints what would be installed.`,
+--dry-run shows complete proposed items, their sources, and guidance left recent,
+then rolls back. This is global accounting, not a load-specific capsule.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateBriefFormat(format); err != nil {
@@ -139,6 +140,10 @@ func (a *app) installBrief(agent, expectGen, expectBase string, out *compile.Out
 			return err
 		}
 		if dryRun {
+			res.Preview, err = compile.BuildPreview(tx, agent, res.Generation)
+			if err != nil {
+				return err
+			}
 			res.DryRun = true
 			return errDryRun
 		}
@@ -175,16 +180,22 @@ func (a *app) printBriefResult(format string, res *compile.Result) error {
 		if inputs == nil {
 			inputs = []store.BriefInput{}
 		}
+		proposed, remaining := []compile.ItemView{}, []compile.SourceView{}
+		if res.Preview != nil {
+			proposed, remaining = res.Preview.ProposedItems, res.Preview.RemainingGuidance
+		}
 		// Inputs belong only to a dry-run plan. Keep a separate output view so
 		// an empty plan still says inputs: [], while the exact non-dry result
 		// continues to omit the field entirely.
 		return cli.Write(a.stdout, format, struct {
-			Generation string             `json:"generation" yaml:"generation"`
-			Items      []string           `json:"items" yaml:"items"`
-			Warnings   []compile.Warning  `json:"warnings" yaml:"warnings"`
-			Inputs     []store.BriefInput `json:"inputs" yaml:"inputs"`
-			DryRun     bool               `json:"dry_run" yaml:"dry_run"`
-		}{Generation: res.Generation, Items: res.Items, Warnings: res.Warnings, Inputs: inputs, DryRun: true})
+			Generation        string               `json:"generation" yaml:"generation"`
+			Items             []string             `json:"items" yaml:"items"`
+			Warnings          []compile.Warning    `json:"warnings" yaml:"warnings"`
+			Inputs            []store.BriefInput   `json:"inputs" yaml:"inputs"`
+			ProposedItems     []compile.ItemView   `json:"proposed_items" yaml:"proposed_items"`
+			RemainingGuidance []compile.SourceView `json:"remaining_guidance" yaml:"remaining_guidance"`
+			DryRun            bool                 `json:"dry_run" yaml:"dry_run"`
+		}{Generation: res.Generation, Items: res.Items, Warnings: res.Warnings, Inputs: inputs, ProposedItems: proposed, RemainingGuidance: remaining, DryRun: true})
 	}
 	res.Inputs = nil
 	switch format {

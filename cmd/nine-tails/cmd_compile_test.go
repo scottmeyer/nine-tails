@@ -46,6 +46,12 @@ func TestEmptyBriefDryRunKeepsInputsArrayOnlyInPlan(t *testing.T) {
 			if !ok || len(inputs) != 0 {
 				t.Fatalf("empty dry-run inputs = %#v, want []\n%s", plan["inputs"], dry.out)
 			}
+			for _, field := range []string{"proposed_items", "remaining_guidance"} {
+				values, ok := plan[field].([]any)
+				if !ok || len(values) != 0 {
+					t.Fatalf("empty dry-run %s = %#v, want []\n%s", field, plan[field], dry.out)
+				}
+			}
 
 			installed := h.okIn(doc, "brief", "put", "a", "--expect-generation", "none", "--expect-base", base, "--stdin", "--format", format)
 			var result map[string]any
@@ -55,8 +61,125 @@ func TestEmptyBriefDryRunKeepsInputsArrayOnlyInPlan(t *testing.T) {
 			if _, exists := result["inputs"]; exists {
 				t.Fatalf("non-dry result contains inputs: %s", installed.out)
 			}
+			for _, field := range []string{"proposed_items", "remaining_guidance", "dry_run"} {
+				if _, exists := result[field]; exists {
+					t.Fatalf("non-dry result contains %s: %s", field, installed.out)
+				}
+			}
+			if len(result) != 3 {
+				t.Fatalf("non-dry result changed its exact generation/items/warnings shape: %s", installed.out)
+			}
 		})
 	}
+}
+
+func TestBriefDryRunPreviewsInheritedSourcesAndCompleteRemainingGuidance(t *testing.T) {
+	h := newHarness(t)
+	base := h.ok("base", "a", "Base.").id(t)
+	split := h.ok("prefer", "a", "Keep this complete source body when either compiled fragment is dropped.", "--meta", "repo-id=r").id(t)
+	firstDoc := fmt.Sprintf(`input_entries: [%s]
+items:
+  - {key: first-half, body: First half., meta: {repo-id: r}}
+  - {key: second-half, body: Second half., meta: {repo-id: r}}
+entries:
+  - {id: %s, disposition: represented, items: [first-half, second-half]}
+`, split, split)
+	first := h.okIn(firstDoc, "brief", "put", "a", "--expect-generation", "none", "--expect-base", base, "--stdin", "--format", "json").json(t)
+	gen := first["generation"].(string)
+	deferred := h.ok("note", "a", "Deferred source remains complete.", "--meta", "repo-id=r").id(t)
+	compilerInput := h.ok("compile-input", "a").json(t)
+	if got := strs(t, compilerInput["input_entries"]); !equal(got, []string{deferred}) {
+		t.Fatalf("compiler input before append: %v", got)
+	}
+	// This source arrives after the compiler input was assembled, so it is not
+	// in the echoed accounting document but must remain visible in the preview.
+	unmentioned := h.ok("avoid", "a", "A source appended or omitted from compiler accounting remains visible.", "--meta", "repo-id=r").id(t)
+	nextDoc := fmt.Sprintf(`input_entries: [%s]
+items:
+  - {key: first-half, body: Revised first half., meta: {repo-id: r}}
+entries:
+  - {id: %s, disposition: deferred}
+`, deferred, deferred)
+
+	before := compileStoreCounts(t, h.home)
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			r := h.okIn(nextDoc, "brief", "put", "a", "--expect-generation", gen, "--expect-base", base, "--stdin", "--dry-run", "--format", format)
+			var plan map[string]any
+			if err := yaml.Unmarshal([]byte(r.out), &plan); err != nil {
+				t.Fatalf("decode %s preview: %v\n%s", format, err, r.out)
+			}
+			proposed := plan["proposed_items"].([]any)
+			if len(proposed) != 1 {
+				t.Fatalf("proposed items: %#v", proposed)
+			}
+			item := proposed[0].(map[string]any)
+			if item["key"] != "first-half" || item["body"] != "Revised first half." {
+				t.Errorf("proposed item: %#v", item)
+			}
+			meta := item["meta"].(map[string]any)
+			if !equal(strs(t, meta["repo-id"]), []string{"r"}) {
+				t.Errorf("proposed scope: %#v", meta)
+			}
+			sources := item["sources"].([]any)
+			if len(sources) != 1 {
+				t.Fatalf("inherited sources: %#v", sources)
+			}
+			source := sources[0].(map[string]any)
+			if source["id"] != split || source["body"] != "Keep this complete source body when either compiled fragment is dropped." {
+				t.Errorf("inherited source: %#v", source)
+			}
+
+			remaining := plan["remaining_guidance"].([]any)
+			if len(remaining) != 3 {
+				t.Fatalf("remaining guidance: %#v", remaining)
+			}
+			wantBodies := map[string]string{
+				split:       "Keep this complete source body when either compiled fragment is dropped.",
+				deferred:    "Deferred source remains complete.",
+				unmentioned: "A source appended or omitted from compiler accounting remains visible.",
+			}
+			for _, raw := range remaining {
+				record := raw.(map[string]any)
+				id := record["id"].(string)
+				if record["body"] != wantBodies[id] {
+					t.Errorf("remaining source %s: %#v", id, record)
+				}
+				delete(wantBodies, id)
+			}
+			if len(wantBodies) != 0 {
+				t.Errorf("missing remaining sources: %v", wantBodies)
+			}
+			if plan["dry_run"] != true || len(plan["inputs"].([]any)) != 1 {
+				t.Errorf("dry-run shape: %#v", plan)
+			}
+		})
+	}
+	after := compileStoreCounts(t, h.home)
+	if before != after {
+		t.Fatalf("dry runs persisted provisional records, generations, or receipts: before=%v after=%v", before, after)
+	}
+	if got := h.ok("compile-input", "a").json(t)["expect_generation"]; got != gen {
+		t.Fatalf("dry run changed active generation: %v", got)
+	}
+}
+
+type compileCounts struct{ records, generations, contexts int }
+
+func compileStoreCounts(t *testing.T, home string) compileCounts {
+	t.Helper()
+	s, err := store.Open(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var counts compileCounts
+	for table, target := range map[string]*int{"records": &counts.records, "brief_generations": &counts.generations, "contexts": &counts.contexts} {
+		if err := s.DB.QueryRow("SELECT COUNT(*) FROM " + table).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return counts
 }
 
 func TestBriefPutRejectsWrongConditionalFieldsEvenWhenEmpty(t *testing.T) {
@@ -273,8 +396,12 @@ entries:
 	// dry run: everything runs, nothing is written
 	r = h.okIn(doc2, "brief", "put", "pr-review", "--expect-generation", gen1, "--expect-base", base, "--stdin", "--dry-run")
 	dm := r.json(t)
-	if dm["dry_run"] != true || !strings.HasPrefix(dm["generation"].(string), "gen_") || len(dm["items"].([]any)) != 2 || len(dm["inputs"].([]any)) != 2 {
+	if dm["dry_run"] != true || !strings.HasPrefix(dm["generation"].(string), "gen_") || len(dm["items"].([]any)) != 2 || len(dm["inputs"].([]any)) != 2 || len(dm["proposed_items"].([]any)) != 2 {
 		t.Errorf("dry run output: %s", r.out)
+	}
+	proposed := dm["proposed_items"].([]any)[0].(map[string]any)
+	if proposed["body"] == nil || proposed["key"] == nil {
+		t.Errorf("dry run omitted proposed instruction: %v", proposed)
 	}
 	if !strings.Contains(r.err, "nine-tails: warning: ") {
 		t.Errorf("dry run should still report lint: %q", r.err)
@@ -544,7 +671,8 @@ func TestCompileFixRound(t *testing.T) {
 		"  brief item name \"Bad_Key\" must match ^[a-z0-9][a-z0-9.-]*$ (lowercase, no _ or /)\n" +
 		"  entry rec_88 is missing from entries\n" +
 		"  entry " + e1 + " is represented but lists no items\n" +
-		"  entry " + e2 + " cannot supersede itself\n"
+		"  entry " + e2 + " cannot supersede itself\n" +
+		"  item Bad_Key has no active guidance source; represent an input entry or omit the item\n"
 	if r.code != 2 || r.err != wantErr {
 		t.Errorf("combined report: %d\n got: %q\nwant: %q", r.code, r.err, wantErr)
 	}
@@ -554,7 +682,8 @@ func TestCompileFixRound(t *testing.T) {
 	wantErr = "nine-tails: compiler output is invalid\n" +
 		"  item k metadata key \"a=b\" may not be empty or contain whitespace, '=', '[' or ']'\n" +
 		"  item k metadata key \"c[\" may not be empty or contain whitespace, '=', '[' or ']'\n" +
-		"  item k metadata key \"sp ace\" may not be empty or contain whitespace, '=', '[' or ']'\n"
+		"  item k metadata key \"sp ace\" may not be empty or contain whitespace, '=', '[' or ']'\n" +
+		"  item k has no active guidance source; represent an input entry or omit the item\n"
 	for i := 0; i < 5; i++ {
 		if r = h.runIn(doc, "brief", "put", "a", "--stdin", "--expect-generation", "none", "--expect-base", base); r.code != 2 || r.err != wantErr {
 			t.Fatalf("run %d: %d %q", i, r.code, r.err)
@@ -594,7 +723,8 @@ func TestCompileFixRound(t *testing.T) {
 	r = h.run("compile", "a", "--compiler", "sh "+reordered)
 	wantErr = "nine-tails: compiler output is invalid\n" +
 		"  input_entries must echo the compile input's input_entries [" + e1 + ", " + e2 + "] unchanged, got [" + e2 + ", " + e1 + "]\n" +
-		"  item k has an empty body\n"
+		"  item k has an empty body\n" +
+		"  item k has no active guidance source; represent an input entry or omit the item\n"
 	if r.code != 2 || r.err != wantErr {
 		t.Errorf("reordered echo: %d\n got: %q\nwant: %q", r.code, r.err, wantErr)
 	}

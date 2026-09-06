@@ -1709,6 +1709,15 @@ Installation succeeds only if:
   immutable ID and usable state.
 - Every input entry has a valid disposition.
 - Every referenced output item key exists in the response.
+- Every emitted item has at least one active ordinary guidance source owned by
+  the target agent, assigned by a represented input or inherited from the active
+  generation's same-key item and resolved through source successors. Base text
+  and equivalent-record hints do not count as guidance sources.
+
+Source support is a provenance check, not proof that the new wording preserves
+meaning. Unsupported output MUST be rejected before installation. Legacy or
+imported items without sources remain unchanged until replaced; a later compiler
+response must omit them or link supported meaning through ordinary guidance.
 
 Within one transaction Lore:
 
@@ -1736,6 +1745,14 @@ compiler input. Surviving items may retain their source relationships without
 claiming complete representation. Projection of `superseded-by` accounting
 follows ordinary immutable replacements of the successor, retaining eligibility,
 renderability and cycle checks without rewriting historical accounting edges.
+
+An installation dry run MUST expose the complete proposed items and their current
+source bodies, scopes, and identities, including inherited sources. It MUST also
+expose guidance that remains recent under the proposed generation's accounting,
+including deferred, unmentioned, and restored source records. Assemble this view
+inside the same transaction before rolling it back. Empty collections remain
+empty arrays. The preview does not create a context receipt or measure a scoped
+capsule; real loads may additionally restore sources through contextual fallback.
 
 ### 12.5 Coverage classification
 
