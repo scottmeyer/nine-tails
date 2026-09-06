@@ -77,6 +77,15 @@ acceptance criteria; they do not show that another layer of standing guidance
 would have prevented the mistakes. This was ordinary product work, not a
 controlled model comparison.
 
+The context audit found a separate retrieval problem: the engineer's rules-UI
+receipt still included an old grid-game handoff memory with obsolete mechanics
+and test counts. Its owner replaced that entry with the transferable transition
+and verification experience, preserving the earlier record as history. The
+replacement retains the useful old lesson about explicit role handling and adds
+the observed restart/rewind and fixture-versus-public-route mistakes. This is a
+semantic cleanup of stale facts, not age-based deletion or proof that the old
+memory caused the implementation failures.
+
 Ravel completed four fresh exploratory rounds and one corrected follow-up.
 He kept one evolving state, made a return note, chose independent new work,
 then reopened the source when a later adaptation needed details absent from its
