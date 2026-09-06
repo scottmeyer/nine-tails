@@ -24,8 +24,10 @@ loading more specialists. It carries what is current: game format, purpose,
 artifacts and validation. Keep durable user preferences in applicable guidance.
 A correction saved only on the coordinator is not automatically inherited by a
 child role: parent receipts carry provenance and metadata, not the parent’s
-knowledge. Share the current project state through each role’s scoped state link
-and include the actual task in the delegation. Reconcile obsolete role-owned
+knowledge. Subscribe selected roles to the coordinator's scoped guidance with
+`agent follow <role>/project workshop --expect none --meta repo-id=<project>`.
+Share current project facts through each role’s scoped state link and include
+the actual task in the delegation. Reconcile obsolete role-owned
 pointers or instructions when discovered. Do not rewrite historical experience.
 
 The physics and game-feel roles are reusable; their seeds contain no Soccer Chess
@@ -35,6 +37,8 @@ absent role individually, then link it to the project state as needed:
 ```sh
 nine-tails state link game.physics/project workshop/soccer-chess --expect none --meta repo-id=soccer-chess
 nine-tails state link game.feel/project workshop/soccer-chess --expect none --meta repo-id=soccer-chess
+nine-tails agent follow game.physics/project workshop --expect none --meta repo-id=soccer-chess
+nine-tails agent follow game.feel/project workshop --expect none --meta repo-id=soccer-chess
 ```
 
 Visual design and code review are separate reusable seeds. Existing personalized
