@@ -38,7 +38,7 @@ func TestRecallIsRelevantBoundedDataAndReceiptMatches(t *testing.T) {
 	var got []string
 	for _, r := range c.Recall {
 		got = append(got, r.ID)
-		if utf8.RuneCountInString(r.Excerpt) > 360 || !utf8.ValidString(r.Excerpt) || r.Inspect != "nine-tails inspect "+r.ID {
+		if utf8.RuneCountInString(r.Excerpt) > 360 || !utf8.ValidString(r.Excerpt) || r.Inspect != "nine-tails inspect "+r.Ref {
 			t.Errorf("invalid recall view: %+v", r)
 		}
 		if strings.Contains(c.Instructions, r.Excerpt) {
@@ -190,5 +190,38 @@ func TestCompilerSupersessionCannotHideInapplicableSuccessorOrCycle(t *testing.T
 				t.Fatalf("unsafe supersession in mode %s: %s", mode, c.Instructions)
 			}
 		})
+	}
+}
+
+func TestRecallCarriesHistoricalDateAndItsOwnOrigin(t *testing.T) {
+	s := setup(t)
+	insert(t, s, store.NewRecord{Agent: "coach", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Coach."})
+	earlier, err := Load(s, Request{Agent: "coach", Task: "Observe passing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory := insert(t, s, store.NewRecord{Agent: "coach", Lane: "recall", Kind: "memory", Body: "Passing routes were unclear in the early interface.", OriginContext: earlier.ContextID})
+	c, err := Load(s, Request{Agent: "coach", Task: "Revise passing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Recall) != 1 {
+		t.Fatal(c.Recall)
+	}
+	r := c.Recall[0]
+	ref, err := store.Reference(s.DB, memory.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Ref != ref || r.CreatedAt != memory.CreatedAt || r.OriginContext != earlier.ContextID || r.OriginContextRef != earlier.ContextRef || r.OriginContext == c.ContextID {
+		t.Fatalf("lost historical provenance: %+v", r)
+	}
+	date, _, _ := strings.Cut(memory.CreatedAt, "T")
+	if !strings.Contains(c.Markdown, "recorded "+date) || !strings.Contains(c.Markdown, "recall="+ref) || strings.Contains(c.Instructions, memory.Body) {
+		t.Fatal(c.Markdown)
+	}
+	inspected, err := store.ResolveReference(s.DB, r.Ref)
+	if err != nil || inspected != memory.ID {
+		t.Fatal(inspected, err)
 	}
 }

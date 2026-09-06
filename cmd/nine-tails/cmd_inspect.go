@@ -107,9 +107,18 @@ type briefView struct {
 type recordView struct {
 	Ref                  string `json:"ref" yaml:"ref"`
 	store.RecordEnvelope `yaml:",inline"`
-	Delivery             *deliveryView     `json:"delivery,omitempty" yaml:"delivery,omitempty"`
-	RenderedIn           []string          `json:"rendered_in" yaml:"rendered_in"`
-	Sources              *briefSourcesView `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Delivery             *deliveryView      `json:"delivery,omitempty" yaml:"delivery,omitempty"`
+	RenderedIn           []string           `json:"rendered_in" yaml:"rendered_in"`
+	Sources              *briefSourcesView  `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Current              *currentRecordView `json:"current,omitempty" yaml:"current,omitempty"`
+}
+
+// A historical record remains the requested record. The separate current
+// envelope provides a forward repair path through any number of replacements.
+// Its status may be disabled: having a successor does not make it active.
+type currentRecordView struct {
+	Ref                  string `json:"ref" yaml:"ref"`
+	store.RecordEnvelope `yaml:",inline"`
 }
 
 // Recorded evidence explains the historical brief. Current successors are
@@ -451,6 +460,21 @@ func (a *app) inspectByID(id string) (any, bool, error) {
 		return nil, false, err
 	}
 	v := recordView{Ref: ref, RecordEnvelope: rec.Envelope(), RenderedIn: []string{}}
+	currentID, err := store.LatestSuccessor(db, id)
+	if err != nil {
+		return nil, false, err
+	}
+	if currentID != id {
+		current, err := store.GetRecord(db, currentID)
+		if err != nil {
+			return nil, false, err
+		}
+		currentRef, err := store.Reference(db, currentID)
+		if err != nil {
+			return nil, false, err
+		}
+		v.Current = &currentRecordView{Ref: currentRef, RecordEnvelope: current.Envelope()}
+	}
 	if rec.Kind == "brief-item" {
 		v.Sources, err = briefSources(db, id)
 		if err != nil {

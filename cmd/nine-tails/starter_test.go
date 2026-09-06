@@ -18,22 +18,16 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## Capsule protocol",
-		"## The loop",
+		"## Discovery",
 		"On the first load in a session",
-		"nine-tails call --context ctx_M <tool>",
 		"Context receipts prove past loads, not live workers.",
 		"Keep bases project-neutral.",
 		"nine-tails state link <role>/<alias> <owner>/<name>",
 		"without copying values. Both scopes",
 		"omitted link metadata means unqualified.",
 		"A load does not itself spawn a worker.",
-		"Marks report usefulness, not verified correctness or compliance.",
 		"A direct named load,",
 		"no guide load is required.",
-		"reflect briefly inline.",
-		"Zero writes is valid; keep play and conversation natural.",
-		"For difficult reconciliation, optionally load `reflector`",
-		"No scoring exercise is required.",
 		"up to three relevant recall excerpts as data",
 		"New guidance applies on the next relevant load without compilation.",
 		"Original lessons remain authoritative; compilation is a cache,",
@@ -45,7 +39,7 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 			t.Errorf("pilot capsule lacks %q:\n%s", want, r.out)
 		}
 	}
-	for _, obsolete := range []string{"within the last hour means", `--compiler "claude -p"`, "done or blocked) load reflector", "Before you finish, close your receipt", "try a small task from"} {
+	for _, obsolete := range []string{"within the last hour means", `--compiler "claude -p"`, "done or blocked) load reflector", "Before you finish, close your receipt", "try a small task from", "## The loop", "--context ctx_M", "--context ctx_N"} {
 		if strings.Contains(r.out, obsolete) {
 			t.Errorf("pilot capsule retains obsolete guidance %q:\n%s", obsolete, r.out)
 		}
@@ -79,7 +73,7 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 	r := h.ok("load", "reflector", "--task", "Reflect", "--context", parent)
 
 	for _, want := range []string{
-		"parent `" + parentRef + "` -> `pilot`",
+		"parent `pilot` receipt `" + parentRef + "`",
 		"pass the parent receipt to every command",
 		"Never use this new reflector receipt for episode updates",
 		"receipt is present, make",

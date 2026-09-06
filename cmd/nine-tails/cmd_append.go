@@ -17,11 +17,13 @@ type appendOpts struct {
 	stdin      bool
 	format     string
 	supersedes string
+	clearMeta  bool
 }
 
 func (o *appendOpts) bind(c *cobra.Command) {
-	c.Flags().StringArrayVar(&o.meta, "meta", nil, "applicability metadata key=value (repeatable)")
-	c.Flags().StringVar(&o.supersedes, "supersedes", "", "replace this active record of the same agent and lane; --meta becomes its exact scope, and without TEXT its body is kept")
+	c.Flags().StringArrayVar(&o.meta, "meta", nil, "applicability metadata key=value (repeatable); replaces complete scope on correction, omission preserves it")
+	c.Flags().BoolVar(&o.clearMeta, "clear-meta", false, "explicitly remove all metadata (mutually exclusive with --meta)")
+	c.Flags().StringVar(&o.supersedes, "supersedes", "", "replace this active record of the same agent and lane; omitted --meta preserves scope, and without TEXT its body is kept")
 	c.Flags().StringVar(&o.context, "context", "", "originating context receipt id (ctx_..., not a record id); also supplies the agent when <agent> is omitted")
 	c.Flags().BoolVar(&o.stdin, "stdin", false, "read the body from stdin instead of the argument")
 	c.Flags().StringVar(&o.format, "format", "id", "id (one line) | json | yaml")
@@ -66,6 +68,9 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 	if err := validateRecordFormat(o.format); err != nil {
 		return err
 	}
+	if o.clearMeta && len(o.meta) > 0 {
+		return cli.Invalid("--clear-meta and --meta are mutually exclusive")
+	}
 	if err := a.open(); err != nil {
 		return err
 	}
@@ -104,6 +109,13 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 		var err error
 		nr := store.NewRecord{Agent: agent, Lane: lane, Kind: kind, Name: name, Body: body, OriginContext: o.context, Meta: meta}
 		if o.supersedes != "" {
+			if !o.clearMeta && len(o.meta) == 0 {
+				old, err := store.GetRecord(tx, o.supersedes)
+				if err != nil {
+					return err
+				}
+				nr.Meta = old.Meta.Clone()
+			}
 			rec, err = store.ReplaceRecord(tx, o.supersedes, nr)
 		} else {
 			rec, err = store.InsertRecord(tx, nr)
@@ -151,7 +163,12 @@ recent adjustments and can be condensed into the brief; recall is retrieved
 by task on load or by explicit lookup. Unknown kinds are allowed. --lane defaults to recall, so unknown
 material never silently becomes always-on guidance. Definitions, state and
 signals have their own commands (put, base, state put, tool add, agent add,
-signal). With --context the <agent> may be omitted.`,
+signal). With --context the <agent> may be omitted.
+
+With --supersedes, omitted --meta preserves the prior scope. Explicit --meta
+replaces the complete set; --clear-meta explicitly removes it. Without TEXT
+or --stdin, the prior body is kept. New records are unscoped unless --meta
+is supplied; --context never copies ambient scope into a new record.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if lane == "" {
 				lane = "recall"
@@ -247,8 +264,10 @@ not the new record.`, `  nine-tails remember pr-review "GitHub may omit large pa
 	long += `
 
 Use --supersedes rec_... to replace an active record of the same agent and
-lane. With no TEXT or --stdin, it keeps the old body; --meta becomes the exact
-new applicability scope. This fixes scope without editing history.`
+lane. With no TEXT or --stdin, it keeps the old body. Omitted --meta preserves
+the prior scope; explicit --meta replaces the complete set. Use --clear-meta
+to remove all scope, never together with --meta. New records remain unscoped
+unless --meta is supplied. This fixes scope without editing history.`
 	return long, example
 }
 

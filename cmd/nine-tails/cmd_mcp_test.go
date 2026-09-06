@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -190,5 +191,227 @@ func TestMCPExplicitEmptyStateMetadataClearsScope(t *testing.T) {
 	mcpText(t, mcpResponses(t, r.out)[1])
 	if strings.Contains(h.ok("state", "get", "a/working").out, "alpha") {
 		t.Fatal("explicit empty metadata did not clear scope")
+	}
+}
+
+func TestMCPLearningCorrectionScope(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		want map[string]any
+	}{
+		{"omitted", nil, map[string]any{"repo-id": []any{"original"}, "language": []any{"go", "typescript"}}},
+		{"false-preserves", map[string]any{"clear_meta": false}, map[string]any{"repo-id": []any{"original"}, "language": []any{"go", "typescript"}}},
+		{"replacement", map[string]any{"meta": map[string]any{"repo-id": "new"}}, map[string]any{"repo-id": []any{"new"}}},
+		{"false-and-replacement", map[string]any{"clear_meta": false, "meta": map[string]any{"repo-id": "new"}}, map[string]any{"repo-id": []any{"new"}}},
+		{"empty", map[string]any{"meta": map[string]any{}}, map[string]any{}},
+		{"false-and-empty", map[string]any{"clear_meta": false, "meta": map[string]any{}}, map[string]any{}},
+		{"clear", map[string]any{"clear_meta": true}, map[string]any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.ok("base", "a", "A.")
+			ctx := contextID(t, h.ok("load", "a", "--meta", "repo-id=ambient-other").out)
+			old := h.ok("note", "a", "--meta", "repo-id=original", "--meta", "language=go", "--meta", "language=typescript", "Original lesson").id(t)
+			args := map[string]any{"context": ctx, "body": "Corrected lesson", "supersedes": old}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			packet, err := json.Marshal(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := h.okIn(mcpHello+fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":%s}}`+"\n", packet), "mcp")
+			var record map[string]any
+			if err := json.Unmarshal([]byte(mcpText(t, mcpResponses(t, r.out)[1])), &record); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(record["meta"], tc.want) || record["body"] != "Corrected lesson" || record["supersedes"] != old || record["origin_context"] != ctx {
+				t.Fatalf("wrong replacement envelope: %+v", record)
+			}
+			if h.ok("inspect", old).json(t)["status"] != "superseded" {
+				t.Fatal("predecessor was not replaced")
+			}
+		})
+	}
+}
+
+func TestMCPLearningNewScopeAndInvalidClear(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "A.")
+	ctx := contextID(t, h.ok("load", "a", "--meta", "repo-id=ambient-other").out)
+	old := h.ok("note", "a", "--meta", "repo-id=original", "Original lesson").id(t)
+	for _, fields := range []string{
+		`"clear_meta":"true"`, `"clear_meta":1`, `"clear_meta":null`, `"clear_meta":{}`, `"clear_meta":[]`,
+		`"clear_meta":true,"meta":{}`, `"clear_meta":true,"meta":{"repo-id":"new"}`,
+	} {
+		packet := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":{"context":%q,"body":"Changed","supersedes":%q,%s}}}`+"\n", ctx, old, fields)
+		r := h.okIn(mcpHello+packet, "mcp")
+		response := mcpResponses(t, r.out)[1]
+		if failure, ok := response["error"].(map[string]any); !ok || failure["code"] != float64(-32602) {
+			t.Fatalf("invalid clear arguments were not rejected by protocol validation: %s\n%s", fields, r.out)
+		}
+		if record := h.ok("inspect", old).json(t); record["status"] != "active" || record["body"] != "Original lesson" || !reflect.DeepEqual(record["meta"], map[string]any{"repo-id": []any{"original"}}) {
+			t.Fatalf("invalid correction changed predecessor: %+v", record)
+		}
+	}
+	for _, fields := range []string{"", `,"clear_meta":false`, `,"clear_meta":true`, `,"meta":{}`} {
+		packet := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":{"context":%q,"body":"New lesson"%s}}}`+"\n", ctx, fields)
+		r := h.okIn(mcpHello+packet, "mcp")
+		var record map[string]any
+		if err := json.Unmarshal([]byte(mcpText(t, mcpResponses(t, r.out)[1])), &record); err != nil {
+			t.Fatal(err)
+		}
+		if len(record["meta"].(map[string]any)) != 0 {
+			t.Fatalf("new learning inherited ambient scope: %+v", record)
+		}
+	}
+}
+
+func TestMCPLearningMetadataOnlyCorrectionKeepsBody(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		want map[string]any
+	}{
+		{"preserve", nil, map[string]any{"repo-id": []any{"original"}, "language": []any{"go"}}},
+		{"exact", map[string]any{"meta": map[string]any{"repo-id": "new"}}, map[string]any{"repo-id": []any{"new"}}},
+		{"clear", map[string]any{"clear_meta": true}, map[string]any{}},
+		{"empty", map[string]any{"meta": map[string]any{}}, map[string]any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.ok("base", "a", "A.")
+			ctx := contextID(t, h.ok("load", "a", "--meta", "repo-id=ambient-other").out)
+			const body = "Original line.\n\nKeep this exact paragraph."
+			old := h.ok("prefer", "a", "--meta", "repo-id=original", "--meta", "language=go", body).id(t)
+			args := map[string]any{"context": ctx, "supersedes": old}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			packet, err := json.Marshal(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := h.okIn(mcpHello+fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":%s}}`+"\n", packet), "mcp")
+			var record map[string]any
+			if err := json.Unmarshal([]byte(mcpText(t, mcpResponses(t, r.out)[1])), &record); err != nil {
+				t.Fatal(err)
+			}
+			if record["body"] != body || record["kind"] != "prefer" || !reflect.DeepEqual(record["meta"], tc.want) || record["supersedes"] != old || record["origin_context"] != ctx {
+				t.Fatalf("metadata-only correction lost text, scope, kind or provenance: %+v", record)
+			}
+			if historical := h.ok("inspect", old).json(t); historical["body"] != body || historical["status"] != "superseded" {
+				t.Fatalf("metadata-only correction rewrote history: %+v", historical)
+			}
+		})
+	}
+}
+
+func TestMCPLearningRejectsMissingBodyOrPredecessorBeforeStore(t *testing.T) {
+	h := newHarness(t)
+	for _, fields := range []string{"", `,"meta":{}`, `,"clear_meta":true`, `,"supersedes":""`, `,"body":""`, `,"body":null`, `,"body":"","supersedes":"rec_MISSING"`} {
+		packet := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":{"context":"ctx_MISSING"%s}}}`+"\n", fields)
+		r := h.okIn(mcpHello+packet, "mcp")
+		response := mcpResponses(t, r.out)[1]
+		if failure, ok := response["error"].(map[string]any); !ok || failure["code"] != float64(-32602) {
+			t.Fatalf("invalid body omission did not fail protocol validation: %s\n%s", fields, r.out)
+		}
+		if _, err := os.Stat(filepath.Join(h.home, "nine-tails.db")); !os.IsNotExist(err) {
+			t.Fatalf("invalid body omission touched store: %v", err)
+		}
+	}
+}
+
+func TestMCPLearningMetadataOnlyPreservesTypeAndBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		command []string
+		kind    string
+		lane    string
+	}{
+		{[]string{"note"}, "note", "guidance"},
+		{[]string{"prefer"}, "prefer", "guidance"},
+		{[]string{"avoid"}, "avoid", "guidance"},
+		{[]string{"remember"}, "memory", "recall"},
+		{[]string{"append", "--lane", "guidance", "--kind", "principle"}, "principle", "guidance"},
+		{[]string{"append", "--lane", "recall", "--kind", "incident"}, "incident", "recall"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			h := newHarness(t)
+			h.ok("base", "a", "A.")
+			h.ok("base", "b", "B.")
+			ctx := contextID(t, h.ok("load", "a").out)
+			other := contextID(t, h.ok("load", "b").out)
+			old := h.ok(append(append([]string{}, tc.command...), "a", "Exact lesson")...).id(t)
+			call := func(context string, extra string) map[string]any {
+				packet := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":{"context":%q,"supersedes":%q%s}}}`+"\n", context, old, extra)
+				return mcpResponses(t, h.okIn(mcpHello+packet, "mcp").out)[1]
+			}
+			if call(other, "")["result"].(map[string]any)["isError"] != true {
+				t.Fatal("metadata-only inference bypassed predecessor ownership")
+			}
+			crossLaneKind := "remember"
+			if tc.lane == "recall" {
+				crossLaneKind = "note"
+			}
+			if call(ctx, fmt.Sprintf(`,"kind":%q`, crossLaneKind))["result"].(map[string]any)["isError"] != true {
+				t.Fatal("explicit metadata-only kind change crossed a lane boundary")
+			}
+			var record map[string]any
+			if err := json.Unmarshal([]byte(mcpText(t, call(ctx, `,"meta":{"repo-id":"new"}`))), &record); err != nil {
+				t.Fatal(err)
+			}
+			if record["kind"] != tc.kind || record["lane"] != tc.lane || record["body"] != "Exact lesson" || !reflect.DeepEqual(record["meta"], map[string]any{"repo-id": []any{"new"}}) {
+				t.Fatalf("metadata-only repair changed meaning: %+v", record)
+			}
+			if call(ctx, "")["result"].(map[string]any)["isError"] != true {
+				t.Fatal("metadata-only inference forwarded an inactive predecessor")
+			}
+		})
+	}
+}
+
+func TestMCPLearningUnchangedCorrectionKeepsBriefCoverage(t *testing.T) {
+	h := newHarness(t)
+	base := h.ok("base", "a", "A.").id(t)
+	old := h.ok("avoid", "a", "Duplicating mutable project status.").id(t)
+	doc := fmt.Sprintf("input_entries: [%s]\nitems:\n  - {key: mutable-status, body: Keep current project status in one place.}\nentries:\n  - {id: %s, disposition: represented, items: [mutable-status]}\n", old, old)
+	h.okIn(doc, "brief", "put", "a", "--expect-generation", "none", "--expect-base", base, "--stdin")
+	before := h.ok("compile-input", "a").json(t)["active_generation"].(map[string]any)["id"]
+	ctx := contextID(t, h.ok("load", "a").out)
+	packet := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":{"context":%q,"supersedes":%q}}}`+"\n", ctx, old)
+	response := mcpResponses(t, h.okIn(mcpHello+packet, "mcp").out)[1]
+	mcpText(t, response)
+	if after := h.ok("compile-input", "a").json(t)["active_generation"].(map[string]any)["id"]; after != before {
+		t.Fatal("omitted body/kind/scope changed the brief generation")
+	}
+	if out := h.ok("load", "a").out; strings.Contains(out, "## Recent adjustments") || !strings.Contains(out, "Keep current project status in one place.") {
+		t.Fatalf("unchanged metadata-only correction lost brief coverage:\n%s", out)
+	}
+}
+
+func TestMCPLearningExplicitKindAndBodyPresentDefault(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "A.")
+	ctx := contextID(t, h.ok("load", "a").out)
+	old := h.ok("avoid", "a", "--meta", "repo-id=original", "Original lesson").id(t)
+	for _, tc := range []struct {
+		fields string
+		kind   string
+		body   string
+	}{
+		{`,"kind":"prefer"`, "prefer", "Original lesson"},
+		{`,"body":"Corrected lesson"`, "note", "Corrected lesson"},
+	} {
+		packet := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nt_learn","arguments":{"context":%q,"supersedes":%q%s}}}`+"\n", ctx, old, tc.fields)
+		response := mcpResponses(t, h.okIn(mcpHello+packet, "mcp").out)[1]
+		var record map[string]any
+		if err := json.Unmarshal([]byte(mcpText(t, response)), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record["kind"] != tc.kind || record["body"] != tc.body || !reflect.DeepEqual(record["meta"], map[string]any{"repo-id": []any{"original"}}) {
+			t.Fatalf("explicit kind or body-present default changed: %+v", record)
+		}
+		old = record["id"].(string)
 	}
 }

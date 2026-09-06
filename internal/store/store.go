@@ -702,17 +702,27 @@ func InsertRecord(tx Querier, nr NewRecord) (*Record, error) {
 
 // ReplaceRecord inserts nr as the successor of the active record oldID, which
 // must belong to the same agent and lane. An empty nr.Body keeps the
-// predecessor's body. A guidance successor with the predecessor's body is a
-// retag, not new guidance: it inherits the predecessor's brief coverage and
-// item sources, so it never renders as a recent adjustment. A changed body is
-// new guidance: invalidate any dependent brief generation in the same
-// transaction, so only surviving sources render until the next compile.
+// predecessor's body. An unchanged body, kind and metadata set retains brief
+// coverage. Any change in meaning or applicability invalidates dependent
+// derived guidance in the same transaction. Sources then render directly;
+// a stale compiled scope must not survive a corrected source.
 func ReplaceRecord(tx Querier, oldID string, nr NewRecord) (*Record, error) {
 	old, err := GetRecord(tx, oldID)
 	if err != nil {
 		return nil, err
 	}
 	if old.Status != "active" {
+		latest, err := LatestSuccessor(tx, oldID)
+		if err != nil {
+			return nil, err
+		}
+		if latest != oldID {
+			ref, err := Reference(tx, latest)
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("%w: %s is not an active record; inspect its latest replacement with `nine-tails inspect %s` before correcting it", ErrConflict, oldID, ref)
+		}
 		return nil, fmt.Errorf("%w: %s is not an active record", ErrConflict, oldID)
 	}
 	if old.Agent != nr.Agent || old.Lane != nr.Lane {
@@ -721,7 +731,8 @@ func ReplaceRecord(tx Querier, oldID string, nr NewRecord) (*Record, error) {
 	if nr.Body == "" {
 		nr.Body = old.Body
 	}
-	if old.Lane == "guidance" && nr.Body != old.Body {
+	unchanged := nr.Body == old.Body && nr.Kind == old.Kind && sameMetadata(nr.Meta, old.Meta)
+	if old.Lane == "guidance" && !unchanged {
 		// Check before inserting the successor: superseded-by accounting may
 		// depend on oldID being the latest record in its replacement chain.
 		if _, err := InvalidateGenerationForGuidance(tx, old.Agent, old.ID); err != nil {
@@ -733,7 +744,7 @@ func ReplaceRecord(tx Querier, oldID string, nr NewRecord) (*Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	if rec.Lane == "guidance" && rec.Body == old.Body {
+	if rec.Lane == "guidance" && unchanged {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO brief_inputs(generation_id, entry_record_id, disposition, coverage, successor_record_id)
 			SELECT generation_id, ?, disposition, coverage, successor_record_id FROM brief_inputs WHERE entry_record_id = ?`, rec.ID, oldID); err != nil {
 			return nil, err
@@ -746,10 +757,34 @@ func ReplaceRecord(tx Querier, oldID string, nr NewRecord) (*Record, error) {
 	return rec, nil
 }
 
+// Applicability uses value sets; changing only their order does not change a
+// source's scope. Nil and an empty metadata map both mean unqualified.
+func sameMetadata(a, b Meta) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, values := range a {
+		if len(values) != len(b[key]) {
+			return false
+		}
+		for _, value := range values {
+			if !b.Contains(key, value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // LatestSuccessor follows supersession forward from id and returns the last
 // record in the chain (id itself when nothing supersedes it).
 func LatestSuccessor(q Querier, id string) (string, error) {
+	seen := map[string]bool{}
 	for {
+		if seen[id] {
+			return "", fmt.Errorf("cyclic supersession history at %s", id)
+		}
+		seen[id] = true
 		var next string
 		err := q.QueryRow(`SELECT id FROM records WHERE supersedes_id = ? ORDER BY rowid DESC LIMIT 1`, id).Scan(&next)
 		if errors.Is(err, sql.ErrNoRows) {

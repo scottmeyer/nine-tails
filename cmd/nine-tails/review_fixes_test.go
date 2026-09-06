@@ -34,7 +34,7 @@ func TestStateLaneHasOneKind(t *testing.T) {
 	if r := h.ok("state", "get", "a/working"); r.out != "source: put\n" {
 		t.Fatalf("state get after a generic put: %q", r.out)
 	}
-	if r := h.ok("load", "a"); strings.Count(r.out, "## Current state (working, ") != 1 {
+	if r := h.ok("load", "a"); strings.Count(r.out, "## Current state (a/working, ") != 1 {
 		t.Fatalf("expected exactly one working state in the capsule:\n%s", r.out)
 	}
 }

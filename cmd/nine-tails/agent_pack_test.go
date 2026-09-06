@@ -43,7 +43,7 @@ func TestRepositoryAgentPackImportsIntoFreshStore(t *testing.T) {
 	if !strings.Contains(builder, "# nine-tails Builder") || !strings.Contains(builder, "## Capsule protocol") {
 		t.Fatalf("builder pack did not produce a guided capsule:\n%s", builder)
 	}
-	if !strings.Contains(builder, "parent `"+initialPilotRef+"` -> `pilot`") {
+	if !strings.Contains(builder, "parent `pilot` receipt `"+initialPilotRef+"`") {
 		t.Fatalf("builder did not inherit the original pre-catalog pilot receipt:\n%s", builder)
 	}
 }

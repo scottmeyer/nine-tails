@@ -29,8 +29,10 @@ records:
 
       - `nine-tails state put <name> --context <parent-receipt> --expect <state-id|none> --stdin`
       - `nine-tails prefer|avoid|note|remember --context <parent-receipt> "..."`
-      - Add `--supersedes <source-id>` with full replacement text and scope
-        when guidance changes; preserve the link instead of adding a contradiction
+      - Add `--supersedes <source-id>` with replacement text when guidance
+        changes; preserve the link instead of adding a contradiction. Omitted
+        --meta preserves scope, explicit --meta replaces the complete set,
+        and --clear-meta removes it; never combine the two flags.
       - `nine-tails signal [<wake-agent>] --subject "..." --context <parent-receipt>`
       - `nine-tails tool add <parent-agent> <tool> --script <reviewed-path> --description "..." --context <parent-receipt>`
       - `nine-tails disable <exact-active-record-id>` only when it is obsolete

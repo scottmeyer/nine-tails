@@ -96,6 +96,11 @@ func contextID(t *testing.T, md string) string {
 	return rest[:strings.Index(rest, "]")]
 }
 
+func localRef(t *testing.T, h *harness, id string) string {
+	t.Helper()
+	return h.ok("inspect", id, "--format", "json").json(t)["ref"].(string)
+}
+
 func TestSmokeBaseAndLoad(t *testing.T) {
 	h := newHarness(t)
 	r := h.run("load", "nobody")
@@ -205,7 +210,7 @@ func TestStateCAS(t *testing.T) {
 		t.Errorf("state get should name the current id on stderr: %q", r.err)
 	}
 	r = h.ok("load", "a")
-	if !strings.Contains(r.out, "## Current state (working, "+s2+")\n\n```yaml\nstatus: waiting\nnext: recheck\n```") {
+	if !strings.Contains(r.out, "## Current state (a/working, "+localRef(t, h, s2)+")\n\n```yaml\nstatus: waiting\nnext: recheck\n```") {
 		t.Errorf("state not in capsule:\n%s", r.out)
 	}
 	r = h.ok("inspect", s1)

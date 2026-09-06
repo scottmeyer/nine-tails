@@ -162,14 +162,16 @@ nine-tails avoid --context <pr-review-context-id> --meta repo-id=my-project \
 
 The next `load` includes those adjustments. Pass metadata on a write only when
 the knowledge should be scoped by that metadata; otherwise it remains useful
-wherever the agent runs. To repair a wrong scope without editing history, pass
-the active record to `--supersedes`; omit new text to keep its body and provide
-the exact replacement scope with `--meta`. To retire an obsolete active record
+wherever the agent runs. Correct an active record with `--supersedes`; omitting
+`--meta` preserves its complete scope. To repair a wrong scope, provide the
+exact replacement set with `--meta`, or use `--clear-meta` to remove all scope.
+The two flags are mutually exclusive. Omit new text to keep the prior body.
+New records never inherit ambient context metadata. To retire an obsolete active record
 without a replacement, use `disable <record-id>`; it remains inspectable by ID
 and under its agent's `inspect --all` history. Retiring compiled guidance
 invalidates that brief generation as an inseparable cache; surviving sources
 appear immediately as recent guidance. Replacing a compiled source with changed
-text does the same: obsolete compiled advice disappears on the next load,
+text, instruction kind, or applicability scope does the same: obsolete compiled advice disappears on the next load,
 without waiting for a compiler. Recompile when useful to compact the surviving
 notes, not to make the correction take effect.
 
@@ -187,6 +189,16 @@ an `architect`, framework roles, and a game team: `game.designer`,
 to add absent roles while preserving personalized agents already in your
 store. [The workshop cycle](docs/workshop-cycle.md) describes collaboration and
 the Soccer Chess work used to identify friction in ordinary agent handoffs.
+
+When an old phrase finds a superseded lesson, `inspect @N` preserves its
+historical text and shows the current replacement separately, including its
+short reference and scope. A stale write stays a conflict and points you to
+that replacement. Recall shows when an observation was recorded so earlier
+conditions are not mistaken for current project state.
+
+[The context graph direction](docs/context-graph.md) describes how these
+relationships support fresh context projections. [This friction review](docs/friction-2026-09-06.md)
+records the concrete changes and remaining limits.
 
 ## What should be persisted?
 

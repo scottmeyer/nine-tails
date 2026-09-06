@@ -56,7 +56,7 @@ func TestStateLinkSurfacesCurrentDataAndExactReceipts(t *testing.T) {
 		t.Fatalf("receipt: %#v", ids)
 	}
 	md := h.ok("load", "engineer", "--meta", "repo-id=game").out
-	if strings.Count(md, "decision: first shared decision") != 1 || !strings.Contains(md, "### workshop/project (`"+first+"`)") || !strings.Contains(md, "Owner: `workshop`") {
+	if strings.Count(md, "decision: first shared decision") != 1 || !strings.Contains(md, "### workshop/project (`"+c.State[0].Ref+"`)") || !strings.Contains(md, "Owner: `workshop`") {
 		t.Fatalf("duplicate or ownerless state:\n%s", md)
 	}
 	second := h.ok("state", "put", "workshop/project", "--expect", first, "decision: revised shared decision").id(t)
@@ -131,7 +131,7 @@ func TestStateLinkMissingDisabledAndOneHop(t *testing.T) {
 		t.Fatal("receipt claims unresolved data")
 	}
 	md := h.ok("load", "engineer").out
-	if !strings.Contains(md, "Unresolved state link `"+link+"`") || !strings.Contains(md, "nine-tails inspect "+link) || !strings.Contains(md, "no active state middle/project") || strings.Contains(md, "do not recurse") {
+	if !strings.Contains(md, "Unresolved state link `"+c.Skipped[0].Ref+"`") || !strings.Contains(md, "nine-tails inspect "+c.Skipped[0].Ref) || !strings.Contains(md, "no active state middle/project") || strings.Contains(md, "do not recurse") {
 		t.Fatal(md)
 	}
 	// Arbitrary YAML pointer fields remain data; only the explicit definition resolves.

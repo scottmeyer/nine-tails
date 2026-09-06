@@ -95,7 +95,7 @@ func TestAC03(t *testing.T) {
 	ctx := contextID(t, h.ok("load", "correctable").out)
 	correction := h.ok("prefer", "correctable", "--context", ctx, "Lead with the failing assertion.").id(t)
 	r := h.ok("load", "correctable")
-	if !strings.Contains(r.out, "## Recent adjustments\n\n- `"+correction+"` (prefer) Lead with the failing assertion.\n") {
+	if !strings.Contains(r.out, "## Recent adjustments\n\n- `"+localRef(t, h, correction)+"` (prefer) Lead with the failing assertion.\n") {
 		t.Fatalf("correction %s missing from next invocation:\n%s", correction, r.out)
 	}
 }
@@ -680,7 +680,7 @@ func TestAC19(t *testing.T) {
 		if id == corruptTool && !strings.HasPrefix(reason, "tool body:") {
 			t.Errorf("corrupt tool reason = %q", reason)
 		}
-		diagnostic := "nine-tails: skipped " + id + ": " + reason
+		diagnostic := "nine-tails: skipped " + row["ref"].(string) + ": " + reason
 		position := strings.Index(r.err, diagnostic)
 		if position < 0 {
 			t.Errorf("stderr omitted skipped diagnostic for %s: %q", id, r.err)
@@ -711,9 +711,10 @@ func TestAC19(t *testing.T) {
 		!strings.Contains(md.out, "Healthy signal body.") || strings.Contains(md.out, "`corrupt-agent`") {
 		t.Fatalf("Markdown load did not preserve only healthy content: exit=%d stdout=%q stderr=%q", md.code, md.out, md.err)
 	}
-	for _, id := range wantSkipped {
-		if !strings.Contains(md.err, "nine-tails: skipped "+id+":") {
-			t.Errorf("Markdown diagnostics omitted %s: %q", id, md.err)
+	for _, raw := range skipped {
+		row := raw.(map[string]any)
+		if !strings.Contains(md.err, "nine-tails: skipped "+row["ref"].(string)+":") {
+			t.Errorf("Markdown diagnostics omitted %s: %q", row["id"], md.err)
 		}
 	}
 

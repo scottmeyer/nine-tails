@@ -351,7 +351,7 @@ func TestCallExitCodes(t *testing.T) {
 		t.Errorf("corrupt body: code=%d err=%q", r.code, r.err)
 	}
 	r = h.ok("load", "a")
-	if !strings.Contains(r.err, "nine-tails: skipped "+id) || !strings.Contains(r.out, "- `fails`: Fails with 3") {
+	if !strings.Contains(r.err, "nine-tails: skipped "+localRef(t, h, id)) || !strings.Contains(r.out, "- `fails`: Fails with 3") {
 		t.Errorf("corrupt tool should be skipped, not fatal: out=%q err=%q", r.out, r.err)
 	}
 }

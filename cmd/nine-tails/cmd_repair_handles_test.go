@@ -16,20 +16,22 @@ func TestCapsuleRepairHandlesReachCurrentSources(t *testing.T) {
 	base := h.ok("base", "writer", "Write clearly.").id(t)
 	original := h.ok("prefer", "writer", "Use elaborate prose.").id(t)
 	first := h.ok("load", "writer").out
-	if !strings.Contains(first, "`"+original+"` (prefer) Use elaborate prose.") {
+	originalRef := localRef(t, h, original)
+	if !strings.Contains(first, "`"+originalRef+"` (prefer) Use elaborate prose.") {
 		t.Fatal("recent guidance must expose the repair handle")
 	}
 	doc := fmt.Sprintf("input_entries: [%s]\nitems: [{key: style, body: Use elaborate prose.}]\nentries: [{id: %s, disposition: represented, items: [style]}]\n", original, original)
 	h.okIn(doc, "brief", "put", "writer", "--expect-generation", "none", "--expect-base", base, "--stdin")
 	capsule := h.ok("load", "writer").out
-	matches := regexp.MustCompile("(?m)^- `(item_[A-Za-z0-9]+)` ").FindStringSubmatch(capsule)
+	matches := regexp.MustCompile("(?m)^- `(@[1-9][0-9]*)` ").FindStringSubmatch(capsule)
 	if len(matches) != 2 {
 		t.Fatalf("brief has no visible item handle: %s", capsule)
 	}
 	item := matches[1]
-	// A retag retains original links; inspection must collapse successor
-	// duplicates and expose the new applicability scope, not stale evidence.
-	retagged := h.ok("prefer", "writer", "--supersedes", original, "--meta", "repo-id=letters").id(t)
+	// A changed scope invalidates the brief but retains its original evidence.
+	// Inspection follows the source's replacement without pretending the
+	// historical brief was derived from the newly scoped record.
+	retagged := h.ok("prefer", "writer", "--supersedes", originalRef, "--meta", "repo-id=letters").id(t)
 	for _, format := range []string{"json", "yaml"} {
 		var view map[string]any
 		if err := yaml.Unmarshal([]byte(h.ok("inspect", item, "--format", format).out), &view); err != nil {
@@ -38,7 +40,7 @@ func TestCapsuleRepairHandlesReachCurrentSources(t *testing.T) {
 		sources := view["sources"].(map[string]any)
 		recorded := sources["recorded"].([]any)
 		current := sources["current"].([]any)
-		if len(recorded) != 2 || len(current) != 1 || current[0].(map[string]any)["id"] != retagged {
+		if len(recorded) != 1 || recorded[0].(map[string]any)["id"] != original || len(current) != 1 || current[0].(map[string]any)["id"] != retagged {
 			t.Fatalf("%s source lineage is incomplete or duplicated: %v", format, sources)
 		}
 		meta := current[0].(map[string]any)["meta"].(map[string]any)
@@ -46,9 +48,9 @@ func TestCapsuleRepairHandlesReachCurrentSources(t *testing.T) {
 			t.Fatal("current source scope missing")
 		}
 	}
-	corrected := h.ok("prefer", "writer", "--supersedes", retagged, "--meta", "repo-id=letters", "Use concise prose.").id(t)
+	corrected := h.ok("prefer", "writer", "--supersedes", localRef(t, h, retagged), "--meta", "repo-id=letters", "Use concise prose.").id(t)
 	next := h.ok("load", "writer", "--meta", "repo-id=letters").out
-	if strings.Contains(next, "Use elaborate prose.") || !strings.Contains(next, "`"+corrected+"` [repo-id=letters] (prefer) Use concise prose.") {
+	if strings.Contains(next, "Use elaborate prose.") || !strings.Contains(next, "`"+localRef(t, h, corrected)+"` [repo-id=letters] (prefer) Use concise prose.") {
 		t.Fatalf("repair did not take effect immediately: %s", next)
 	}
 	view := h.ok("inspect", item).json(t)

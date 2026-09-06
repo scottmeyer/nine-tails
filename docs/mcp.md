@@ -26,6 +26,19 @@ For example, `nt_load({"agent":"game.playtester","task":"Check Soccer Chess pass
 
 On state updates, omitted `meta` preserves scope and an explicit empty `meta: {}` clears it. Nonempty metadata replaces the complete set, with the same key grammar as the CLI. JSON numbers in tool inputs retain their exact decimal representation. Successful script stdout, including whitespace and empty output, is preserved in the result; script stderr remains on the MCP process stderr.
 
+For `nt_learn` corrections with `supersedes`, omitted `body` preserves the prior
+text and omitted `meta` preserves the prior record's complete scope. Explicit
+`meta` replaces it exactly, including an empty `meta: {}`. The boolean
+`clear_meta: true` also removes all scope and is mutually
+exclusive with `meta`; `false` has the same effect as omission. New lessons are
+unqualified unless `meta` is provided, regardless of the receipt's ambient scope.
+New lessons require a nonempty `body`; without it, a nonempty `supersedes` is
+required. An explicitly empty `body` is invalid, including on corrections.
+When both `body` and `kind` are omitted, the exact predecessor's lane and kind
+are preserved, including custom guidance or recall kinds. Explicit `kind`
+requests a type change subject to the normal same-agent and same-lane checks.
+When `body` is supplied, omitted `kind` retains the usual `note` default.
+
 To include shared facts automatically in future loads, use
 `nt_state({"name":"game.engineer/project","target":"workshop/soccer-chess","expect":"none","meta":{"repo-id":"soccer-chess"}})`.
 `target` selects an immutable state-link definition and is mutually exclusive

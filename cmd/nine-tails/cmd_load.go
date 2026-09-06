@@ -87,7 +87,11 @@ task in the calling harness conversation. --query overrides recall retrieval;
 				return err
 			}
 			for _, sk := range cp.Skipped {
-				fmt.Fprintf(a.stderr, "nine-tails: skipped %s: %s\n", sk.ID, sk.Reason)
+				ref := sk.Ref
+				if ref == "" {
+					ref = sk.ID
+				}
+				fmt.Fprintf(a.stderr, "nine-tails: skipped %s: %s\n", ref, sk.Reason)
 			}
 			// Size is advice, never enforcement (DESIGN §7): when the capsule has
 			// grown past the configured threshold and a compile would shrink it,

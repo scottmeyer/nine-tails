@@ -1,6 +1,7 @@
 package capsule
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"unicode"
@@ -13,12 +14,16 @@ const recallLimit, recallExcerptRunes = 3, 360
 
 // RecallView is bounded evidence, deliberately separate from instructions.
 type RecallView struct {
-	ID        string     `json:"id" yaml:"id"`
-	Kind      string     `json:"kind" yaml:"kind"`
-	Excerpt   string     `json:"excerpt" yaml:"excerpt"`
-	Truncated bool       `json:"truncated" yaml:"truncated"`
-	Meta      store.Meta `json:"meta" yaml:"meta"`
-	Inspect   string     `json:"inspect" yaml:"inspect"`
+	ID               string     `json:"id" yaml:"id"`
+	Ref              string     `json:"ref" yaml:"ref"`
+	CreatedAt        string     `json:"created_at" yaml:"created_at"`
+	OriginContext    string     `json:"origin_context,omitempty" yaml:"origin_context,omitempty"`
+	OriginContextRef string     `json:"origin_context_ref,omitempty" yaml:"origin_context_ref,omitempty"`
+	Kind             string     `json:"kind" yaml:"kind"`
+	Excerpt          string     `json:"excerpt" yaml:"excerpt"`
+	Truncated        bool       `json:"truncated" yaml:"truncated"`
+	Meta             store.Meta `json:"meta" yaml:"meta"`
+	Inspect          string     `json:"inspect" yaml:"inspect"`
 }
 
 // Whole-word matching avoids substring accidents and repetition cannot inflate
@@ -75,13 +80,27 @@ func recallCandidates(q store.Querier, c *Capsule, req Request, meta store.Meta)
 			continue
 		}
 		excerpt, truncated := recallExcerpt(r.Body, terms)
-		inspect := "nine-tails inspect " + r.ID
-		line := "- " + bracket(r.Meta, hiddenKeys, "recall="+r.ID) + "(" + r.Kind + ") " + excerpt
+		ref, err := store.Reference(q, r.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		originRef := ""
+		if r.OriginContext != "" {
+			// An imported record may retain provenance from another store;
+			// only advertise a local reference when one actually exists.
+			originRef, err = store.Reference(q, r.OriginContext)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return nil, nil, err
+			}
+		}
+		inspect := "nine-tails inspect " + ref
+		date, _, _ := strings.Cut(r.CreatedAt, "T")
+		line := "- " + bracket(r.Meta, hiddenKeys, "recall="+ref) + "(" + r.Kind + ", recorded " + date + ") " + excerpt
 		if truncated {
 			line += "… (truncated)"
 		}
 		line += " — inspect with `" + inspect + "`\n"
-		views[r.ID] = RecallView{ID: r.ID, Kind: r.Kind, Excerpt: excerpt, Truncated: truncated, Meta: r.Meta, Inspect: inspect}
+		views[r.ID] = RecallView{ID: r.ID, Ref: ref, CreatedAt: r.CreatedAt, OriginContext: r.OriginContext, OriginContextRef: originRef, Kind: r.Kind, Excerpt: excerpt, Truncated: truncated, Meta: r.Meta, Inspect: inspect}
 		out = append(out, candidate{rec: r, score: score, text: line, ordinal: i})
 	}
 	sort.SliceStable(out, func(i, j int) bool {

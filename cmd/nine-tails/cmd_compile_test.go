@@ -220,7 +220,7 @@ entries:
 
 	// a new prefer after the compile is recent again
 	e4 := h.ok("prefer", "pr-review", "--meta", "repo-id=r1", "Use bullet lists.").id(t)
-	if r = h.ok("load", "pr-review"); !strings.Contains(r.out, "- `"+e4+"` [repo-id=r1] (prefer) Use bullet lists.\n") {
+	if r = h.ok("load", "pr-review"); !strings.Contains(r.out, "- `"+localRef(t, h, e4)+"` [repo-id=r1] (prefer) Use bullet lists.\n") {
 		t.Errorf("new prefer should be recent:\n%s", r.out)
 	}
 

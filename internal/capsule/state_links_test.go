@@ -33,11 +33,12 @@ func TestStateLinkCorruptionIsActionableAndDoesNotBlockLoad(t *testing.T) {
 	base := insert(t, s, store.NewRecord{Agent: "role", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Role."})
 	link := insert(t, s, store.NewRecord{Agent: "role", Lane: "definition", Kind: "state-link", Name: "project", Body: "owner/project"})
 	state := insert(t, s, store.NewRecord{Agent: "owner", Lane: "state", Kind: "working-state", Name: "project", Body: "[invalid YAML"})
+	stateRef, _ := store.Reference(s.DB, state.ID)
 	c, err := Load(s, Request{Agent: "role"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.RenderedIDs) != 1 || c.RenderedIDs[0] != base.ID || len(c.Skipped) != 1 || !strings.Contains(c.Skipped[0].Reason, state.ID) || !strings.Contains(c.Markdown, "repair the target state") {
+	if len(c.RenderedIDs) != 1 || c.RenderedIDs[0] != base.ID || len(c.Skipped) != 1 || !strings.Contains(c.Skipped[0].Reason, stateRef) || !strings.Contains(c.Markdown, "repair the target state") {
 		t.Fatalf("corrupt target: %#v", c)
 	}
 	for _, body := range []string{"valid: first\n---\n[invalid", "valid: first\n---\nvalid: second", ""} {

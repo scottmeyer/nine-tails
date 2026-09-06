@@ -93,3 +93,22 @@ func TestReplacementWithoutGeneration(t *testing.T) {
 		t.Fatalf("uncompiled agent gained a generation: %v", err)
 	}
 }
+
+func TestLatestSuccessorRejectsCorruptCycles(t *testing.T) {
+	s := openTest(t)
+	first := mustInsert(t, s, NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "old"})
+	var second *Record
+	if err := s.Tx(func(tx *sql.Tx) error {
+		var err error
+		second, err = ReplaceRecord(tx, first.ID, NewRecord{Agent: "a", Lane: "guidance", Kind: "note", Body: "new"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec("UPDATE records SET supersedes_id = ? WHERE id = ?", second.ID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LatestSuccessor(s.DB, first.ID); err == nil {
+		t.Fatal("cyclic history accepted")
+	}
+}

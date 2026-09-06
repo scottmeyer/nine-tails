@@ -81,7 +81,7 @@ func TestReferencesDescribeSignalsAndGroupProjects(t *testing.T) {
 		t.Fatal(c.Signals)
 	}
 	md := h.ok("load", "coach").out
-	if !strings.Contains(md, "[signal="+ref+" repo-id=soccer-chess] Soccer follow-up") || !strings.Contains(md, "Reference: `@") {
+	if !strings.Contains(md, "[signal="+ref+" repo-id=soccer-chess] Soccer follow-up") || !strings.Contains(md, "Loaded: `coach` receipt `@") {
 		t.Fatal(md)
 	}
 	rows := tickRows(t, h.ok("tick", "--agent", "coach", "--claim"))
