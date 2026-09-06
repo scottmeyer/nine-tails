@@ -754,6 +754,15 @@ for v0.
 
 ### 10.1 Capsule contents
 
+Generated executable command recipes MUST retain the selected store. For a
+nondefault home, capsule and paged-library recipes include a POSIX-shell-quoted
+absolute `--home` binding resolved for the current invocation. This also applies
+to capsules delivered through MCP or active harness adapters. The default user
+store may use compact recipes. Bindings MUST be included before size accounting
+and any transport-ceiling check. They MUST NOT rewrite authored record bodies
+or become durable repository paths. Local references are meaningful only in
+their own store; another store may assign the same reference to another entity.
+
 `lore load` returns a Markdown context capsule by default. A typical capsule is:
 
 The agent may be selected positionally or with `--agent NAME`. If both are
@@ -1632,6 +1641,15 @@ Journal entries are not marked consumed. `brief_inputs`,
 for them while leaving them available for inspection and from-scratch
 reconstruction.
 
+When replacing a generation, inherited represented accounting MUST retain all
+previously representing item keys, unless the source is explicitly reaccounted
+for in the new compiler response. Dropping any of those keys without explicit
+reaccounting restores the complete active source to recent guidance and ordinary
+compiler input. Surviving items may retain their source relationships without
+claiming complete representation. Projection of `superseded-by` accounting
+follows ordinary immutable replacements of the successor, retaining eligibility,
+renderability and cycle checks without rewriting historical accounting edges.
+
 ### 12.5 Coverage classification
 
 When a guidance entry originates from a recorded context, the compiler can
@@ -2023,6 +2041,12 @@ lore tick       Read or lease due signals for external delivery.
 lore context    Inspect, pin, or garbage-collect context receipts.
 lore hooks      Install, remove, or explicitly activate a harness adapter.
 ```
+
+Generic `put` with `--context` MUST validate that the receipt exists and belongs
+to its explicit target agent, for every supported definition and state kind.
+The check occurs inside the mutation transaction before any replacement. Owner
+mismatch returns exit 2 without changing records; omitted context and the
+generic command's optional compare-and-swap behavior remain supported.
 
 ### 16.2 Convenience commands
 

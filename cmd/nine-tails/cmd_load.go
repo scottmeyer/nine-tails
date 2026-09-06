@@ -86,7 +86,7 @@ explicit guidance.`,
 			if cmd.Flags().Changed("query") {
 				recallQuery = &query
 			}
-			cp, err := capsule.Load(a.st, capsule.Request{Agent: agent, Task: task, Query: recallQuery, Recall: recall, Parent: ctx, Meta: m, SignalExcerptChars: a.cfg.SignalExcerptChars, Now: a.now()})
+			cp, err := capsule.Load(a.st, capsule.Request{Agent: agent, Task: task, Query: recallQuery, Recall: recall, Parent: ctx, Meta: m, CommandHome: a.recipeHome(), SignalExcerptChars: a.cfg.SignalExcerptChars, Now: a.now()})
 			if err != nil {
 				return err
 			}

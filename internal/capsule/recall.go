@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/scottmeyer/nine-tails/internal/cli"
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
@@ -102,13 +103,13 @@ func recallCandidates(q store.Querier, c *Capsule, req Request, meta store.Meta)
 				return nil, nil, err
 			}
 		}
-		inspect := "nine-tails inspect " + ref
+		inspect := c.command("inspect " + ref)
 		date, _, _ := strings.Cut(r.CreatedAt, "T")
 		line := "- " + bracket(r.Meta, hiddenKeys, "recall="+ref) + "(" + r.Kind + ", recorded " + date + ") " + excerpt
 		if truncated {
 			line += " (truncated)"
 		}
-		line += " — inspect with `" + inspect + "`\n"
+		line += " — inspect with " + cli.InlineCode(inspect) + "\n"
 		views[r.ID] = RecallView{ID: r.ID, Ref: ref, CreatedAt: r.CreatedAt, OriginContext: r.OriginContext, OriginContextRef: originRef, Kind: r.Kind, Excerpt: excerpt, Truncated: truncated, Meta: r.Meta, Inspect: inspect}
 		out = append(out, candidate{rec: r, score: score, text: line, ordinal: i})
 	}

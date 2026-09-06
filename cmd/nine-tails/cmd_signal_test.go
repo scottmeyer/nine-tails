@@ -265,7 +265,7 @@ func TestSignalExcerptAndBodies(t *testing.T) {
 	big := r.id(t)
 	r = h.ok("load", "a")
 	excerpt := strings.TrimSpace(long)[:300]
-	want := "- [signal=" + referenceFor(t, h, big) + "] Big — " + excerpt + "… (truncated; inspect with `nine-tails inspect " + referenceFor(t, h, big) + "`)\n"
+	want := "- [signal=" + referenceFor(t, h, big) + "] Big — " + excerpt + "… (truncated; inspect with `" + h.command("inspect "+referenceFor(t, h, big)) + "`)\n"
 	if !strings.Contains(r.out, want) {
 		t.Errorf("long body should be excerpted:\nwant %q\nin:\n%s", want, r.out)
 	}

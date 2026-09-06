@@ -10,6 +10,18 @@ Configure any compatible MCP client with:
 
 Use the absolute built binary path, or an executable available to the host. The default store is `~/.nine-tails`; an explicit `--home` selects another store. No global client configuration is changed by installation. A running host must connect the server before these operations appear in its native tool menu.
 
+When the server uses a nondefault home, generated CLI recipes in capsules and
+library pages carry its absolute, shell-quoted `--home` selection. Copying a
+recipe outside the MCP launch environment therefore keeps the same store.
+MCP calls themselves continue to use the server's selected store. A local `@N`
+from another store is unrelated even when its number happens to match.
+
+Successful operations return their stdout payload unchanged. Informational
+diagnostics, including first-use seeding and skipped state links, go to server
+stderr. A successful load therefore remains parseable JSON, and tool output
+keeps its whitespace or empty body. Failed operations still return useful
+error details and leave the connection available for subsequent calls.
+
 The tool menu stays stable:
 
 | Tool | Purpose |

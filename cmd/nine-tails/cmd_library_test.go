@@ -42,7 +42,7 @@ func TestLibraryPagesAllMemoriesWithoutReloadingPersona(t *testing.T) {
 			t.Fatal("cursor did not advance")
 		}
 		for _, entry := range page.Entries {
-			if entry.Ref == "" || entry.Inspect != "nine-tails inspect "+entry.Ref || !entry.Truncated || len([]rune(entry.Excerpt)) > 160 {
+			if entry.Ref == "" || entry.Inspect != h.command("inspect "+entry.Ref) || !entry.Truncated || len([]rune(entry.Excerpt)) > 160 {
 				t.Fatalf("unbounded or uninspectable preview: %+v", entry)
 			}
 			seen = append(seen, entry.ID)

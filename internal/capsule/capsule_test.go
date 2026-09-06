@@ -193,12 +193,12 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 		t.Fatal("canonical receipt must remain in its marker, without repetition in command recipes")
 	}
 	var widest strings.Builder
-	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", false, false)
+	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", false, false, "")
 	if widest.Len() > 1650 {
 		t.Fatalf("maximum-width reference root protocol is %d bytes", widest.Len())
 	}
 	widest.Reset()
-	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", true, true)
+	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", true, true, "")
 	if widest.Len() > 2000 {
 		t.Fatalf("maximum-width reference protocol is %d bytes", widest.Len())
 	}

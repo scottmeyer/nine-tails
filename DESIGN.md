@@ -50,6 +50,19 @@ $NINE_TAILS_HOME/
 Every command that accesses the knowledge store creates the home and database
 on first use. Harness install/uninstall and an inactive lifecycle gate do not.
 
+Generated capsule and recall-library command recipes retain the invocation's
+selected store. For a nondefault home, every generated executable recipe uses
+`nine-tails --home '<absolute home>' ...`, with POSIX-shell quoting; the default
+user store keeps compact recipes when ambient home resolution selects it too;
+an explicit override of a conflicting environment remains bound even when
+it selects the physical default directory. Resolve a relative home at invocation time,
+before opening it. CLI loads, MCP responses and active harness capsules follow
+the same rule. Short references from independent stores can collide and must
+never implicitly select another store when copied outside a wrapper.
+This path is a runtime command binding regenerated on each invocation, not a
+durable artifact reference or a repository-to-store mapping. Existing authored
+bodies remain unchanged. Overrides are explicit; no project store is inferred.
+
 ### 1.1 One store per user; repositories and worktrees are metadata
 
 There is one store per user. Repositories, clones and worktrees are not
@@ -443,6 +456,11 @@ an optional agent and defaults to `shared`: a signal is a signal, not a
 message, and every agent that loads sees a shared one (§7 rule 7). Name an
 agent only when a wake-up must start that agent.
 
+Generic `put` keeps its explicit target agent. If `--context` is supplied, the
+receipt must exist and belong to that agent for every definition or state kind.
+Check both inside the mutation transaction before changing records or CAS
+targets. Mismatch is exit 2; no-context writes and optional CAS are unchanged.
+
 **TEXT vs --stdin**: exactly one. TEXT beginning with `-` needs `--` before it
 (cobra convention); the usage line shows it.
 
@@ -582,7 +600,8 @@ Candidates:
    its source only when it links at least one item and **every linked item
    actually renders in this capsule**. A missing, corrupt, disabled, or
    conflicting representation restores the complete eligible source. A
-   `superseded-by` row suppresses its source only when its successor chain
+   `superseded-by` row suppresses its source only when its successor chain,
+   including ordinary immutable replacements of an accounted successor,
    reaches an active, eligible, renderable source that renders directly or
    through its brief; cycles fall back to source text. This conservative rule
    can repeat a partial summary alongside its source, but cannot silently lose
@@ -775,9 +794,11 @@ stable local refs. There is no repeated identity block.
 Both refs resolve to the exact canonical receipt IDs; the original marker and
 structured IDs remain unchanged. With any SQLite integer reference and an
 agent name no longer than `nine-tails.reviewer` (19 bytes),
-the protocol is at most 1,650 bytes without state/tools and 2,000 bytes
+the default-store protocol is at most 1,650 bytes without state/tools and 2,000 bytes
 with both. The identity line carries any parent pair separately. Valid agent names are not length-bounded, so transport ceilings remain
-authoritative for longer names. The task itself remains the caller's input and
+authoritative for longer names and nondefault store bindings. Alternate-store
+recipes and their binding explanation count in rendered size and transport
+limits; they are never inserted after receipt accounting. The task itself remains the caller's input and
 the structured `task` field; the protocol deliberately does not duplicate
 arbitrary prompt text into instruction position.
 The common learning loop is generated for every direct load: capture explicit
@@ -1064,11 +1085,14 @@ item records to `superseded`; insert item records (lane=guidance,
 kind=brief-item, name=key; a key matching a prior-generation item sets
 `supersedes` to it); create the generation `staged`; write membership, inputs,
 sources, equivalents; activate; supersede the prior generation. Re-emitting a
-prior item key mechanically carries that item's earlier source relationships
-and represented accounting into the new generation (unless the compiler
-accounts for the same entry again). Dropping all of an entry's representing
-item keys does not carry its accounting, so the active source becomes recent
-guidance again. `superseded-by` accounting is carried across generations.
+prior item key mechanically carries that item's earlier source relationships.
+Represented accounting carries only when every previously representing key
+survives, unless the compiler explicitly accounts for the same entry again.
+Dropping any representing key without explicit reaccounting restores the
+complete active source to recent guidance and ordinary compiler input.
+`superseded-by` accounting is carried across generations. Projection follows
+ordinary replacements of its successor without rewriting historical edges;
+ineligible, unusable or cyclic endpoints restore source guidance.
 Source entries stay active. `--dry-run` validates, computes coverage and lint,
 prints what would be installed, writes nothing.
 
@@ -1468,6 +1492,12 @@ with a stable tool list and explicit receipt arguments; this is transport,
 not a background agent daemon or a harness. It adds no network service or
 implicit current-agent state. The transport contract is documented separately
 in [docs/mcp.md](docs/mcp.md).
+
+Successful MCP operations preserve command stdout exactly, including one
+parseable JSON payload where applicable and raw tool whitespace or empty output.
+Forward successful diagnostics to server stderr; do not append them to the
+payload. Failed operations retain explanatory output and error status. Bootstrap
+and skipped-record notices do not corrupt success or end the connection.
 
 ## 18. Optional closure and historical marks
 

@@ -315,18 +315,20 @@ func installGeneration(tx Querier, agent, expectGen string, items []NewItem, inp
 		}
 	}
 	// Carry old accounting only when its representation still exists. A
-	// represented entry whose every item key was dropped is intentionally not
-	// copied, so RecentGuidance makes that source visible again. An explicit
-	// superseded-by disposition remains effective across cache generations.
+	// represented entry that loses any item key is intentionally not copied:
+	// a retained fragment cannot account for the complete source. RecentGuidance
+	// then makes the source visible again unless it was explicitly reaccounted.
+	// A superseded-by disposition remains effective across cache generations.
 	for _, in := range priorInputs {
 		if currentInputs[in.EntryID] || in.Disposition == "deferred" {
 			continue
 		}
 		carry := in.Disposition == "superseded-by"
 		if in.Disposition == "represented" {
+			carry = len(in.Items) > 0
 			for _, oldItemID := range in.Items {
-				if _, ok := keyToID[priorKeyByID[oldItemID]]; ok {
-					carry = true
+				if _, ok := keyToID[priorKeyByID[oldItemID]]; !ok {
+					carry = false
 					break
 				}
 			}

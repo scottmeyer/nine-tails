@@ -551,7 +551,10 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 	}
 	child := &app{stdout: &stdout, stderr: &stderr, stdin: strings.NewReader(body), home: home, now: a.now}
 	status := run(child, argv)
-	if name == "nt_call" && status == 0 {
+	if status == 0 {
+		// Successful commands own stdout: JSON stays parseable, and tools
+		// retain exact bytes including empty output. Diagnostics belong to
+		// the server's stderr, never after the command's result payload.
 		if stderr.Len() > 0 {
 			fmt.Fprint(a.stderr, stderr.String())
 		}

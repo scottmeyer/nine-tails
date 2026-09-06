@@ -77,7 +77,7 @@ func TestReferencesDescribeSignalsAndGroupProjects(t *testing.T) {
 	}
 	var c capsule.Capsule
 	json.Unmarshal([]byte(h.ok("load", "coach", "--format", "json").out), &c)
-	if len(c.Signals) != 2 || c.Signals[0].ID != sig || c.Signals[0].Ref != ref || c.Signals[0].Inspect != "nine-tails inspect "+ref {
+	if len(c.Signals) != 2 || c.Signals[0].ID != sig || c.Signals[0].Ref != ref || c.Signals[0].Inspect != h.command("inspect "+ref) {
 		t.Fatal(c.Signals)
 	}
 	md := h.ok("load", "coach").out

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +50,10 @@ func (a *app) open() error {
 		}
 		home = h
 	}
+	home, err := filepath.Abs(home)
+	if err != nil {
+		return cli.Errorf(cli.ExitStore, "resolve home: %v", err)
+	}
 	cfg, err := cli.LoadConfig(home)
 	if err != nil {
 		return err
@@ -59,6 +64,22 @@ func (a *app) open() error {
 	}
 	a.home, a.cfg, a.st = home, cfg, st
 	return nil
+}
+
+// Default-store recipes stay compact. Explicit alternate stores remain bound
+// even when the next command runs outside the wrapper or launch environment.
+func (a *app) recipeHome() string {
+	userHome, err := os.UserHomeDir()
+	if err == nil && a.home == filepath.Join(userHome, ".nine-tails") {
+		ambient, err := store.HomeDir()
+		if err == nil {
+			ambient, err = filepath.Abs(ambient)
+			if err == nil && ambient == a.home {
+				return ""
+			}
+		}
+	}
+	return a.home
 }
 
 func (a *app) close() {

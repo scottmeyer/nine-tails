@@ -75,16 +75,15 @@ Definitions always use the supplied metadata, including an empty set.`,
 					return err
 				}
 			}
-			if context != "" {
-				if _, err := store.GetContext(a.st.DB, context); err != nil {
-					return err
-				}
-			}
 			var rec *store.Record
 			err = a.st.Tx(func(tx *sql.Tx) error {
 				if context != "" {
-					if _, err := store.GetContext(tx, context); err != nil {
+					ctx, err := store.GetContext(tx, context)
+					if err != nil {
 						return err
+					}
+					if ctx.Agent != args[0] {
+						return cli.Invalid("%s belongs to %s, not %s", context, ctx.Agent, args[0])
 					}
 				}
 				var err error
@@ -106,7 +105,7 @@ Definitions always use the supplied metadata, including an empty set.`,
 	c.Flags().StringVar(&kind, "kind", "", "record kind (tool, related-agent, agent-base, working-state, ...)")
 	c.Flags().StringVar(&name, "name", "", "mechanical name, unique per agent/lane/kind")
 	c.Flags().StringVar(&expect, "expect", "", "compare-and-swap: 'none' or the id that must currently be active")
-	c.Flags().StringVar(&context, "context", "", "originating context id")
+	c.Flags().StringVar(&context, "context", "", "originating context receipt id; must belong to <agent>")
 	c.Flags().StringArrayVar(&meta, "meta", nil, "metadata key=value (repeatable)")
 	c.Flags().BoolVar(&clearMeta, "clear-meta", false, "explicitly remove state metadata (state only; mutually exclusive with --meta)")
 	c.Flags().BoolVar(&stdin, "stdin", false, "read the body from stdin")

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/scottmeyer/nine-tails/internal/cli"
 )
 
 // harness runs the CLI in-process against a temp home. Every test gets a
@@ -26,6 +28,8 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	return &harness{t: t, home: t.TempDir(), now: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
 }
+
+func (h *harness) command(tail string) string { return cli.StoreCommand(h.home, tail) }
 
 func (h *harness) runIn(stdin string, args ...string) result {
 	h.t.Helper()

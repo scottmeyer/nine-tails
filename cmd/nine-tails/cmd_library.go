@@ -113,14 +113,14 @@ func (a *app) inspectLibrary(args []string, contextID, query, after, format stri
 		}
 		used := 0
 		return store.WalkRecallIndex(tx, store.RecallIndexRequest{Agent: page.Agent, Meta: meta, Query: query, After: after}, func(r store.RecallIndexEntry) (bool, error) {
-			entry := libraryEntry{RecallIndexEntry: r, Inspect: "nine-tails inspect " + r.Ref}
+			entry := libraryEntry{RecallIndexEntry: r, Inspect: cli.StoreCommand(a.recipeHome(), "inspect "+r.Ref)}
 			encoded, err := json.MarshalIndent(entry, "", "  ")
 			if err != nil {
 				return false, err
 			}
 			if len(page.Entries) > 0 && used+len(encoded) > libraryPageBytes {
 				last := page.Entries[len(page.Entries)-1].Ref
-				command := "nine-tails inspect " + page.Agent + " --page"
+				command := cli.StoreCommand(a.recipeHome(), "inspect "+page.Agent+" --page")
 				if page.ContextRef != "" {
 					command += " --context " + page.ContextRef
 				}

@@ -131,7 +131,7 @@ func TestStateLinkMissingDisabledAndOneHop(t *testing.T) {
 		t.Fatal("receipt claims unresolved data")
 	}
 	md := h.ok("load", "engineer").out
-	if !strings.Contains(md, "Unresolved state link `"+c.Skipped[0].Ref+"`") || !strings.Contains(md, "nine-tails inspect "+c.Skipped[0].Ref) || !strings.Contains(md, "no active state middle/project") || strings.Contains(md, "do not recurse") {
+	if !strings.Contains(md, "Unresolved state link `"+c.Skipped[0].Ref+"`") || !strings.Contains(md, h.command("inspect "+c.Skipped[0].Ref)) || !strings.Contains(md, "no active state middle/project") || strings.Contains(md, "do not recurse") {
 		t.Fatal(md)
 	}
 	// Arbitrary YAML pointer fields remain data; only the explicit definition resolves.

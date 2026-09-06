@@ -331,14 +331,14 @@ func newHooksDispatchCmd(a *app) *cobra.Command {
 				return cli.ToolFailed("hook dispatch: %v", err)
 			}
 			cp, err := capsule.Load(a.st, capsule.Request{Agent: decision.Agent, Task: decision.Task, Parent: decision.Parent,
-				Meta: store.Meta(decision.Metadata), SignalExcerptChars: a.cfg.SignalExcerptChars, MaxBytes: adapter.CapsuleMaxBytes(), Now: a.now()})
+				Meta: store.Meta(decision.Metadata), CommandHome: a.recipeHome(), SignalExcerptChars: a.cfg.SignalExcerptChars, MaxBytes: adapter.CapsuleMaxBytes(), Now: a.now()})
 			if err != nil {
 				var tooLarge *capsule.TooLargeError
 				if errors.As(err, &tooLarge) {
 					// The harness cannot deliver this capsule whole and nothing was
 					// recorded. Hand the session a pointer to an in-session load,
 					// whose output is not bound by the hook ceiling.
-					if err := adapter.EncodeContext(a.stdout, event.Name, tooLargePointer(decision.Agent, store.Meta(decision.Metadata), tooLarge)); err != nil {
+					if err := adapter.EncodeContext(a.stdout, event.Name, tooLargePointer(decision.Agent, store.Meta(decision.Metadata), a.recipeHome(), tooLarge)); err != nil {
 						return cli.ToolFailed("hook dispatch: %v", err)
 					}
 					return nil
@@ -389,25 +389,28 @@ func (a *app) dispatchStop(adapter harnessadapter.Adapter, event harnessadapter.
 	if err != nil {
 		exe = "nine-tails"
 	}
-	return adapter.EncodeContinue(a.stdout, closeNudge(exe, ctx.ID))
+	return adapter.EncodeContinue(a.stdout, closeNudge(exe, a.recipeHome(), ctx.ID))
 }
 
 // closeNudge is a brief reminder, not a reflection or scoring assignment.
 // The gate and model conversation remain owned by the activated harness.
-func closeNudge(exe, ctxID string) string {
+func closeNudge(exe, home, ctxID string) string {
+	command := cli.QuoteArgument(exe) + strings.TrimPrefix(cli.StoreCommand(home, "close "+ctxID), "nine-tails")
 	return "nine-tails: before ending work under [nine-tails-context=" + ctxID + "], save any already-known durable correction or changed state using its receipt. " +
 		"Zero writes is valid; do not manufacture a reflection task. " +
-		"Optional bookkeeping: `" + exe + " close " + ctxID + "`. You may stop without closing."
+		"Optional bookkeeping: " + cli.InlineCode(command) + ". You may stop without closing."
 }
 
 // tooLargePointer replaces a capsule the harness could not deliver whole. No
 // receipt exists for it; the in-session load the pointer names makes one.
-func tooLargePointer(agent string, meta store.Meta, e *capsule.TooLargeError) string {
+func tooLargePointer(agent string, meta store.Meta, home string, e *capsule.TooLargeError) string {
 	var flags strings.Builder
 	for _, k := range store.SortedKeys(meta) {
 		for _, v := range meta[k] {
-			flags.WriteString(" --meta " + k + "=" + v)
+			flags.WriteString(" --meta " + cli.QuoteArgument(k+"="+v))
 		}
 	}
-	return fmt.Sprintf("nine-tails: the %s capsule is %d bytes, over this harness's %d-byte hook limit, so it was not injected and no receipt was recorded. Load it in the session: nine-tails load %s --task \"<task>\"%s. If its \"Recent adjustments\" section is long, optional condensation is available: nine-tails compile %s.", agent, e.Bytes, e.Max, agent, flags.String(), agent)
+	load := cli.StoreCommand(home, "load "+agent+" --task \"<task>\""+flags.String())
+	compile := cli.StoreCommand(home, "compile "+agent)
+	return fmt.Sprintf("nine-tails: the %s capsule is %d bytes, over this harness's %d-byte hook limit, so it was not injected and no receipt was recorded. Load it in the session: %s. If its \"Recent adjustments\" section is long, optional condensation is available: %s.", agent, e.Bytes, e.Max, cli.InlineCode(load), cli.InlineCode(compile))
 }

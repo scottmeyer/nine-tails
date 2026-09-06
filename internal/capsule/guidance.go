@@ -28,6 +28,14 @@ func capsuleGuidance(q store.Querier, c *Capsule, agent string, meta store.Meta,
 	successorAvailable := func(id string) bool {
 		seen := map[string]bool{}
 		for {
+			// Accounting keeps its historical edge even when an unchanged
+			// correction replaces the successor. Judge the current endpoint;
+			// unresolved or corrupt lineage cannot justify hiding source text.
+			current, err := store.LatestSuccessor(q, id)
+			if err != nil {
+				return false
+			}
+			id = current
 			if eligible[id] == nil || seen[id] {
 				return false
 			}

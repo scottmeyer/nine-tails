@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/scottmeyer/nine-tails/internal/cli"
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
@@ -57,7 +58,7 @@ func writeReferencedState(q store.Querier, c *Capsule, md *strings.Builder, agen
 			excerpt += "…"
 		}
 		ref := linkRefs[link.ID]
-		excerpt += "; inspect with `nine-tails inspect " + ref + "`"
+		excerpt += "; inspect with " + cli.InlineCode(c.command("inspect "+ref))
 		c.skip(link.ID, excerpt)
 		notices = append(notices, "- Unresolved state link `"+ref+"`: "+excerpt+"\n")
 	}

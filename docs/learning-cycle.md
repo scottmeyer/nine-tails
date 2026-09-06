@@ -37,6 +37,14 @@ resolves the stored paths from that repository's root, and verifies the version
 and artifacts before relying on them. Missing or renamed artifacts need fresh
 resolution; an old absolute checkout path never selects the next workspace.
 
+Store selection is separate from artifact location. The normal user store is
+shared across projects. When deliberately using another store through `--home`
+or `NINE_TAILS_HOME`, generated capsule and library commands carry that selected
+home so a copied command cannot silently use another store's local reference.
+That absolute command path belongs to the current invocation and is regenerated
+on load; keep durable artifact references repository-relative. Preserve the
+store selection when translating a recipe to a project wrapper.
+
 ## Consolidation is semantic work
 
 Read complete sources, including their kind, scope, conditions and exceptions.
@@ -55,6 +63,12 @@ The source records remain intact. Their references lead through further
 consolidations and corrections to current knowledge. Historical receipts keep
 their exact delivered versions. This is a small graph of deliberate replacement
 decisions, not a chain of summaries that gradually loses its evidence.
+
+Optional briefs remain disposable projections. When a source was split across
+several summary items, keeping only some of them in the next generation restores
+the complete source unless it is explicitly accounted for again. Replacing a
+correction with unchanged wording still keeps its obsolete predecessor out of
+the current projection. Neither transition rewrites historical evidence.
 
 ## Forgetting has two different meanings
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/scottmeyer/nine-tails/internal/cli"
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
@@ -22,11 +23,11 @@ func writeLibrary(q store.Querier, c *Capsule, md *strings.Builder) error {
 	if count == 0 {
 		return nil
 	}
-	c.Library = &LibraryView{Count: count, Inspect: "nine-tails inspect --page --context " + c.ContextRef}
+	c.Library = &LibraryView{Count: count, Inspect: c.command("inspect --page --context " + c.ContextRef)}
 	noun := "memories"
 	if count == 1 {
 		noun = "memory"
 	}
-	fmt.Fprintf(md, "\nMemory library (data): %d %s; browse with `%s`.\n", count, noun, c.Library.Inspect)
+	fmt.Fprintf(md, "\nMemory library (data): %d %s; browse with %s.\n", count, noun, cli.InlineCode(c.Library.Inspect))
 	return nil
 }
