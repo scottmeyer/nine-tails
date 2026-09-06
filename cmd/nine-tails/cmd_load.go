@@ -37,7 +37,12 @@ task in the calling harness conversation. --query overrides lexical retrieval;
 that evidence in your chosen order. Selections must be active same-agent recall
 with applicable scope; invalid selections abort the load. Task/query still
 focus excerpts, but do not filter explicit selections. Retrieval never removes
-explicit guidance.`,
+explicit guidance.
+
+Forward the complete Markdown output to a model. For JSON/YAML integrations,
+instructions is only the instruction segment: also deliver referenced state,
+recall, library navigation and signals as labeled data. Their receipt describes
+the complete projection; forwarding instructions alone drops part of it.`,
 		Example: `  nine-tails load pilot --task "Review this change" --meta repo-id=acme --meta harness=my-harness
   nine-tails load reviewer --task "Review this change" --context <pilot-context-id>`,
 		Args: cobra.MaximumNArgs(1),

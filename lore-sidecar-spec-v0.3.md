@@ -754,6 +754,13 @@ for v0.
 
 ### 10.1 Capsule contents
 
+An integration MUST deliver the complete selected projection to the model.
+Markdown already contains it. JSON/YAML consumers deliver `instructions` plus
+referenced state, recall, library navigation and signals as labeled data,
+without duplicating owned state already present in instructions. They MUST NOT
+treat `instructions` alone as the complete capsule or claim omitted selected
+records were delivered.
+
 Generated executable command recipes MUST retain the selected store. For a
 nondefault home, capsule and paged-library recipes include a POSIX-shell-quoted
 absolute `--home` binding resolved for the current invocation. This also applies

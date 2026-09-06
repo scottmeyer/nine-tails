@@ -852,8 +852,15 @@ delivered; it adds no record IDs to the receipt. The count reflects load time;
 later inspection reads the live library.
 
 `instructions` is byte-identical to markdown before the referenced-state,
-recall, library and signal data sections. Existing owned state remains in that string,
-explicitly labeled data by the protocol. `state[]` = `{id, ref, agent, name, format,
+recall, library and signal data sections. Existing owned state remains in that
+string, explicitly labeled data by the protocol.
+
+Integrations deliver the complete projection: full Markdown, or instructions
+plus the structured data sections without duplicating owned state. Copying only
+`instructions` drops context the receipt records as delivered. This delivery
+contract is surfaced in load help and the MCP tool description.
+
+`state[]` = `{id, ref, agent, name, format,
 body, references?}` includes each delivered state body once, with its actual
 owner and optional successful link IDs. `state_links[]` = `{id, ref, name, target,
 state_id, state_ref, meta}` identifies each delivered reference definition and exact target

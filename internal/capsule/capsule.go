@@ -85,7 +85,9 @@ type Skipped struct {
 	Reason string `json:"reason" yaml:"reason"`
 }
 
-// Capsule is the assembled result.
+// Capsule is the complete projection described by its receipt. Instructions is
+// only its instruction segment; integrations must also deliver the selected
+// data sections. Markdown already includes the complete projection.
 type Capsule struct {
 	ContextID       string          `json:"context_id" yaml:"context_id"`
 	ContextRef      string          `json:"context_ref" yaml:"context_ref"`

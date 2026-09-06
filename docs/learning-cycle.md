@@ -29,6 +29,13 @@ expect the next agent to resolve it again.
 
 ## Handing work to another invocation
 
+Deliver the complete capsule, not only its `instructions` field. Markdown is
+already complete. A JSON/YAML consumer must also deliver referenced state,
+selected recall, library navigation and signals as labeled data; keep those
+boundaries and avoid copying owned state twice. Omitting those sections gives
+the model less context than its receipt records. Render the original result
+once rather than loading again to repair the handoff.
+
 Keep a changing handoff in the role's named state and update it with CAS.
 Record the stable repository identity, commit or version, repository-relative
 implementation and contract paths, completed validation, and remaining work.

@@ -22,6 +22,11 @@ stderr. A successful load therefore remains parseable JSON, and tool output
 keeps its whitespace or empty body. Failed operations still return useful
 error details and leave the connection available for subsequent calls.
 
+Forward the whole `nt_load` result to the working model. Its `instructions`
+field excludes referenced state, recall, library navigation and signals;
+preserve those sections as data. The receipt describes the complete projection,
+so extracting only instructions would silently drop selected context.
+
 The tool menu stays stable:
 
 | Tool | Purpose |
