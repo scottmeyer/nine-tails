@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 )
 
 // EpisodeReviewRecord is the bounded record projection needed to render one
@@ -22,25 +23,46 @@ type EpisodeReviewRecord struct {
 }
 
 const reviewProjectionRunes = 1024
+const reviewProjectionBytes = (reviewProjectionRunes + 1) * utf8.UTFMax
+
+func episodeReviewPrefix(raw []byte, sourceContinues bool) (string, bool, error) {
+	prefix, ok := libraryPrefix(raw, reviewProjectionRunes+1)
+	if !ok {
+		return "", false, fmt.Errorf("%w: episode review text is invalid UTF-8", ErrInvalid)
+	}
+	runes := []rune(prefix)
+	truncated := sourceContinues || len(runes) > reviewProjectionRunes
+	if len(runes) > reviewProjectionRunes {
+		runes = runes[:reviewProjectionRunes]
+	}
+	return string(runes), truncated, nil
+}
 
 func GetEpisodeReviewRecord(q Querier, id string) (*EpisodeReviewRecord, error) {
 	var r EpisodeReviewRecord
 	var nameTruncated, bodyTruncated int
+	var rawName, rawBody []byte
 	err := q.QueryRow(`SELECT id, agent, lane, kind,
-		substr(COALESCE(name, ''), 1, ?), length(COALESCE(name, '')) > ?,
-		substr(body, 1, ?), length(body) > ?, status
-		FROM records WHERE id = ?`, reviewProjectionRunes, reviewProjectionRunes,
-		reviewProjectionRunes, reviewProjectionRunes, id).Scan(
-		&r.ID, &r.Agent, &r.Lane, &r.Kind, &r.NamePrefix, &nameTruncated,
-		&r.BodyPrefix, &bodyTruncated, &r.Status)
+		substr(CAST(COALESCE(name, '') AS BLOB), 1, ?), length(CAST(COALESCE(name, '') AS BLOB)) > ?,
+		substr(CAST(body AS BLOB), 1, ?), length(CAST(body AS BLOB)) > ?, status
+		FROM records WHERE id = ?`, reviewProjectionBytes, reviewProjectionBytes,
+		reviewProjectionBytes, reviewProjectionBytes, id).Scan(
+		&r.ID, &r.Agent, &r.Lane, &r.Kind, &rawName, &nameTruncated,
+		&rawBody, &bodyTruncated, &r.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: record %s", ErrNotFound, id)
 	}
 	if err != nil {
 		return nil, err
 	}
-	r.NameTruncated = nameTruncated != 0
-	r.BodyTruncated = bodyTruncated != 0
+	r.NamePrefix, r.NameTruncated, err = episodeReviewPrefix(rawName, nameTruncated != 0)
+	if err != nil {
+		return nil, fmt.Errorf("record %s name: %w", id, err)
+	}
+	r.BodyPrefix, r.BodyTruncated, err = episodeReviewPrefix(rawBody, bodyTruncated != 0)
+	if err != nil {
+		return nil, fmt.Errorf("record %s body: %w", id, err)
+	}
 	return &r, nil
 }
 
@@ -76,12 +98,19 @@ func EpisodeReviewRecordIDs(q Querier, contextID, section string) ([]string, err
 // EpisodeReviewRetirementReason returns a bounded current inspection preview;
 // exact inspection remains the source for the complete reason.
 func EpisodeReviewRetirementReason(q Querier, recordID string) (string, bool, error) {
-	var reason string
+	var rawReason []byte
 	var truncated int
-	err := q.QueryRow(`SELECT substr(reason, 1, ?), length(reason) > ? FROM record_retirements WHERE record_id = ?`,
-		reviewProjectionRunes, reviewProjectionRunes, recordID).Scan(&reason, &truncated)
+	err := q.QueryRow(`SELECT substr(CAST(reason AS BLOB), 1, ?), length(CAST(reason AS BLOB)) > ?
+		FROM record_retirements WHERE record_id = ?`, reviewProjectionBytes, reviewProjectionBytes, recordID).Scan(&rawReason, &truncated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
-	return reason, truncated != 0, err
+	if err != nil {
+		return "", false, err
+	}
+	reason, prefixTruncated, err := episodeReviewPrefix(rawReason, truncated != 0)
+	if err != nil {
+		return "", false, fmt.Errorf("retirement for %s: %w", recordID, err)
+	}
+	return reason, prefixTruncated, nil
 }

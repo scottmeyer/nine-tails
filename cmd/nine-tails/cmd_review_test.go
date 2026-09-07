@@ -207,6 +207,28 @@ func TestInspectReviewRejectsLocalReferencesOfOtherKinds(t *testing.T) {
 	}
 }
 
+func TestInspectReviewPreservesNULInCurrentPreview(t *testing.T) {
+	h := newHarness(t)
+	h.ok("base", "a", "Base.")
+	loaded := h.ok("load", "a", "--format", "json").json(t)
+	ctx := loaded["context_id"].(string)
+	body := "before\x00after significant evidence"
+	record := h.okIn(body, "remember", "--context", ctx, "--stdin").id(t)
+
+	packet := reviewResult(t, h.run("inspect", ctx, "--review", "--format", "json"))
+	entry := findReviewEntry(t, packet, "write", record)
+	if entry.InspectionPreview != body || entry.PreviewTruncated {
+		t.Fatalf("NUL shortened current preview: %#v", entry)
+	}
+	var exact store.RecordEnvelope
+	if err := json.Unmarshal([]byte(h.ok("inspect", record, "--format", "json").out), &exact); err != nil {
+		t.Fatal(err)
+	}
+	if exact.Body != body {
+		t.Fatalf("review changed exact source: %q", exact.Body)
+	}
+}
+
 func TestReviewTextCollapsesWhitespaceAndTruncatesByRune(t *testing.T) {
 	preview, truncated := reviewText(" \n  α\tβ  " + strings.Repeat("界", reviewPreviewRunes))
 	if !truncated || strings.ContainsAny(preview, "\n\t") || len([]rune(preview)) != reviewPreviewRunes || !strings.HasPrefix(preview, "α β 界") || !strings.HasSuffix(preview, "…") {
