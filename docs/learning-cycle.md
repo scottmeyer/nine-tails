@@ -5,6 +5,35 @@ user's intent are available. Nine-tails stores those decisions, protects their
 scope and lineage, and projects the current result on the next load. It does
 not need a second model service or a successful compilation to learn.
 
+## Apply a lesson while the evidence is available
+
+When a failure, user correction, or changed plan exposes a useful decision,
+consult relevant guidance and recall before repeating the attempt. Inspect the
+complete source when a preview is insufficient; check its conditions against
+the current task and artifacts. Choose one concrete change to the next action,
+then check the result against user feedback, a test, a tool result, or another
+observable outcome. A retrieved memory is a candidate, not proof that its
+advice applies.
+
+Capture a supported correction while that evidence is still available. Prefer
+updating the existing lesson over adding a second account. Keep the trigger,
+useful action, evidence, and exception that affect a future decision. An
+unverified idea stays uncertain recall; changing project status belongs in
+state. An explicit user preference does not need an experiment to establish
+what the user wants. Routine success need not produce a memory.
+
+This is a behavior of the working harness model. Codex, Claude, or another
+harness can perform it inline, or delegate a focused review with the parent
+receipt and a bounded summary of the actual feedback. It requires no lifecycle
+hook, resident reflector, transcript recorder, or separate model service.
+
+The research behind this change is collected in the
+[reflection](research-learning-reflection.md),
+[retrieval](research-learning-retrieval.md), and
+[architecture](research-learning-architecture.md) reviews. Those papers motivate
+feedback-grounded iteration; their benchmark gains do not establish gains for
+nine-tails.
+
 ## What to do when
 
 | What happened | Action | What carries forward |
@@ -131,6 +160,27 @@ longer exists. If a useful replacement exists, supersede or consolidate instead.
 Age, absence from recent tasks, and repeated exposure are not evidence that a
 conditional preference became wrong. Retirement preserves history and a reason;
 it does not revive an earlier instruction automatically.
+
+## Reviewing one episode
+
+At a useful review or handoff, gather the episode's recorded evidence with:
+
+```sh
+nine-tails inspect <receipt> --review
+```
+
+The packet groups exact delivered records, writes originating in that episode,
+and retirement decisions. It includes inactive writes and follows corrections
+separately to their current versions. Short previews help identify a lesson;
+use its inspection recipe to read full evidence before editing it. Follow the
+returned continuation to see remaining entries. The response is a live view;
+restart after new writes when needed.
+
+Supply actual feedback from the current conversation or artifacts alongside the
+packet when delegating a review. The packet contains neither that feedback nor
+unsaved discoveries, and it does not establish that a delivered lesson was
+applied. It reviews the exact receipt only; inspect a child's own receipt for
+its work. A focused review may conclude that no durable change is warranted.
 
 ## Consulting a growing library
 

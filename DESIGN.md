@@ -1281,6 +1281,48 @@ envelope). Unknown id → 3; otherwise → 7. `load` includes live-leased signal
 
 ## 12. Inspect (spec §18)
 
+### Episode review evidence
+
+`inspect <receipt> --review` returns a read-only review packet for one exact
+context. `--review-after <cursor>` follows its generated continuation. The
+receipt target accepts a canonical context ID or its local reference. Review
+syntax, cursor shape, output format and incompatible inspection flags are
+validated before local-reference resolution or opening the store. JSON and
+YAML are supported; MCP exposes the same operation as
+`nt_inspect {target: <receipt>, review: true, review_after?: <cursor>}`.
+
+Assemble each page in one database transaction. Include a compact receipt
+header, counts and entries in three ordered groups:
+
+1. **Delivered:** exact `context_records` IDs and original section/ordinal.
+   Preserve referenced records owned by other agents.
+2. **Writes:** records whose `origin_context_id` equals the receipt, including
+   superseded and disabled versions. Consolidations are writes; link to exact
+   inspection for their source graph rather than multiplying entries per source.
+3. **Retirements:** retirement decisions made under this receipt, including
+   targets originally written in another episode.
+
+Each entry has an exact record reference, kind/status, a bounded
+whitespace-collapsed preview of the immutable record body, and a store-bound
+full-inspection recipe. Separately identify today's successor/status without
+replacing historical IDs. Previews are inspection aids, never a reconstruction
+of the excerpt delivered by the old load. Retirement reasons remain inspectable.
+
+Use a soft 8,192-byte target over serialized entries, keeping at least the first
+entry and exposing remaining counts and a continuation. This is not a hard cap
+on the entire response. Cursors identify the receipt's section and exact
+position; another episode's cursor is invalid. Paging is a live view: later
+changes may require restarting, while the delivered set is immutable. Generated
+recipes preserve the selected store. Review creates no context, record, mark,
+closure, or model call and does not include descendants automatically.
+
+The packet explicitly limits its claims: recorded delivery and changes do not
+establish full-text exposure, application, correctness, or improvement. Unsaved
+discoveries and actual conversation/tool feedback are absent. The invoking
+harness supplies that bounded evidence when using the packet for reflection.
+Large source bodies remain behind exact inspection rather than being copied
+into every review packet.
+
 ### Paged memory library
 
 `inspect [<agent>] --page [--context <receipt>] [--query <text>]
@@ -1669,6 +1711,17 @@ masked by a missing receipt. Error text joins nonempty output streams with one
 newline and never reports an empty failure as a successful completion.
 
 ## 18. Optional closure and historical marks
+
+The generated capsule protocol activates learning at a relevant decision:
+after a failure or changed plan, consult existing lessons, inspect necessary
+full evidence, choose a concrete adjustment, and verify the next result against
+observable feedback. Capture supported changes while the evidence is available;
+uncertain ideas remain recall and changing facts remain state. User corrections
+establish intent directly. This harness-owned behavior applies to CLI, MCP and
+native capsule injection; it requires neither a hook nor a second model call.
+The starter and repository role definitions reinforce the same behavior without
+creating a mandatory reflection or write step. Existing personalized definitions
+are never silently replaced by starter changes.
 
 `close <ctx-id>` only sets `contexts.closed_at`. It closes once (again → 7),
 accepts no marks or positional updates (exit 2), and creates no rows in

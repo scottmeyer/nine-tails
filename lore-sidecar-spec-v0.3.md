@@ -1524,6 +1524,22 @@ Useful reflection triggers include:
 - An external signal changing current state.
 - An explicit user or harness request.
 
+The working model should use these events to improve the next relevant action,
+not only to write a retrospective. When a failure or changed plan makes past
+experience relevant, consult the existing guidance and recall, inspect the
+complete sources needed for the decision, and check their conditions against
+current artifacts. Apply a concrete adjustment and verify its result with
+observable feedback before claiming it helped. Explicit user corrections are
+evidence of intent; generated critique alone is not evidence of correctness.
+Capture supported changes while the evidence remains available, correcting an
+existing lesson when possible. A single incident supports a bounded observation,
+not an unconditional rule. Unverified ideas remain uncertain recall.
+
+This consult/apply/verify behavior belongs in the common generated capsule
+protocol, so direct role loads and CLI/MCP consumers receive it without a native
+hook or extra reflector invocation. It is selective: no required reflection
+after every action, mandatory write, scoring, or automatic model call is added.
+
 Lore should not require reflection after every action. The correct reflection
 result is often no write. Selectivity prevents a synthetic diary from burying
 the few lessons worth carrying forward.
@@ -2402,6 +2418,31 @@ reflection adapter exists, the current agent can apply the reflector capsule
 inline or omit reflection entirely.
 
 ## 18. Inspection and Self-Repair
+
+### Receipt-centered review
+
+`inspect <receipt> --review` assembles evidence for the invoking model's
+optional review without running another agent or saving a transcript. It
+returns the exact receipt header and a bounded page of delivered references,
+records written with that receipt as origin (including inactive versions), and
+retirement decisions made under that receipt. Consolidated replacements appear
+once as writes and retain their full provenance through exact inspection.
+Linked foreign-owned records delivered in the episode remain visible.
+
+Original record IDs and delivery order are historical evidence. Current
+successors and statuses are labeled separately; a current preview is not the
+old delivered excerpt. Each entry links to full inspection. Counts and a
+generated continuation expose omitted entries; follow it with
+`--review-after <cursor>`. The cursor is bound to the exact receipt and page
+position. Pages use a live view of writes and current lifecycle state; restart
+to include later changes. They do not include child episodes implicitly.
+
+Review is read-only and works through the ordinary CLI or MCP inspection tool.
+It does not close the receipt, append marks, infer application, rate usefulness,
+or perform a model call. A receipt cannot supply unsaved discoveries or user and
+tool feedback; the harness supplies those as bounded, labeled data when needed.
+Delivery, application, and observed outcome remain distinct. Invalid review
+syntax must fail before reference lookup or store creation.
 
 Lore intentionally provides no required human management surface. Instead it
 offers complete, machine-readable inspection:

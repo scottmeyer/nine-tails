@@ -62,11 +62,20 @@ so extracting only instructions would silently drop selected context.
 
 The tool menu stays stable:
 
+For a focused episode review, call
+`nt_inspect({"target":"@42","review":true})`. This read-only packet contains
+the receipt's delivered records, episode-originated writes, and retirement
+decisions. Full-source inspection recipes and current successors accompany the
+historical references. Follow a non-null `next` by supplying its `review_after`
+with the same target and `review: true`. Counts expose remaining entries. The
+packet does not contain the conversation or prove that a memory was applied;
+the working model supplies actual feedback before drawing that conclusion.
+
 | Tool | Purpose |
 | --- | --- |
 | `nt_load` | Load an agent, record its receipt, and return current guidance plus relevant experience. |
 | `nt_learn` | Add, correct, consolidate, or retire knowledge through its owning receipt. |
-| `nt_inspect` | Retrieve full records, search history, or inspect an agent. |
+| `nt_inspect` | Retrieve full records, search history, inspect an agent, or review an episode's recorded evidence. |
 | `nt_tools` | Discover current agent-owned and shared executable capabilities using a receipt. |
 | `nt_call` | Invoke a discovered capability through its receipt scope. |
 | `nt_state` | Read/update named state or subscribe to shared state with compare-and-swap. |
