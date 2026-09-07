@@ -175,14 +175,22 @@ text, instruction kind, or applicability scope does the same: obsolete compiled 
 without waiting for a compiler. Recompile when useful to compact the surviving
 notes, not to make the correction take effect.
 
-Capture explicit durable corrections during work. At a meaningful pause,
-briefly consider whether anything should carry forward. Supported reusable
-lessons become guidance; useful experience or uncertainty can be saved with
-`remember`. Zero writes is valid, including a playful companion session.
+After a failure or changed plan, consult relevant prior lessons, choose a
+concrete adjustment, and check the next result against observable feedback.
+Capture supported corrections while that evidence is available. Supported
+reusable lessons become guidance; useful experience or uncertainty can be saved
+with `remember`. Zero writes is valid, including a playful companion session.
 Reflection can happen inline. The optional `reflector` helps with difficult
 reconciliation. Update existing lessons before adding another overlapping note.
 Explicit user corrections can become guidance immediately; inferred experience
 belongs in recall until evidence supports a reusable instruction.
+
+For a focused review, `nine-tails inspect <receipt> --review` gathers the
+episode's delivered records, writes, and retirement decisions with full-source
+inspection links and current replacements. It is read-only and paginated.
+Supply the actual task feedback alongside it: recorded delivery and successful
+persistence alone do not prove that a lesson improved an outcome. The same
+operation is available through `nt_inspect` over MCP.
 
 When several instructions say the same thing, inspect their complete text and
 combine them while keeping their conditions and exceptions:
