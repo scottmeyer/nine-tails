@@ -72,7 +72,8 @@ establish this repair, not a general improvement in agent task performance.
 
 ## Validation
 
-`make test`, `make vet`, and `make build` passed on the integrated change.
+`make test`, `make vet`, `make build`, and `go test -race ./...` passed on the
+integrated change. All regression and adversarial fixtures used isolated stores.
 The cross-harness integration test verifies a correction originating under
 Codex, later delivery under Claude, preserved repository scope, and immutable
 historical receipts. A complete pagination test compares every page across CLI
@@ -86,6 +87,12 @@ Unicode source, quoted custom-store paths, and unchanged logical SQLite
 contents. Malformed CLI/MCP inputs failed without creating a store. The reviewer
 then reproduced and verified the NUL fix across text, names, retirement reasons,
 and a mixed-width UTF-8 boundary. No finding remained open.
+
+After isolated validation, ordinary dogfooding used the new command to review
+this session's design episode. Two pages recovered its 25 delivered references
+and one originating correction. The old guidance remained labeled as delivered,
+its current replacement was separate, and that replacement also appeared as the
+episode's write. No second persona load or raw-history dump was needed.
 
 Regression entry points:
 
