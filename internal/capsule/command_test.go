@@ -24,7 +24,9 @@ func TestCommandBindingCountsBeforeTransportAndPreservesAuthoredText(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(bound.Instructions, body) || !strings.Contains(bound.Instructions, cli.InlineCode(cli.StoreCommand(home, "refs"))) {
+	if !strings.Contains(bound.Instructions, body) ||
+		!strings.Contains(bound.Instructions, cli.InlineCode(cli.StoreCommand(home, "refs"))) ||
+		!strings.Contains(bound.Instructions, cli.InlineCode(cli.StoreCommand(home, "inspect <episode-receipt> --review"))) {
 		t.Fatalf("authored body changed or command quoting missing: %s", bound.Instructions)
 	}
 	if bound.EstimatedTokens != tokens.Estimate(bound.Markdown) || len(bound.Markdown) <= len(plain.Markdown) {

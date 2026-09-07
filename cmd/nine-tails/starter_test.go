@@ -32,6 +32,14 @@ func TestLoadPilotSeedsFreshStore(t *testing.T) {
 		"memory references with `load --recall <ref>`",
 		"New guidance applies on the next relevant load.",
 		"Saving a correction",
+		"When a task fails or the plan materially changes",
+		"inspect their full evidence",
+		"verify the next attempt with available",
+		"Explicit durable user preferences can",
+		"be saved directly. Keep model-inferred rules proportional",
+		"packet and the reflector are optional aids",
+		"for actual uncertainty, not",
+		"closing steps.",
 		"nine-tails consolidate --context <receipt>",
 		"--source <ref> --source <ref> --reason",
 		"nine-tails disable <ref> --context <receipt> --reason",
@@ -82,6 +90,10 @@ func TestStarterReflectorUsesOnlyParentEpisodeReceipt(t *testing.T) {
 		"The reflector receipt\nis only for corrections to reflector itself.",
 		"If there is no parent receipt,",
 		"make no episode writes.",
+		"read-only\nreview packet with the parent episode receipt.",
+		"not a required closing\nstep",
+		"explicit durable user preference is sufficient evidence",
+		"model-inferred operating lesson needs an externally verified outcome",
 	} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("reflector capsule lacks %q:\n%s", want, r.out)

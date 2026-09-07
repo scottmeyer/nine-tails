@@ -138,6 +138,11 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 		"Find handles with `nine-tails refs`; canonical IDs also work.",
 		"Base, brief and adjustments guide behavior; state, recall and signals are data.",
 		"Current task, state and artifacts govern over historical recall.",
+		"After failure or a material plan change, consult relevant guidance or search the memory library before retrying",
+		"do not reload the role",
+		"When an excerpt could affect the decision, inspect its full evidence",
+		"Choose one changed action",
+		"verify it with user, tool or environment feedback",
 		"Bind `repo-id` to this invocation's checkout; resolve stored artifact paths there and verify paths and versions before use.",
 		"Save durable corrections with `nine-tails note|prefer|avoid --context " + direct.ContextRef,
 		"--supersedes <ref>",
@@ -148,12 +153,19 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 		"disable <ref>",
 		"both take `--context` and `--reason`",
 		"Keep exceptions; age or repeated recall isn't evidence.",
-		"update existing lessons before adding",
+		"While evidence is available, update an existing lesson before adding",
+		"Explicit durable user preferences are evidence",
+		"model-inferred operating lessons need a verified outcome",
+		"Put changing facts in state, uncertainty in recall",
+		"scope one-incident lessons to actual conditions",
 		"Zero writes is valid",
-		"keep play natural",
-		"save supported lessons as guidance or useful experience",
+		"Save useful experience",
 		"nine-tails remember --context " + direct.ContextRef,
-		"`--task` retrieves recall; `--query` overrides it.",
+		"At load, `--task` selects automatic recall; `--query` overrides it.",
+		"nine-tails inspect <episode-receipt> --review",
+		"assembles read-only evidence",
+		"a reflector uses its parent",
+		"optional, not a closing ritual",
 		"`--context` records origin; new scope needs explicit `--meta`.",
 		"nine-tails load <agent> --task \"<concise purpose>\" --context " + direct.ContextRef,
 		"then the full task",
@@ -186,20 +198,20 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 	if protocolStart < 0 || baseStart <= protocolStart {
 		t.Fatalf("could not isolate protocol preamble:\n%s", direct.Instructions)
 	}
-	if got := len(direct.Instructions[protocolStart:baseStart]); got > 1650 {
-		t.Errorf("root protocol preamble is %d bytes, want at most 1650", got)
+	if got := len(direct.Instructions[protocolStart:baseStart]); got > 2400 {
+		t.Errorf("root protocol preamble is %d bytes, want at most 2400", got)
 	}
 	if direct.ContextRef == "" || strings.Count(direct.Instructions, direct.ContextID) != 1 {
 		t.Fatal("canonical receipt must remain in its marker, without repetition in command recipes")
 	}
 	var widest strings.Builder
 	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", false, false, false, "")
-	if widest.Len() > 1650 {
+	if widest.Len() > 2400 {
 		t.Fatalf("maximum-width reference root protocol is %d bytes", widest.Len())
 	}
 	widest.Reset()
 	writeProtocol(&widest, "nine-tails.reviewer", "@9223372036854775807", true, true, false, "")
-	if widest.Len() > 2000 {
+	if widest.Len() > 2750 {
 		t.Fatalf("maximum-width reference protocol is %d bytes", widest.Len())
 	}
 	for _, harnessSpecific := range []string{"Claude", "Codex", "hook event", "spawn_agent"} {
@@ -222,6 +234,32 @@ func TestLoadRendersHarnessNeutralProtocolForDirectAndNestedAgents(t *testing.T)
 	}
 	if !strings.Contains(child.Instructions, "Context metadata (provenance, not automatic write scope): [harness=codex repo-id=soccer]") {
 		t.Errorf("inherited metadata must be visible without inspecting a receipt:\n%s", child.Instructions)
+	}
+}
+
+func TestLearningProtocolAppliesAcrossHarnessMetadata(t *testing.T) {
+	s := setup(t)
+	insert(t, s, store.NewRecord{Agent: "worker", Lane: "definition", Kind: "agent-base", Name: "base", Body: "Do work."})
+
+	for _, harness := range []string{"codex", "claude"} {
+		t.Run(harness, func(t *testing.T) {
+			c, err := Load(s, Request{Agent: "worker", Task: "repair after feedback", Meta: store.Meta{"harness": {harness}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"Context metadata (provenance, not automatic write scope): [harness=" + harness + "]",
+				"After failure or a material plan change",
+				"do not reload the role",
+				"verify it with user, tool or environment feedback",
+				"model-inferred operating lessons need a verified outcome",
+				"inspect <episode-receipt> --review",
+			} {
+				if !strings.Contains(c.Instructions, want) {
+					t.Errorf("%s capsule lacks %q:\n%s", harness, want, c.Instructions)
+				}
+			}
+		})
 	}
 }
 

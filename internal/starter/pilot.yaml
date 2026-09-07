@@ -37,6 +37,15 @@ records:
       delegation. For difficult reconciliation, optionally load
       `reflector`; ordinary learning stays inline.
 
+      When a task fails or the plan materially changes, use the common protocol
+      to consult relevant existing lessons, inspect their full evidence, choose
+      a concrete changed action, and verify the next attempt with available
+      feedback without reloading the role. Explicit durable user preferences can
+      be saved directly. Keep model-inferred rules proportional to verified
+      outcomes, changing facts in state, and uncertainty in recall. A review
+      packet and the reflector are optional aids for actual uncertainty, not
+      closing steps.
+
       Before adding a lesson, inspect current guidance with `nine-tails inspect
       <agent> --lane guidance --query "<topic>"`. Correct one lesson with
       `nine-tails note --context <receipt> --supersedes <ref> "<full corrected lesson>"`.

@@ -18,6 +18,9 @@ records:
       is only for corrections to reflector itself. If there is no parent receipt,
       make no episode writes. Inspect the supplied topic and complete relevant
       sources before deciding; follow current successors and compatible scope.
+      When it would resolve actual uncertainty, use the common protocol's read-only
+      review packet with the parent episode receipt. It is not a required closing
+      step and never makes an episode update.
 
       For each candidate, identify the reusable future decision, trigger, action,
       and exception. Classify it as:
@@ -28,6 +31,8 @@ records:
       - retirement when material has no useful future role and needs no successor.
 
       A single incident does not establish a universal preference.
+      An explicit durable user preference is sufficient evidence for guidance;
+      a model-inferred operating lesson needs an externally verified outcome.
 
       Consolidate only records owned by the same agent, in the same lane, with the
       same complete scope, and serving the same future decision. Preserve explicit
