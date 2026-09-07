@@ -75,14 +75,16 @@ func mcpCatalog() []mcpTool {
 		"forget":     {Type: "string", MinLength: 1, Description: "Exact record ID or local @N to retire without a successor. Requires reason; mutually exclusive with body, kind, sources, supersedes, meta and clear_meta."},
 	})
 	learn.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"body"}}, {Required: []string{"supersedes"}}, {Required: []string{"forget"}}}
-	inspect := def("nt_inspect", "Retrieve an agent, exact record or receipt. With an exact recall target and context, compare immutable delivery evidence with current lexical selection. During work, use page:true with the current context to browse its scoped recall library. Read a record's exact reference for full evidence before relying on it.", []string{}, map[string]mcpProperty{
-		"target":  {Type: "string", MinLength: 1, Description: "Agent name or exact record/receipt id. With context and page absent or false, must be an exact recall record for a read-only selection check. Optional on a library page when context supplies the agent; with both, the agent must match."},
-		"page":    {Type: "boolean", Description: "Browse a compact recall index page. Requires context or a target agent; after advances the cursor. Does not load the agent or add recalled evidence to a receipt."},
-		"context": {Type: "string", MinLength: 1, Description: "Receipt ID or @N supplying scope for a page, or historical delivery and scope for an exact recall check."},
-		"after":   {Type: "string", MinLength: 1, Description: "Exact record cursor ID or @N returned by the previous page; page mode only."},
-		"query":   str("Page substring filter, ordinary inspection filter, or current lexical query for an exact recall check. An omitted recall-check query uses the receipt task; explicit empty checks no query terms."),
-		"lane":    str("Optional guidance/recall filter for ordinary inspection; page mode accepts only recall; invalid for an exact recall check."),
-		"include": str("Optional comma-separated sections for ordinary inspection, e.g. base,brief,journal,tools; invalid for page mode and exact recall checks."),
+	inspect := def("nt_inspect", "Retrieve an agent, exact record or receipt. Use review:true on a receipt for bounded delivery and episode-change evidence, with review_after for its generated continuation. With an exact recall target and context, compare immutable delivery evidence with current lexical selection. During work, use page:true with the current context to browse its scoped recall library. Read a record's exact reference for full evidence before relying on it.", []string{}, map[string]mcpProperty{
+		"target":       {Type: "string", MinLength: 1, Description: "Agent name or exact record/receipt id. With context and page absent or false, must be an exact recall record for a read-only selection check. Optional on a library page when context supplies the agent; with both, the agent must match."},
+		"page":         {Type: "boolean", Description: "Browse a compact recall index page. Requires context or a target agent; after advances the cursor. Does not load the agent or add recalled evidence to a receipt."},
+		"review":       {Type: "boolean", Description: "Review one exact receipt's delivered records, episode-origin writes and retirement decisions without inferring application."},
+		"context":      {Type: "string", MinLength: 1, Description: "Receipt ID or @N supplying scope for a page, or historical delivery and scope for an exact recall check."},
+		"after":        {Type: "string", MinLength: 1, Description: "Exact record cursor ID or @N returned by the previous page; page mode only."},
+		"review_after": {Type: "string", MinLength: 1, Description: "Opaque cursor returned by the previous receipt review page; review mode only."},
+		"query":        str("Page substring filter, ordinary inspection filter, or current lexical query for an exact recall check. An omitted recall-check query uses the receipt task; explicit empty checks no query terms."),
+		"lane":         str("Optional guidance/recall filter for ordinary inspection; page mode accepts only recall; invalid for an exact recall check."),
+		"include":      str("Optional comma-separated sections for ordinary inspection, e.g. base,brief,journal,tools; invalid for page mode and exact recall checks."),
 	})
 	inspect.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"target"}}, {Required: []string{"page", "context"}}}
 	return []mcpTool{
@@ -356,7 +358,24 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 		}
 	}
 	if name == "nt_inspect" {
-		if args["page"] == true {
+		if args["review"] == true {
+			if _, supplied := args["target"]; !supplied {
+				return nil, fmt.Errorf("target is required for review")
+			}
+			var incompatible []string
+			for _, key := range []string{"page", "context", "after", "query", "lane", "include"} {
+				if _, supplied := args[key]; supplied {
+					incompatible = append(incompatible, key)
+				}
+			}
+			target, _ := args["target"].(string)
+			reviewAfter, _ := args["review_after"].(string)
+			if err := validateReviewArguments([]string{target}, true, reviewAfter, "json", incompatible); err != nil {
+				return nil, err
+			}
+		} else if _, supplied := args["review_after"]; supplied {
+			return nil, fmt.Errorf("review_after requires review mode")
+		} else if args["page"] == true {
 			if _, supplied := args["include"]; supplied {
 				return nil, fmt.Errorf("page and include are mutually exclusive")
 			}
@@ -473,7 +492,17 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 			}
 		}
 	}
-	if name == "nt_inspect" && v["page"] == true {
+	if name == "nt_inspect" && v["review"] == true {
+		var incompatible []string
+		for _, key := range []string{"page", "context", "after", "query", "lane", "include"} {
+			if _, supplied := v[key]; supplied {
+				incompatible = append(incompatible, key)
+			}
+		}
+		if err := validateReviewArguments([]string{get("target")}, true, get("review_after"), "json", incompatible); err != nil {
+			return err.Error(), true
+		}
+	} else if name == "nt_inspect" && v["page"] == true {
 		var args []string
 		if target := get("target"); target != "" {
 			args = []string{target}
@@ -573,10 +602,16 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		if v["page"] == true {
 			argv = append(argv, "--page")
 		}
+		if v["review"] == true {
+			argv = append(argv, "--review")
+		}
 		for _, k := range []string{"query", "lane", "include", "after"} {
 			if _, ok := v[k]; ok {
 				argv = append(argv, "--"+k, get(k))
 			}
+		}
+		if _, ok := v["review_after"]; ok {
+			argv = append(argv, "--review-after", get("review_after"))
 		}
 	case "nt_tools":
 		return a.mcpAgentTools(get("context"), get("query"))

@@ -173,8 +173,8 @@ type signalRecordView struct {
 
 func newInspectCmd(a *app) *cobra.Command {
 	var include, lane, kind, name, query, coverage, lint, format string
-	var pageContext, after string
-	var all, page bool
+	var pageContext, after, reviewAfter string
+	var all, page, review bool
 	c := &cobra.Command{
 		Use:   "inspect [agent | record-id | ctx-id | gen-id]",
 		Short: "Return raw or filtered agent state (the repair surface)",
@@ -189,6 +189,7 @@ func newInspectCmd(a *app) *cobra.Command {
   inspect --page --context @42                   compact memory library page
   inspect architect --page --query "passing"     search a role's memory library
   inspect @50 --context @42 --query "undo"       check a memory against a receipt
+  inspect @42 --review                            review delivery and episode changes
 Add --all to include superseded and disabled records in ordinary inspection.
 
 --page browses active recall newest first, under a soft size target, with full
@@ -198,6 +199,13 @@ the agent explicitly. Follow the returned continuation without changing its
 agent, context or query; this is a live index, not a saved snapshot. Newer
 entries appear when you restart, and retired records disappear. Paging does
 not load the persona again or turn library entries into instructions.
+
+--review returns a bounded, read-only packet for one receipt: delivered record
+identities, records written from the episode, and its retirement decisions.
+Follow the generated --review-after continuation without changing the receipt.
+Pages are live, so restart after later writes. Previews are today's inspection
+aids, not historical delivered excerpts; delivery and changes do not prove that
+the model applied them or that the resulting work was correct.
 
 For one recall record, --context adds a read-only recall_check: whether that
 exact record was delivered, and how today's lexical lookup selects it under
@@ -211,6 +219,18 @@ it includes the exact memory and receipt without adding evaluation data to recal
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
 				return err
+			}
+			if review || cmd.Flags().Changed("review-after") {
+				if cmd.Flags().Changed("review-after") && reviewAfter == "" {
+					return cli.Invalid("--review-after must be nonempty when supplied")
+				}
+				var incompatible []string
+				for _, flag := range []string{"page", "context", "after", "query", "lane", "include", "kind", "name", "all", "coverage", "lint"} {
+					if cmd.Flags().Changed(flag) {
+						incompatible = append(incompatible, flag)
+					}
+				}
+				return validateReviewArguments(args, review, reviewAfter, format, incompatible)
 			}
 			if page {
 				for _, flag := range []string{"include", "kind", "name", "all", "coverage", "lint"} {
@@ -238,6 +258,9 @@ it includes the exact memory and receipt without adding evaluation data to recal
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if review {
+				return a.inspectReview(args[0], reviewAfter, format)
+			}
 			if page {
 				return a.inspectLibrary(args, pageContext, query, after, format)
 			}
@@ -343,8 +366,10 @@ it includes the exact memory and receipt without adding evaluation data to recal
 	c.Flags().StringVar(&lint, "lint", "", "run a lint: condition-loss")
 	c.Flags().BoolVar(&all, "all", false, "include superseded and disabled records")
 	c.Flags().BoolVar(&page, "page", false, "browse or search a compact page of active recall; follow next to continue")
+	c.Flags().BoolVar(&review, "review", false, "inspect bounded delivery and change evidence for one receipt")
 	c.Flags().StringVar(&pageContext, "context", "", "receipt for scoped --page browsing or an exact recall record check")
 	c.Flags().StringVar(&after, "after", "", "with --page, continue after the last returned record ID or @ref")
+	c.Flags().StringVar(&reviewAfter, "review-after", "", "with --review, continue from the generated opaque cursor")
 	c.Flags().StringVar(&format, "format", "json", "json|yaml")
 	return c
 }
