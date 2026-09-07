@@ -820,7 +820,7 @@ stable local refs. There is no repeated identity block.
 Both refs resolve to the exact canonical receipt IDs; the original marker and
 structured IDs remain unchanged. With any SQLite integer reference and an
 agent name no longer than `nine-tails.reviewer` (19 bytes),
-the default-store protocol is at most 1,650 bytes without state/tools and 2,000 bytes
+the default-store protocol is at most 2,400 bytes without state/tools and 2,750 bytes
 with both. The identity line carries any parent pair separately. Valid agent names are not length-bounded, so transport ceilings remain
 authoritative for longer names and nondefault store bindings. Alternate-store
 recipes and their binding explanation count in rendered size and transport
