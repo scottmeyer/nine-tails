@@ -633,9 +633,10 @@ func TestToolTimeoutMustBePositive(t *testing.T) {
 	if r := h.ok("load", "a"); strings.Contains(r.out, "neg") {
 		t.Errorf("rejected tool listed:\n%s", r.out)
 	}
-	// A positive timeout is accepted and honored.
+	// Positive timeout validation does not require sub-100ms process startup.
+	// Timeout enforcement is covered by the sleeping-tool tests.
 	script := writeScript(t, "quick.sh", "echo quick\n")
-	h.okIn("description: quick\nexec:\n  timeout: 100ms\n", "tool", "add", "a", "quick", "--script", script, "--stdin")
+	h.okIn("description: quick\nexec:\n  timeout: 5s\n", "tool", "add", "a", "quick", "--script", script, "--stdin")
 	if r := h.ok("call", "--agent", "a", "quick"); r.out != "quick\n" {
 		t.Errorf("quick: %q", r.out)
 	}
