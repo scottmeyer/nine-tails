@@ -60,10 +60,12 @@ func TestRunCompilerTimeoutKillsDescendantsAndReportsTimeout(t *testing.T) {
 	ready := filepath.Join(dir, "ready")
 	marker := filepath.Join(dir, "descendant-finished")
 	script := filepath.Join(dir, "compiler.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n(sleep 5; touch \"$2\") &\ntouch \"$1\"\nwait\n"), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n(touch \"$1\"; sleep 3; touch \"$2\") &\nwait\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Allow cold shell startup, while the descendant must outlive the deadline.
+	// Keep its delay below the full post-readiness marker observation window: a
+	// slower-starting survivor must still have time to expose broken cleanup.
 	a := &app{home: dir}
 	started := time.Now()
 	_, _, err := a.runCompiler([]string{script, ready, marker}, nil, 2*time.Second, "a")
