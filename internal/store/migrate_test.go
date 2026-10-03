@@ -2,6 +2,8 @@ package store
 
 import (
 	"database/sql"
+	"errors"
+	"os"
 	"testing"
 )
 
@@ -20,11 +22,20 @@ func TestOpenMigratesV1Contexts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err = Open(home)
+	if _, err := Open(home); !errors.Is(err, ErrSchemaBehind) {
+		t.Fatalf("an ordinary open must refuse the v1 store, got %v", err)
+	}
+	s, m, err := Migrate(home)
 	if err != nil {
-		t.Fatalf("reopen v1 store: %v", err)
+		t.Fatalf("migrate v1 store: %v", err)
 	}
 	defer s.Close()
+	if m.From != 1 || m.To != userVersion || m.Backup == "" {
+		t.Fatalf("migration report %+v", m)
+	}
+	if _, err := os.Stat(m.Backup); err != nil {
+		t.Fatalf("backup missing: %v", err)
+	}
 	var v int
 	if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != userVersion {
 		t.Fatalf("user_version = %d (%v), want %d", v, err, userVersion)

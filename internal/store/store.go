@@ -51,29 +51,84 @@ func HomeDir() (string, error) {
 	return filepath.Join(u, ".nine-tails"), nil
 }
 
-const userVersion = 5 // 2: estimated_tokens; 3: prefix_ULID; 4: receipt closure; 5: consolidation lineage and retirement audit
+const userVersion = 6 // 2: estimated_tokens; 3: prefix_ULID; 4: receipt closure; 5: consolidation lineage and retirement audit; 6: write dedupe keys
 
-// Open opens (creating if needed) the store under home.
+// ErrSchemaBehind reports an existing store whose schema is older than this
+// binary. Ordinary commands never upgrade a store as a side effect of
+// running; Migrate does, after copying the database beside itself.
+var ErrSchemaBehind = errors.New("store schema is behind this binary")
+
+// Migration describes what Migrate found and did.
+type Migration struct {
+	From   int    `json:"from" yaml:"from"`
+	To     int    `json:"to" yaml:"to"`
+	Backup string `json:"backup,omitempty" yaml:"backup,omitempty"`
+}
+
+// Open opens the store under home, creating it when no database exists yet.
+// An existing store whose schema is older than this binary's is refused with
+// ErrSchemaBehind; a newer schema is refused as well. Neither case changes
+// the database.
 func Open(home string) (*Store, error) {
+	s, _, err := open(home, false)
+	return s, err
+}
+
+// Migrate opens the store under home and upgrades an older schema in place.
+// Before the upgrade the database is copied to nine-tails.db.v<old>.bak, or
+// a timestamped variant when that name is taken. A current store is opened
+// unchanged and reports no backup.
+func Migrate(home string) (*Store, Migration, error) {
+	return open(home, true)
+}
+
+func open(home string, migrate bool) (*Store, Migration, error) {
+	var m Migration
 	if err := os.MkdirAll(home, 0o755); err != nil {
-		return nil, fmt.Errorf("create home: %w", err)
+		return nil, m, fmt.Errorf("create home: %w", err)
 	}
 	for _, d := range []string{"artifacts", "exports"} {
 		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
-			return nil, fmt.Errorf("create %s: %w", d, err)
+			return nil, m, fmt.Errorf("create %s: %w", d, err)
 		}
 	}
-	dsn := "file:" + filepath.Join(home, "nine-tails.db") +
+	path := filepath.Join(home, "nine-tails.db")
+	existed := false
+	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
+		existed = true
+	}
+	dsn := "file:" + path +
 		"?_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		return nil, m, fmt.Errorf("open db: %w", err)
 	}
 	// One connection: every write is BEGIN IMMEDIATE, reads inside a Tx use
 	// the same connection, and other processes coordinate through WAL +
 	// busy_timeout.
 	db.SetMaxOpenConns(1)
 	s := &Store{DB: db, Home: home}
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		db.Close()
+		return nil, m, err
+	}
+	m.From, m.To = v, userVersion
+	switch {
+	case v > userVersion:
+		db.Close()
+		return nil, m, fmt.Errorf("store schema version %d is newer than this binary supports (%d)", v, userVersion)
+	case existed && v < userVersion && !migrate:
+		db.Close()
+		return nil, m, fmt.Errorf("%w: schema version %d is older than this binary's %d; run `nine-tails migrate` to upgrade it (a backup is written first)", ErrSchemaBehind, v, userVersion)
+	case existed && v < userVersion:
+		backup, err := backupBeforeMigration(db, path, v)
+		if err != nil {
+			db.Close()
+			return nil, m, err
+		}
+		m.Backup = backup
+	}
 	// Changing journal mode and creating the schema both need database-wide
 	// locks. Several first-time callers may arrive together (for example a
 	// harness starting multiple agents), so retry SQLITE_BUSY around the
@@ -88,11 +143,24 @@ func Open(home string) (*Store, error) {
 		}
 		if !isBusy(err) || !time.Now().Before(deadline) {
 			db.Close()
-			return nil, err
+			return nil, m, err
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	return s, nil
+	return s, m, nil
+}
+
+// backupBeforeMigration copies the database as it is, including committed
+// WAL content, to a sibling file that the previous binary can still open.
+func backupBeforeMigration(db *sql.DB, path string, v int) (string, error) {
+	backup := fmt.Sprintf("%s.v%d.bak", path, v)
+	if _, err := os.Stat(backup); err == nil {
+		backup = fmt.Sprintf("%s.v%d.%s.bak", path, v, Clock().UTC().Format("20060102T150405Z"))
+	}
+	if _, err := db.Exec(`VACUUM INTO '` + strings.ReplaceAll(backup, "'", "''") + `'`); err != nil {
+		return "", fmt.Errorf("back up store before migration: %w", err)
+	}
+	return backup, nil
 }
 
 func isBusy(err error) bool {
@@ -218,6 +286,14 @@ CREATE TABLE IF NOT EXISTS signal_delivery (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS signal_dedupe ON signal_delivery(agent, dedupe_key)
     WHERE dedupe_key IS NOT NULL AND state != 'acknowledged';
+
+CREATE TABLE IF NOT EXISTS record_dedupe (
+    agent      TEXT NOT NULL,
+    lane       TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    record_id  TEXT NOT NULL REFERENCES records(id),
+    PRIMARY KEY (agent, lane, dedupe_key)
+);
 `
 
 func (s *Store) migrate() error {
@@ -714,6 +790,83 @@ func InsertRecord(tx Querier, nr NewRecord) (*Record, error) {
 		rec.Meta = Meta{}
 	}
 	return rec, nil
+}
+
+// ValidateDedupeKey enforces the write dedupe key contract: an opaque,
+// non-empty, single-line UTF-8 token of at most 256 bytes.
+func ValidateDedupeKey(key string) error {
+	switch {
+	case strings.TrimSpace(key) == "":
+		return fmt.Errorf("%w: dedupe key may not be empty", ErrInvalid)
+	case !utf8.ValidString(key):
+		return fmt.Errorf("%w: dedupe key must be valid UTF-8", ErrInvalid)
+	case len(key) > 256:
+		return fmt.Errorf("%w: dedupe key exceeds 256 bytes", ErrInvalid)
+	case strings.IndexFunc(key, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0:
+		return fmt.Errorf("%w: dedupe key may not contain whitespace or control characters", ErrInvalid)
+	}
+	return nil
+}
+
+// InsertDeduplicated inserts nr unless an earlier write by the same agent in
+// the same lane already claimed key. A repeat returns that record's current
+// active successor with deduplicated=true and writes nothing, so a caller
+// whose process died between the write and its acknowledgement can replay
+// the call safely. A key whose record was retired (disabled) is a conflict:
+// the caller must choose a new key rather than silently resurrect it. Input
+// is validated before the key is consulted so a malformed retry never looks
+// successful. Must run inside Tx.
+func InsertDeduplicated(tx Querier, nr NewRecord, key string) (rec *Record, deduplicated bool, err error) {
+	if err := ValidateDedupeKey(key); err != nil {
+		return nil, false, err
+	}
+	if nr.Supersedes != "" {
+		return nil, false, fmt.Errorf("%w: a dedupe key cannot accompany supersession", ErrInvalid)
+	}
+	if err := ValidateBody(nr.Body); err != nil {
+		return nil, false, err
+	}
+	if err := ValidateMeta(nr.Meta); err != nil {
+		return nil, false, err
+	}
+	var existing string
+	err = tx.QueryRow(`SELECT record_id FROM record_dedupe WHERE agent = ? AND lane = ? AND dedupe_key = ?`, nr.Agent, nr.Lane, key).Scan(&existing)
+	switch {
+	case err == nil:
+		latest, err := LatestSuccessor(tx, existing)
+		if err != nil {
+			return nil, false, err
+		}
+		current, err := GetRecord(tx, latest)
+		if err != nil {
+			return nil, false, err
+		}
+		if current.Status != "active" {
+			return nil, false, fmt.Errorf("%w: dedupe key %q belongs to %s, which is %s; choose a new key", ErrConflict, key, current.ID, current.Status)
+		}
+		return current, true, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return nil, false, err
+	}
+	rec, err = InsertRecord(tx, nr)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := tx.Exec(`INSERT INTO record_dedupe(agent, lane, dedupe_key, record_id) VALUES (?, ?, ?, ?)`, nr.Agent, nr.Lane, key, rec.ID); err != nil {
+		return nil, false, err
+	}
+	return rec, false, nil
+}
+
+// DedupeKey returns the write dedupe key recorded for id, or "" when the
+// record was written without one.
+func DedupeKey(q Querier, id string) (string, error) {
+	var key string
+	err := q.QueryRow(`SELECT dedupe_key FROM record_dedupe WHERE record_id = ?`, id).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return key, err
 }
 
 // ReplaceRecord inserts nr as the successor of the active record oldID, which

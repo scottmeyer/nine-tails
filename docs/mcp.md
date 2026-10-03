@@ -98,6 +98,18 @@ are preserved, including custom guidance or recall kinds. Explicit `kind`
 requests a type change subject to the normal same-agent and same-lane checks.
 When `body` is supplied, omitted `kind` retains the usual `note` default.
 
+A write that a caller may repeat after a crash, for example a worker that
+records an outcome and then acknowledges it in its own ledger, passes
+`dedupe_key`: an opaque token unique per agent and lane. The first call writes
+the record; a repeat with the same key returns that record, or its current
+successor, with `"deduplicated": true` and writes nothing. A key whose record
+was retired is a conflict. `dedupe_key` cannot accompany `supersedes`,
+`sources` or `forget`.
+
+`nt_inspect` accepts `meta` for ordinary inspection: an object of key=value
+pairs that every returned record must carry exactly, unlike the substring
+`query`. It is invalid with `page`, `review` or a `context` recall check.
+
 Two other `nt_learn` actions remove the need for a separate maintenance loop:
 
 - `sources: ["@17", "@23"], body: "complete replacement", reason: "why these belong together"`

@@ -315,10 +315,27 @@ CREATE TABLE context_marks (                      -- §18: historical marks, rea
     created_at TEXT NOT NULL,
     PRIMARY KEY (context_id, record_id)
 );
+CREATE TABLE record_dedupe (                      -- §6: keyed writes, one row per claimed key
+    agent      TEXT NOT NULL,
+    lane       TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    record_id  TEXT NOT NULL REFERENCES records(id),
+    PRIMARY KEY (agent, lane, dedupe_key)
+);
 -- contexts also carries closed_at TEXT (null until closed)
-PRAGMA user_version = 5;   -- v5: consolidation lineage and reasoned retirement
--- v4: historical context_marks, contexts.closed_at; v3: prefix_ULID ids; v2: estimated_tokens
+PRAGMA user_version = 6;   -- v6: record_dedupe
+-- v5: consolidation lineage and reasoned retirement; v4: historical context_marks,
+-- contexts.closed_at; v3: prefix_ULID ids; v2: estimated_tokens
 ```
+
+**Schema versions are explicit.** Every command except `migrate` opens a
+store only when its `user_version` equals the binary's; an older store exits 4
+naming `nine-tails migrate`, a newer one exits 4 as before, and neither case
+writes. `migrate` first copies the database to `nine-tails.db.v<old>.bak`
+beside itself (timestamped when that name exists), then applies the
+migrations in one transaction. The copy is what the previous binary can still
+open. A missing database is created at the current version by any command;
+there is nothing to protect yet.
 
 `records.name`: required for lane=definition, lane=state, and kind=brief-item;
 null for every other guidance/recall/signal record. Signals put `subject` in
@@ -363,6 +380,7 @@ cmd/nine-tails/cmd_load.go      load
 cmd/nine-tails/cmd_inspect.go   inspect
 cmd/nine-tails/cmd_put.go       put
 cmd/nine-tails/cmd_disable.go   disable
+cmd/nine-tails/cmd_migrate.go   migrate
 cmd/nine-tails/cmd_state*.go    state get|put|link
 cmd/nine-tails/cmd_context.go   context list|pin|unpin|gc
 cmd/nine-tails/cmd_tool.go      tool add, agent add
@@ -392,7 +410,7 @@ Concrete assignments: `--expect` naming a missing/superseded ID → 7; unknown
 expired → 7; tool cannot start or times out → 5, otherwise the tool's exit code
 verbatim; compiler cannot start / nonzero / timeout → 5; compiler output
 unparsable or failing validation → 2; malformed `--at`/`--meta`/
-unknown flag or command → 2; a stored `user_version` higher than ours → 4.
+unknown flag or command → 2; a stored `user_version` higher than ours → 4, and one lower than ours → 4 naming `migrate` (only `migrate` upgrades a store).
 
 An agent **exists** iff any record (any status) carries its name. `load`,
 `inspect`, `export`, `compile-input`, `compile`, `state get` on a nonexistent
@@ -403,8 +421,8 @@ implicitly.
 
 ```
 nine-tails load [<agent> | --agent NAME] [--task T] [--query Q] [--context ctx] [--meta k=v]... [--format md|json|yaml]
-nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--clear-meta] [--context ctx] [--supersedes ID] (TEXT | --stdin)
-nine-tails note|avoid|prefer|remember [<agent>] [--meta k=v]... [--clear-meta] [--context ctx] [--supersedes ID] (TEXT | --stdin)
+nine-tails append [<agent>] --lane guidance|recall [--kind K] [--meta k=v]... [--clear-meta] [--context ctx] [--supersedes ID | --dedupe-key K] (TEXT | --stdin)
+nine-tails note|avoid|prefer|remember [<agent>] [--meta k=v]... [--clear-meta] [--context ctx] [--supersedes ID | --dedupe-key K] (TEXT | --stdin)
 nine-tails base <agent> [--expect ID|none] [--meta]... (TEXT | --stdin)
 nine-tails put <agent> --lane definition|state --kind K --name N [--expect ID|none] [--meta]... [--context ctx] (TEXT | --stdin)
 nine-tails consolidate --context ctx --source ID --source ID [--source ID]... --reason TEXT [--kind K] (TEXT | --stdin) [--format id|json|yaml]
@@ -413,7 +431,7 @@ nine-tails close <ctx-id> [--format id|json|yaml]
 nine-tails state get <agent>/<name> [--format yaml|json|id]
 nine-tails state put [<agent>/]<name> --expect ID|none [--context ctx] [--meta]... (TEXT | --stdin)
 nine-tails state link [<agent>/]<alias> <owner>/<state-name> --expect ID|none [--context ctx] [--meta]...
-nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N] [--query Q] [--all]
+nine-tails inspect <agent | id> [--include a,b] [--lane L] [--kind K] [--name N] [--query Q] [--meta k=v]... [--all]
                                 [--coverage C] [--lint condition-loss] [--format json|yaml]
 nine-tails tool add <agent> <name> --script PATH (--description D | --stdin) [--meta]... [--context ctx]
 nine-tails agent add <agent> <name> --description D [--meta]...
@@ -430,6 +448,7 @@ nine-tails export <agent> [--include base,brief,journal,state,tools,agents] [--b
 nine-tails import (FILE.yaml | FILE.tar | --stdin)
 nine-tails agents [--format text|json]
 nine-tails config
+nine-tails migrate [--format text|json|yaml]
 nine-tails hooks install (--claude|--codex)
 nine-tails hooks uninstall (--claude|--codex)
 nine-tails hooks run <agent> [--meta k=v]... (--claude|--codex) [-- HARNESS_ARGS...]
@@ -439,7 +458,10 @@ nine-tails hooks run <agent> [--meta k=v]... (--claude|--codex) [-- HARNESS_ARGS
 one stdout line (`rec_41`, `state_18`, `sig_9`, `tool_7`). With `--format
 json` it prints the new record's envelope, plus command-specific extras:
 `signal` adds `"deduplicated": true|false` (a dedupe hit also writes
-`nine-tails: deduplicated against sig_44` to stderr); `brief put` prints
+`nine-tails: deduplicated against sig_44` to stderr); a keyed `append`,
+`note`, `avoid`, `prefer` or `remember` (`--dedupe-key K`) adds `dedupe_key`
+and `"deduplicated": true|false` the same way, printing the existing record's
+current id on a hit and exiting 7 when that record was retired; `brief put` prints
 `{generation, items: [ids], warnings: [...]}`; `import` prints one new ID per
 line (JSON: `{ids: {old: new}}`); `disable`, `signal ack`, `pin`, `unpin`
 print the affected ID; `context gc` prints one deleted ID per line (JSON:

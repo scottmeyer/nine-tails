@@ -4,6 +4,11 @@ SHELL        := /bin/bash
 
 BIN   := nine-tails
 GO    ?= go
+# Dev builds carry the same version and commit identity as releases, so a
+# rebuilt binary is never mistaken for a published one.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+COMMIT  ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null)
+LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 .PHONY: help
 help: ## list targets
@@ -11,11 +16,11 @@ help: ## list targets
 
 .PHONY: build
 build: ## build ./bin/nine-tails
-	$(GO) build -o bin/$(BIN) ./cmd/$(BIN)
+	$(GO) build -ldflags "$(LDFLAGS)" -o bin/$(BIN) ./cmd/$(BIN)
 
 .PHONY: install
 install: ## go install into $(go env GOPATH)/bin
-	$(GO) install ./cmd/$(BIN)
+	$(GO) install -ldflags "$(LDFLAGS)" ./cmd/$(BIN)
 
 .PHONY: test
 test: ## run all tests

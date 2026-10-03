@@ -130,7 +130,7 @@ INSERT INTO brief_generations(id,agent,created_at,status) VALUES ('gen_1','build
 	if err := old.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(home)
+	s, _, err := Migrate(home)
 	if err != nil {
 		t.Fatal(err)
 	}

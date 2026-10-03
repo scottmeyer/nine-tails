@@ -174,6 +174,7 @@ type signalRecordView struct {
 func newInspectCmd(a *app) *cobra.Command {
 	var include, lane, kind, name, query, coverage, lint, format string
 	var pageContext, after, reviewAfter string
+	var metaFilters []string
 	var all, page, review bool
 	c := &cobra.Command{
 		Use:   "inspect [agent | record-id | ctx-id | gen-id]",
@@ -258,6 +259,13 @@ it includes the exact memory and receipt without adding evaluation data to recal
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			metaFilter, err := parseMetaFilters(metaFilters)
+			if err != nil {
+				return err
+			}
+			if len(metaFilter) > 0 && (review || page || cmd.Flags().Changed("context")) {
+				return cli.Invalid("--meta filters ordinary inspection only; it is invalid with --page, --review or --context")
+			}
 			if review {
 				return a.inspectReview(args[0], reviewAfter, format)
 			}
@@ -305,7 +313,7 @@ it includes the exact memory and receipt without adding evaluation data to recal
 			// repair view. An explicitly empty filter is still an intentional
 			// request for records (and simply leaves that dimension unfiltered).
 			flat := cmd.Flags().Changed("lane") || cmd.Flags().Changed("kind") ||
-				cmd.Flags().Changed("name") || cmd.Flags().Changed("query")
+				cmd.Flags().Changed("name") || cmd.Flags().Changed("query") || cmd.Flags().Changed("meta")
 			switch {
 			case coverage != "":
 				rows, err := compile.CoverageRows(a.st.DB, agent, coverage)
@@ -337,6 +345,9 @@ it includes the exact memory and receipt without adding evaluation data to recal
 				if query != "" {
 					recs = filterQuery(recs, query)
 				}
+				if len(metaFilter) > 0 {
+					recs = filterMeta(recs, metaFilter)
+				}
 				if recs == nil {
 					recs = []*store.Record{}
 				}
@@ -362,6 +373,7 @@ it includes the exact memory and receipt without adding evaluation data to recal
 	c.Flags().StringVar(&kind, "kind", "", "filter: kind")
 	c.Flags().StringVar(&name, "name", "", "filter: name")
 	c.Flags().StringVar(&query, "query", "", "case-insensitive substring over body, name and metadata values")
+	c.Flags().StringArrayVar(&metaFilters, "meta", nil, "filter: exact metadata key=value (repeatable; a record must carry every pair)")
 	c.Flags().StringVar(&coverage, "coverage", "", "list entries with this coverage: novel|covered-unrendered|covered-rendered|refinement|unknown")
 	c.Flags().StringVar(&lint, "lint", "", "run a lint: condition-loss")
 	c.Flags().BoolVar(&all, "all", false, "include superseded and disabled records")
@@ -372,6 +384,41 @@ it includes the exact memory and receipt without adding evaluation data to recal
 	c.Flags().StringVar(&reviewAfter, "review-after", "", "with --review, continue from the generated opaque cursor")
 	c.Flags().StringVar(&format, "format", "json", "json|yaml")
 	return c
+}
+
+// parseMetaFilters reads repeated --meta key=value filters. Unlike record
+// metadata, an empty value is accepted: it then matches only a record that
+// carries that exact empty value, which is to say nothing, never everything.
+func parseMetaFilters(pairs []string) ([][2]string, error) {
+	var out [][2]string
+	for _, p := range pairs {
+		key, value, ok := strings.Cut(p, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			return nil, cli.Invalid("--meta filter must be key=value, got %q", p)
+		}
+		out = append(out, [2]string{key, strings.TrimSpace(value)})
+	}
+	return out, nil
+}
+
+// filterMeta keeps the records that carry every requested key=value pair
+// exactly; --query remains the substring search.
+func filterMeta(recs []*store.Record, filters [][2]string) []*store.Record {
+	var out []*store.Record
+	for _, r := range recs {
+		keep := true
+		for _, f := range filters {
+			if !r.Meta.Contains(f[0], f[1]) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func filterQuery(recs []*store.Record, q string) []*store.Record {

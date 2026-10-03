@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -18,12 +19,14 @@ type appendOpts struct {
 	format     string
 	supersedes string
 	clearMeta  bool
+	dedupeKey  string
 }
 
 func (o *appendOpts) bind(c *cobra.Command) {
 	c.Flags().StringArrayVar(&o.meta, "meta", nil, "applicability metadata key=value (repeatable); replaces complete scope on correction, omission preserves it")
 	c.Flags().BoolVar(&o.clearMeta, "clear-meta", false, "explicitly remove all metadata (mutually exclusive with --meta)")
 	c.Flags().StringVar(&o.supersedes, "supersedes", "", "replace this active record of the same agent and lane; omitted --meta preserves scope, and without TEXT its body is kept")
+	c.Flags().StringVar(&o.dedupeKey, "dedupe-key", "", "opaque key unique per agent and lane; a repeat prints the earlier record's id and writes nothing (mutually exclusive with --supersedes)")
 	c.Flags().StringVar(&o.context, "context", "", "originating context receipt id (ctx_..., not a record id); supplies the agent, and --stdin permits one matching <agent>")
 	c.Flags().BoolVar(&o.stdin, "stdin", false, "read the body from stdin instead of the argument")
 	c.Flags().StringVar(&o.format, "format", "id", "id (one line) | json | yaml")
@@ -92,6 +95,14 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 	if o.clearMeta && len(o.meta) > 0 {
 		return cli.Invalid("--clear-meta and --meta are mutually exclusive")
 	}
+	if o.dedupeKey != "" && o.supersedes != "" {
+		return cli.Invalid("--dedupe-key and --supersedes are mutually exclusive: a correction names its predecessor, a retried write names its key")
+	}
+	if o.dedupeKey != "" {
+		if err := store.ValidateDedupeKey(o.dedupeKey); err != nil {
+			return err
+		}
+	}
 	if err := a.open(); err != nil {
 		return err
 	}
@@ -117,6 +128,7 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 		return err
 	}
 	var rec *store.Record
+	var deduplicated bool
 	err = a.st.Tx(func(tx *sql.Tx) error {
 		if o.context != "" {
 			ctx, err := store.GetContext(tx, o.context)
@@ -129,6 +141,10 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 		}
 		var err error
 		nr := store.NewRecord{Agent: agent, Lane: lane, Kind: kind, Name: name, Body: body, OriginContext: o.context, Meta: meta}
+		if o.dedupeKey != "" {
+			rec, deduplicated, err = store.InsertDeduplicated(tx, nr, o.dedupeKey)
+			return err
+		}
 		if o.supersedes != "" {
 			if !o.clearMeta && len(o.meta) == 0 {
 				old, err := store.GetRecord(tx, o.supersedes)
@@ -146,7 +162,34 @@ func (a *app) doAppend(o *appendOpts, lane, kind, name string, args []string) er
 	if err != nil {
 		return err
 	}
-	return a.printRecord(o.format, rec)
+	if o.dedupeKey == "" {
+		return a.printRecord(o.format, rec)
+	}
+	if deduplicated {
+		fmt.Fprintf(a.stderr, "nine-tails: deduplicated against %s\n", rec.ID)
+	}
+	return a.printDedupedRecord(o.format, rec, o.dedupeKey, deduplicated)
+}
+
+// printDedupedRecord prints a keyed write: the id alone, or the record
+// envelope extended with the key and whether an earlier write answered.
+func (a *app) printDedupedRecord(format string, rec *store.Record, key string, deduplicated bool) error {
+	switch format {
+	case "id", "":
+		_, err := fmt.Fprintln(a.stdout, rec.ID)
+		return err
+	}
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	envelope := map[string]any{}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	envelope["dedupe_key"] = key
+	envelope["deduplicated"] = deduplicated
+	return cli.Write(a.stdout, format, envelope)
 }
 
 func validateRecordFormat(format string) error {
@@ -286,7 +329,16 @@ Use --supersedes rec_... to replace an active record of the same agent and
 lane. With no TEXT or --stdin, it keeps the old body. Omitted --meta preserves
 the prior scope; explicit --meta replaces the complete set. Use --clear-meta
 to remove all scope, never together with --meta. New records remain unscoped
-unless --meta is supplied. This fixes scope without editing history.`
+unless --meta is supplied. This fixes scope without editing history.
+
+Use --dedupe-key K when the write may be retried after a crash, for example
+by a worker that saves an outcome and then acknowledges it elsewhere. The
+first write claims K for this agent and lane. A repeat with the same key
+prints the existing record's id (its current successor if it was corrected),
+writes nothing, and notes "deduplicated" on stderr and in --format json. A
+key whose record was retired with disable is a conflict: choose a new key
+rather than resurrecting it. Keys are opaque, single-line and at most 256
+bytes; the same key in another lane is unrelated.`
 	return long, example
 }
 

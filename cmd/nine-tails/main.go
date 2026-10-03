@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,43 @@ import (
 	"github.com/scottmeyer/nine-tails/internal/store"
 )
 
-var version = "0.1.0"
+// version and commit are set by the release linker flags (.goreleaser.yml and
+// the Makefile). A plain `go build` keeps the default version and reads the
+// commit from the embedded VCS build information instead.
+var (
+	version = "0.2.0"
+	commit  = ""
+)
+
+// versionString is what --version prints: the semantic version, then the
+// commit it was built from so two binaries carrying the same version can be
+// told apart.
+func versionString() string {
+	c := commit
+	if c == "" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			modified := false
+			for _, s := range info.Settings {
+				switch s.Key {
+				case "vcs.revision":
+					c = s.Value
+				case "vcs.modified":
+					modified = s.Value == "true"
+				}
+			}
+			if len(c) > 12 {
+				c = c[:12]
+			}
+			if c != "" && modified {
+				c += "-dirty"
+			}
+		}
+	}
+	if c == "" {
+		return version
+	}
+	return version + " (" + c + ")"
+}
 
 // app carries per-invocation state shared by commands.
 type app struct {
@@ -34,7 +71,15 @@ type app struct {
 
 // open lazily opens the store and config. Commands call it at the start of
 // their RunE so that --help and argument errors never touch the database.
+// An existing store with an older schema is refused here; only `migrate`
+// upgrades one, through openWith.
 func (a *app) open() error {
+	return a.openWith(func(home string) (*store.Store, error) { return store.Open(home) })
+}
+
+// openWith resolves the home directory and configuration, then opens the
+// store through opener. The store is opened at most once per invocation.
+func (a *app) openWith(opener func(home string) (*store.Store, error)) error {
 	if a.st != nil {
 		return nil
 	}
@@ -58,7 +103,7 @@ func (a *app) open() error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(home)
+	st, err := opener(home)
 	if err != nil {
 		return cli.Errorf(cli.ExitStore, "open store at %s: %v", home, err)
 	}
@@ -105,7 +150,7 @@ lessons and disable with a reason to retire obsolete knowledge.
 Remember stores historical experience as data; state carries changing facts.
 The next load receives current applicable knowledge without a separate
 learning step. See each command's --help for its arguments.`,
-		Version:           version,
+		Version:           versionString(),
 		SilenceUsage:      true,
 		SilenceErrors:     true,
 		PersistentPreRunE: a.resolveCommandReferences,
@@ -137,6 +182,7 @@ learning step. See each command's --help for its arguments.`,
 		newCloseCmd(a),
 		newContextCmd(a),
 		newConfigCmd(a),
+		newMigrateCmd(a),
 		newToolCmd(a),
 		newAgentCmd(a),
 		newTickCmd(a),

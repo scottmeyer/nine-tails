@@ -90,6 +90,24 @@ make build      # writes ./bin/nine-tails
 make install    # writes $(go env GOPATH)/bin/nine-tails
 ```
 
+`nine-tails --version` prints the release and the commit it was built from,
+so a rebuilt checkout is never mistaken for a published binary.
+
+### Upgrading an existing store
+
+A newer binary never upgrades a store as a side effect. If the store under
+`NINE_TAILS_HOME` was written by an older release, every ordinary command
+exits 4 and names the one that does:
+
+```sh
+nine-tails migrate
+# migrated /Users/you/.nine-tails from schema 5 to 6; backup /Users/you/.nine-tails/nine-tails.db.v5.bak
+```
+
+The backup is the database as the previous release left it; move it back
+into place to roll back. Stop other processes that share the store before
+migrating it. A store that is already current is left untouched.
+
 ## Quick start
 
 When no capsule has already been injected and no agent was explicitly named,
@@ -241,6 +259,8 @@ records the concrete changes and remaining limits.
 | A reminder or external event | `signal` | Appears when due and can be leased by a scheduler |
 | A reusable executable capability | `tool add` | Adds a validated named tool callable through a context |
 | Retire obsolete material | `disable <ref> --context <receipt> --reason "..."` | Stops surfacing it, retaining its history and the reason |
+| A write that may be retried | Add `--dedupe-key <key>` to `remember`, `note`, `prefer` or `avoid` | A repeat with the same key returns the earlier record instead of a duplicate |
+| Find records by exact scope | `inspect <agent> --meta repo-id=<id> --meta work-id=<id>` | Only records carrying every pair, unlike the substring `--query` |
 
 Examples:
 

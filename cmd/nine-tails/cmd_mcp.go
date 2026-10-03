@@ -68,6 +68,7 @@ func mcpCatalog() []mcpTool {
 		"body":       {Type: "string", MinLength: 1, Description: "Concise reusable lesson, never raw transcripts, secrets or task-only instructions. Required for new records; omit with supersedes to keep the prior body."},
 		"kind":       {Type: "string", Enum: []string{"note", "prefer", "avoid", "remember"}, Description: "Ordinary writes default to note with body; without body, omission preserves predecessor lane/kind. Consolidation infers the agreeing source kind and lane; omit kind for recall sources. remember is only the ordinary recall-write shorthand and cannot select a consolidation lane."},
 		"supersedes": {Type: "string", MinLength: 1, Description: "Exact prior record id or local reference when replacing its lesson; required if body is omitted."},
+		"dedupe_key": {Type: "string", MinLength: 1, Description: "Opaque key unique per agent and lane for a write that may be retried; a repeat returns the earlier record (deduplicated: true) and writes nothing. Mutually exclusive with supersedes, sources and forget."},
 		"meta":       meta,
 		"clear_meta": {Type: "boolean", Description: "Explicitly remove all scope; true is mutually exclusive with meta."},
 		"sources":    sources,
@@ -85,6 +86,7 @@ func mcpCatalog() []mcpTool {
 		"query":        str("Page substring filter, ordinary inspection filter, or current lexical query for an exact recall check. An omitted recall-check query uses the receipt task; explicit empty checks no query terms."),
 		"lane":         str("Optional guidance/recall filter for ordinary inspection; page mode accepts only recall; invalid for an exact recall check."),
 		"include":      str("Optional comma-separated sections for ordinary inspection, e.g. base,brief,journal,tools; invalid for page mode and exact recall checks."),
+		"meta":         obj("Exact metadata filter for ordinary inspection: every key=value pair must be present on a record. Invalid for page, review and exact recall checks."),
 	})
 	inspect.InputSchema.AnyOf = []mcpRequirement{{Required: []string{"target"}}, {Required: []string{"page", "context"}}}
 	return []mcpTool{
@@ -363,7 +365,7 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 				return nil, fmt.Errorf("target is required for review")
 			}
 			var incompatible []string
-			for _, key := range []string{"page", "context", "after", "query", "lane", "include"} {
+			for _, key := range []string{"page", "context", "after", "query", "lane", "include", "meta"} {
 				if _, supplied := args[key]; supplied {
 					incompatible = append(incompatible, key)
 				}
@@ -376,8 +378,10 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 		} else if _, supplied := args["review_after"]; supplied {
 			return nil, fmt.Errorf("review_after requires review mode")
 		} else if args["page"] == true {
-			if _, supplied := args["include"]; supplied {
-				return nil, fmt.Errorf("page and include are mutually exclusive")
+			for _, key := range []string{"include", "meta"} {
+				if _, supplied := args[key]; supplied {
+					return nil, fmt.Errorf("page and %s are mutually exclusive", key)
+				}
 			}
 			if lane, supplied := args["lane"]; supplied && lane != "recall" {
 				return nil, fmt.Errorf("page mode only supports the recall lane")
@@ -393,7 +397,7 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 				}
 			}
 			if recallCheck {
-				for _, key := range []string{"lane", "include"} {
+				for _, key := range []string{"lane", "include", "meta"} {
 					if _, supplied := args[key]; supplied {
 						return nil, fmt.Errorf("%s is invalid for an exact recall check", key)
 					}
@@ -418,7 +422,7 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 			if consolidating && args["kind"] == "remember" {
 				return nil, fmt.Errorf("omit kind when consolidating recall sources; remember is only the ordinary recall-write shorthand")
 			}
-			incompatible := []string{"supersedes", "meta", "clear_meta"}
+			incompatible := []string{"supersedes", "meta", "clear_meta", "dedupe_key"}
 			action := "sources"
 			if forgetting {
 				action = "forget"
@@ -438,6 +442,14 @@ func validateMCPArguments(name string, raw json.RawMessage) (map[string]any, err
 			if args["clear_meta"] == true {
 				if _, supplied := args["meta"]; supplied {
 					return nil, fmt.Errorf("clear_meta and meta are mutually exclusive")
+				}
+			}
+			if _, keyed := args["dedupe_key"]; keyed {
+				if _, supplied := args["supersedes"]; supplied {
+					return nil, fmt.Errorf("dedupe_key and supersedes are mutually exclusive")
+				}
+				if key, _ := args["dedupe_key"].(string); strings.TrimSpace(key) == "" {
+					return nil, fmt.Errorf("dedupe_key must be a non-empty string")
 				}
 			}
 		}
@@ -590,6 +602,9 @@ func (a *app) callMCPTool(name string, v map[string]any) (string, bool) {
 		}
 		if get("supersedes") != "" {
 			argv = append(argv, "--supersedes", get("supersedes"))
+		}
+		if get("dedupe_key") != "" {
+			argv = append(argv, "--dedupe-key", get("dedupe_key"))
 		}
 		if v["clear_meta"] == true {
 			argv = append(argv, "--clear-meta")
