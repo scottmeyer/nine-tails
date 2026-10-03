@@ -64,6 +64,11 @@ records:
       - Keep bases project-neutral. Put project-specific style in scoped guidance
         and shared-state references in scoped state links. Check applicability before
         carrying a previous project's decisions into a new project.
+      - A repository's own memory is not nine-tails. When the instruction file
+        names a `repo-id` with an astral index, refresh project facts through the
+        shared `project-context` tool rather than from recall, cite its `revision`
+        and document path in any lesson that depends on them, and never put
+        `revision` in `--meta`.
       - Keep reusable behavior in role guidance. Keep changing project decisions
         in one named, scoped state owned by the relevant agent. Subscribe a
         chosen role once with `nine-tails state link <role>/<alias> <owner>/<name>

@@ -903,6 +903,21 @@ Shared guidance enters Instructions, full Markdown, `estimated_tokens`, and
 transport limits, but not `uncompiled_adjustments`: the subscriber cannot
 compile foreign guidance.
 
+### 7.1 Recall selector (optional)
+
+`config.yaml` may name a `selector: {argv: [...], timeout: "5s"}`. When a load
+carries no explicit `--recall` and recall is not disabled by `--query ""`,
+`load` (CLI and the hook adapters) runs that executable with
+`{"agent","task","query","meta","home"}` on stdin and expects
+`{"recall": ["rec_..."]}` on stdout; the returned ids become the explicit
+selection after the ordinary checks (same agent, `recall` lane, active,
+applicable scope). Anything else, a nonzero exit, a timeout, no JSON, or no
+usable id, degrades to lexical retrieval with one stderr diagnostic; the load
+never fails because of the selector and the receipt records only what was
+delivered. Like the compiler this is transport to an external judgment: no
+daemon, no embeddings and no model live inside nine-tails. A selector backed
+by ostk-recall's hybrid search ships as an example there.
+
 ## 8. State (spec §11.4)
 
 `state put` validates: valid YAML (any top-level shape), byte length <=

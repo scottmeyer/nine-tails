@@ -330,7 +330,10 @@ func newHooksDispatchCmd(a *app) *cobra.Command {
 			if err := a.open(); err != nil {
 				return cli.ToolFailed("hook dispatch: %v", err)
 			}
-			cp, err := capsule.Load(a.st, capsule.Request{Agent: decision.Agent, Task: decision.Task, Parent: decision.Parent,
+			// The hook's own budget bounds the selector through its configured
+			// timeout; a slow or absent selector degrades to lexical recall.
+			selected, _ := a.selectRecall(decision.Agent, decision.Task, nil, store.Meta(decision.Metadata))
+			cp, err := capsule.Load(a.st, capsule.Request{Agent: decision.Agent, Task: decision.Task, Parent: decision.Parent, Recall: selected,
 				Meta: store.Meta(decision.Metadata), CommandHome: a.recipeHome(), SignalExcerptChars: a.cfg.SignalExcerptChars, MaxBytes: adapter.CapsuleMaxBytes(), Now: a.now()})
 			if err != nil {
 				var tooLarge *capsule.TooLargeError

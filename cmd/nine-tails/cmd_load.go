@@ -91,6 +91,17 @@ the complete projection; forwarding instructions alone drops part of it.`,
 			if cmd.Flags().Changed("query") {
 				recallQuery = &query
 			}
+			if recall == nil {
+				// No explicit selection: an optional configured selector may
+				// supply one; otherwise lexical retrieval proceeds as before.
+				ids, diag := a.selectRecall(agent, task, recallQuery, m)
+				if ids != nil {
+					recall = ids
+				}
+				if diag != "" {
+					fmt.Fprintf(a.stderr, "nine-tails: %s\n", diag)
+				}
+			}
 			cp, err := capsule.Load(a.st, capsule.Request{Agent: agent, Task: task, Query: recallQuery, Recall: recall, Parent: ctx, Meta: m, CommandHome: a.recipeHome(), SignalExcerptChars: a.cfg.SignalExcerptChars, Now: a.now()})
 			if err != nil {
 				return err

@@ -28,6 +28,14 @@ type Config struct {
 		Argv    []string `yaml:"argv" json:"argv"`
 		Timeout string   `yaml:"timeout" json:"timeout"`
 	} `yaml:"compiler" json:"compiler"`
+	// Selector: an optional external relevance judgment consulted by load when
+	// the caller selected no recall explicitly (DESIGN.md §7.1). Like the
+	// compiler it is a configured executable, never a daemon or a model inside
+	// nine-tails; any failure falls back to lexical retrieval.
+	Selector struct {
+		Argv    []string `yaml:"argv" json:"argv"`
+		Timeout string   `yaml:"timeout" json:"timeout"`
+	} `yaml:"selector" json:"selector"`
 }
 
 // DefaultConfig returns the built-in defaults.
@@ -35,6 +43,8 @@ func DefaultConfig() Config {
 	c := Config{CompileAdviceTokens: 4000, SignalExcerptChars: 300, StateMaxBytes: 8192, ContextRetentionDays: 30}
 	c.Compiler.Argv = []string{}
 	c.Compiler.Timeout = "300s"
+	c.Selector.Argv = []string{}
+	c.Selector.Timeout = "5s"
 	return c
 }
 
@@ -60,6 +70,14 @@ func validateConfig(c Config) error {
 		return fmt.Errorf("compile_advice_tokens must be zero (off) or positive (got %d)", c.CompileAdviceTokens)
 	}
 
+	if selectorTimeout, err := time.ParseDuration(c.Selector.Timeout); err != nil || selectorTimeout <= 0 {
+		return fmt.Errorf("selector.timeout must be a positive Go duration (got %q)", c.Selector.Timeout)
+	}
+	for i, arg := range c.Selector.Argv {
+		if strings.TrimSpace(arg) == "" {
+			return fmt.Errorf("selector.argv[%d] must not be empty", i)
+		}
+	}
 	timeout, err := time.ParseDuration(c.Compiler.Timeout)
 	if err != nil || timeout <= 0 {
 		return fmt.Errorf("compiler.timeout must be a positive Go duration (got %q)", c.Compiler.Timeout)

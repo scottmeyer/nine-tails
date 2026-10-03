@@ -45,6 +45,13 @@ to refresh the already-issued capsule. The task label is stored on its context
 receipt; keep the complete task in the harness conversation rather than
 copying sensitive or raw content into that label.
 
+A repository that keeps its own context in an astral index (such as
+`~/projects/astral`) registers one shared tool so every role can refresh project
+facts from the current checkout: `nine-tails tool add shared project-context
+--script contrib/nine-tails/project-context --stdin <
+contrib/nine-tails/project-context.yaml`, run from that repository. Its
+`AGENTS.md` shows the load line and metadata to pass.
+
 Import gives every record a new ID. Reimporting a definition installs its
 checked-in base as a new immutable version while retaining journal history, so
 it is an explicit update operation—not an idempotent setup command. Inspect and

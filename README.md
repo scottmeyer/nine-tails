@@ -424,6 +424,31 @@ To move an agent to another machine or share it with someone else, use
 `export --bundle` and `import`. No repository-aware synchronization is hidden
 inside the binary.
 
+## Repository memory and retrieval
+
+nine-tails holds what an agent learned; it does not hold what a repository
+knows. A repository that keeps its own context in Git (for example an
+[astral](https://github.com/scottmeyer/astral) index under `.astral/`) names its
+stable `repo-id` in its instruction file and registers one shared tool, such as
+`project-context`, that prints the current checkout's context. Roles refresh
+project facts through that tool, cite the printed `revision` and document path
+in lessons that depend on them, and keep `revision` out of `--meta`; it is
+receipt provenance, never record scope. Pass `--meta work-id=<id>` on loads that
+work a tracked item so `refs --meta work-id=<id>` groups the episodes.
+
+Semantic retrieval stays outside the binary. Export an agent (`export <agent>
+--all --format json`), split the document into one Markdown file per record
+with the `nt-export-md` helper shipped in ostk-recall's
+`examples/05-repo-and-agent-memory/tools/`, and let that index scan the
+directory. A hit that quotes `id: rec_...` becomes an explicit selection on the
+next load: `load <agent> --recall rec_...`. To make that automatic, name a
+`selector` in `config.yaml` (`selector: {argv: [nt-selector], timeout: 5s}`);
+`load` then asks it for a selection whenever none was given and falls back to
+lexical recall on any failure. The index is derived and rebuildable;
+records in this store remain the source. An ambient lens or similar resource
+belongs in the instruction file, not in a capsule, because a capsule is a
+receipt-bound projection of this store alone.
+
 ## Advanced condensation
 
 Durable corrections and consolidation take effect immediately. An optional
